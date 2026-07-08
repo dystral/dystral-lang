@@ -14,7 +14,7 @@ Aether is a compiled programming language focused on systems performance, concis
 > 4. **Operator Overloading (Future Vision):** Inspired by Kotlin, operators like `+`, `-`, `*` will eventually map to class methods like `operator fun plus()`. However, for v0.1, the Transpiler statically evaluates binary expressions via the Type Checker (`resolved_type`) and "inlines" them to native C macros (e.g., `AetherString_concat`).
 
 ## Success Criteria
-- The compiler CLI can read a `.ae` or `.kt` file (`aether run`).
+- The compiler CLI can read a `.ae` file (`aether run`).
 - The lexer tokenizes the input correctly.
 - The parser builds an AST and embeds lexical locations for error tracking.
 - The semantic Type Checker enforces static typing before compilation, halting if it detects mismatching types.
@@ -53,7 +53,7 @@ Aether is a compiled programming language focused on systems performance, concis
 ### Phase 6: Control Flow & Expressions (COMPLETED)
 - Implemented Math, Logic, and Comparison Operators.
 - Implemented `while` loops, `return`, and assignments.
-- Validated via recursive `fibonacci.kt` execution.
+- Validated via recursive `fibonacci.ae` execution.
 
 ### Phase 7: Architecture Refactoring & Documentation (COMPLETED)
 - Split source into `core`, `frontend`, and `backend` modules.
@@ -107,11 +107,11 @@ Aether is a compiled programming language focused on systems performance, concis
 
 ### Phase 16: Módulos & Multi-file Compilation (DONE)
 - **Task 16.1:** Adicionar suporte à palavra-chave `import` no Lexer/Parser.
-- **Task 16.2:** Permitir que o compilador leia, analise e costure múltiplos arquivos `.kt` ou `.ae` em uma única AST Global.
+- **Task 16.2:** Permitir que o compilador leia, analise e costure múltiplos `.ae` em uma única AST Global.
 - **Task 16.3:** Resolver colisões de namespace entre arquivos.
 
 ### Phase 17: Core Library, Arrays & For-Loops (LATER)
-- **Task 17.1:** Remover o bypass nativo de funções como `print()` no TypeChecker, introduzindo um arquivo base oculto (`core.kt`) que define a Stdlib do Aether.
+- **Task 17.1:** Remover o bypass nativo de funções como `print()` no TypeChecker, introduzindo um arquivo base oculto (`core.ae`) que define a Stdlib do Aether.
 - **Task 17.2:** Suporte nativo a Coleções/Arrays (`[String]`).
 - **Task 17.3:** Adicionar suporte nativo à iteração com loop `for` (`for (item in list)`).
 
@@ -130,6 +130,20 @@ Aether is a compiled programming language focused on systems performance, concis
 - **Task 20.1:** Adicionar suporte ao *flag* `--release` na CLI do compilador (`aether build --release arquivo.ae`).
 - **Task 20.2:** Construir o `llvm_emitter.zig`, ignorando completamente o Backend C, traduzindo a AST Resolvida diretamente para **LLVM IR** via bindings nativos do Zig.
 - **Task 20.3:** Ligar o otimizador do LLVM (O3) para gerar binários monolíticos de extrema performance.
+
+### Phase 21: Native Test System & CLI Refinements (COMPLETED)
+- **Task 21.1:** Adicionar blocos nativos de `test "nome" { ... }` na AST e no Parser.
+- **Task 21.2:** Implementar comando `aether test` na CLI para procurar arquivos `_test.ae` automaticamente e rodar as suítes isoladamente.
+- **Task 21.3:** Tornar as extensões de arquivos opcionais nos imports, focando estritamente em arquivos `.ae` no ecossistema e abandonando a sintaxe `.kt` na invocação.
+- **VERIFY:** Os testes dos samples atuais rodam e passam com o sistema nativo da linguagem integrado, permitindo verificações diretas.
+
+### Phase 22: Top-Level Statements & Hybrid Main (NEXT)
+- **Task 22.1:** Atualizar a AST e o Parser para permitir instruções livres (ex: `print`, chamadas de função, atribuições) na raiz do arquivo.
+- **Task 22.2:** O TypeChecker deve englobar todas as instruções Top-Level no momento da compilação, permitindo que elas executem em ordem.
+- **Task 22.3:** O CTranspiler precisa detectar Top-Level Statements e envelopá-los dentro da função gerada nativamente `aether_main()` ou `main()`, dispensando a escrita obrigatória do `fun main()`.
+- **Task 22.4:** Permitir a Abordagem Híbrida: se o usuário fornecer um `fun main()`, as top-level statements serão ignoradas ou o compilador irá jogar erro de conflito, a definir na implementação.
+- **Task 22.5:** Garantir que arquivos que são *importados* não executem seus top-level statements aleatoriamente. Apenas o arquivo CLI principal ou os testes devem rodar.
+- **VERIFY:** O `samples/fibonacci.ae` ou `samples/string_ops.ae` funcionam corretamente se apagarmos as chaves do `fun main()`.
 
 ## ✅ Definition of Done (Per Phase)
 - [x] Security/Lint: No memory leaks using `std.testing.allocator` across all modules.
