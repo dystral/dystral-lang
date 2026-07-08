@@ -1,6 +1,6 @@
 const std = @import("std");
 const lexer = @import("frontend/lexer.zig");
-const parser = @import("frontend/parser.zig");
+const parser = @import("frontend/parser/core.zig");
 const c_transpiler = @import("backend/c_transpiler.zig");
 
 /// Main entry point for the Aether CLI.
@@ -78,7 +78,7 @@ pub fn main() !void {
     }
 
     // Semantic Type Checking (Enforcement)
-    var type_checker = @import("core/types.zig").TypeChecker.init(arena.allocator(), source, filename);
+    var type_checker = @import("core/type_checker/core.zig").TypeChecker.init(arena.allocator(), source, filename);
     type_checker.is_test_mode = is_test;
     defer type_checker.deinit();
     type_checker.validate(ast_root) catch {
@@ -152,6 +152,6 @@ pub fn main() !void {
 test "imports" {
     _ = @import("core/ast.zig");
     _ = @import("frontend/lexer.zig");
-    _ = @import("frontend/parser.zig");
+    _ = @import("frontend/parser/core.zig");
     _ = @import("backend/c_transpiler.zig");
 }

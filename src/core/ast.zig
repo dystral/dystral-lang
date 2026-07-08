@@ -1,5 +1,5 @@
 const std = @import("std");
-const types = @import("types.zig");
+const type_system = @import("type_system.zig");
 
 /// Token types supported by the Aether compiler.
 pub const TokenType = enum {
@@ -80,7 +80,7 @@ pub const ClassProp = struct {
 pub const ASTNode = struct {
     line: usize,
     column: usize,
-    resolved_type: ?*const types.AetherType = null,
+    resolved_type: ?*const type_system.AetherType = null,
     data: ASTNodeType,
 };
 

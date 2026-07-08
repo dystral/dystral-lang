@@ -1,6 +1,7 @@
 const std = @import("std");
 const ast = @import("../core/ast.zig");
-const types = @import("../core/types.zig");
+const tc_mod = @import("../core/type_checker/core.zig");
+const type_system = @import("../core/type_system.zig");
 const ASTNode = ast.ASTNode;
 const TokenType = ast.TokenType;
 
@@ -76,6 +77,7 @@ pub const CTranspiler = struct {
     allocator: std.mem.Allocator,
     writer: std.ArrayList(u8),
     classes: std.StringHashMap(void), // Set of known class names
+    emitted_functions: std.StringHashMap(void),
     is_test_mode: bool = false,
     test_names: std.ArrayList([]const u8),
     test_count: usize = 0,
@@ -85,6 +87,7 @@ pub const CTranspiler = struct {
             .allocator = allocator,
             .writer = std.ArrayList(u8).init(allocator),
             .classes = std.StringHashMap(void).init(allocator),
+            .emitted_functions = std.StringHashMap(void).init(allocator),
             .is_test_mode = false,
             .test_names = std.ArrayList([]const u8).init(allocator),
             .test_count = 0,
@@ -94,6 +97,7 @@ pub const CTranspiler = struct {
     pub fn deinit(self: *CTranspiler) void {
         self.writer.deinit();
         self.classes.deinit();
+        self.emitted_functions.deinit();
         self.test_names.deinit();
     }
 
@@ -177,6 +181,7 @@ pub const CTranspiler = struct {
     fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
         const class_decl = node.data.class_decl;
         const actual_name = class_decl.resolved_c_name orelse class_decl.name;
+        if (self.classes.contains(actual_name)) return;
         try self.classes.put(actual_name, {});
 
         // Emit Struct
@@ -222,7 +227,19 @@ pub const CTranspiler = struct {
                 try self.writer.appendSlice("int ");
             }
         } else {
-            try self.writer.appendSlice("void ");
+            if (decl.type_name) |tn| {
+                if (std.mem.eql(u8, tn, "String")) {
+                    try self.writer.appendSlice("AetherString* ");
+                } else if (std.mem.eql(u8, tn, "Int")) {
+                    try self.writer.appendSlice("int ");
+                } else if (std.mem.eql(u8, tn, "Bool")) {
+                    try self.writer.appendSlice("bool ");
+                } else {
+                    try self.writer.writer().print("{s}* ", .{tn});
+                }
+            } else {
+                try self.writer.appendSlice("void ");
+            }
         }
         
         try self.writer.writer().print("{s}_{s}({s}* self", .{class_name, decl.name, class_name});
@@ -295,6 +312,9 @@ pub const CTranspiler = struct {
         const actual_name = decl.resolved_c_name orelse decl.name;
         const func_name = if (is_main) "aether_main" else actual_name;
         
+        if (self.emitted_functions.contains(func_name)) return;
+        try self.emitted_functions.put(func_name, {});
+
         if (is_main) {
             try self.writer.appendSlice("int ");
         } else if (decl.type_name) |tn| {
@@ -611,7 +631,7 @@ pub const CTranspiler = struct {
 };
 
 test "CTranspiler base cases" {
-    const parser_mod = @import("../frontend/parser.zig");
+    const parser_mod = @import("../frontend/parser/core.zig");
     
     const source = 
         \\val nome = "Leo"
@@ -625,7 +645,8 @@ test "CTranspiler base cases" {
     const ast_root = try parser.parse();
     
     // Set mock resolved_type to bypass TypeChecker in this isolated test
-    ast_root.data.program.statements[0].data.var_decl.initializer.?.resolved_type = &types.AetherType{ .String = {} };
+    var mock_t: type_system.AetherType = .String;
+    ast_root.data.program.statements[0].data.var_decl.initializer.?.resolved_type = &mock_t;
     
     var transpiler = CTranspiler.init(std.testing.allocator);
     defer transpiler.deinit();

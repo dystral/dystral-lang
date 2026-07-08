@@ -1,0 +1,227 @@
+const std = @import("std");
+const ast = @import("../../core/ast.zig");
+const ASTNode = ast.ASTNode;
+const TokenType = ast.TokenType;
+const Parser = @import("core.zig").Parser;
+
+pub fn expression(self: *Parser) anyerror!*ASTNode {
+    return try self.assignment();
+}
+
+pub fn assignment(self: *Parser) anyerror!*ASTNode {
+    const expr = try self.elvis();
+
+    if (self.match(.eq)) {
+        const line = self.previous.line;
+        const col = self.previous.column;
+        
+        const value = try self.assignment();
+
+        if (expr.data == .identifier) {
+            const name = expr.data.identifier.name;
+            return try self.createNodeAt(.{ .assignment = .{ .name = name, .value = value } }, line, col);
+        } else if (expr.data == .get_expr) {
+            return try self.createNodeAt(.{ .set_expr = .{ 
+                .object = expr.data.get_expr.object, 
+                .name = expr.data.get_expr.name, 
+                .is_safe = expr.data.get_expr.is_safe,
+                .value = value 
+            } }, line, col);
+        }
+
+        self.errorAtCurrent("Invalid assignment target.");
+    }
+
+    return expr;
+}
+
+pub fn elvis(self: *Parser) anyerror!*ASTNode {
+    var expr = try self.logicOr();
+
+    while (self.match(.elvis)) {
+        const op = self.previous.token_type;
+        const line = self.previous.line;
+        const col = self.previous.column;
+        const right = try self.logicOr();
+        expr = try self.createNodeAt(.{ .binary_expr = .{ .left = expr, .op = op, .right = right } }, line, col);
+    }
+    return expr;
+}
+
+pub fn logicOr(self: *Parser) anyerror!*ASTNode {
+    var expr = try self.logicAnd();
+
+    while (self.match(.or_or)) {
+        const op = self.previous.token_type;
+        const line = self.previous.line;
+        const col = self.previous.column;
+        const right = try self.logicAnd();
+        expr = try self.createNodeAt(.{ .binary_expr = .{ .left = expr, .op = op, .right = right } }, line, col);
+    }
+    return expr;
+}
+
+pub fn logicAnd(self: *Parser) anyerror!*ASTNode {
+    var expr = try self.equality();
+
+    while (self.match(.and_and)) {
+        const op = self.previous.token_type;
+        const line = self.previous.line;
+        const col = self.previous.column;
+        const right = try self.equality();
+        expr = try self.createNodeAt(.{ .binary_expr = .{ .left = expr, .op = op, .right = right } }, line, col);
+    }
+    return expr;
+}
+
+pub fn equality(self: *Parser) anyerror!*ASTNode {
+    var expr = try self.comparison();
+
+    while (self.match(.eq_eq) or self.match(.bang_eq)) {
+        const op = self.previous.token_type;
+        const line = self.previous.line;
+        const col = self.previous.column;
+        const right = try self.comparison();
+        expr = try self.createNodeAt(.{ .binary_expr = .{ .left = expr, .op = op, .right = right } }, line, col);
+    }
+    return expr;
+}
+
+pub fn comparison(self: *Parser) anyerror!*ASTNode {
+    var expr = try self.term();
+
+    while (self.match(.greater) or self.match(.greater_eq) or self.match(.less) or self.match(.less_eq)) {
+        const op = self.previous.token_type;
+        const line = self.previous.line;
+        const col = self.previous.column;
+        const right = try self.term();
+        expr = try self.createNodeAt(.{ .binary_expr = .{ .left = expr, .op = op, .right = right } }, line, col);
+    }
+    return expr;
+}
+
+pub fn term(self: *Parser) anyerror!*ASTNode {
+    var expr = try self.factor();
+
+    while (self.match(.minus) or self.match(.plus)) {
+        const op = self.previous.token_type;
+        const line = self.previous.line;
+        const col = self.previous.column;
+        const right = try self.factor();
+        expr = try self.createNodeAt(.{ .binary_expr = .{ .left = expr, .op = op, .right = right } }, line, col);
+    }
+    return expr;
+}
+
+pub fn factor(self: *Parser) anyerror!*ASTNode {
+    var expr = try self.call();
+
+    while (self.match(.slash) or self.match(.star)) {
+        const op = self.previous.token_type;
+        const line = self.previous.line;
+        const col = self.previous.column;
+        const right = try self.call();
+        expr = try self.createNodeAt(.{ .binary_expr = .{ .left = expr, .op = op, .right = right } }, line, col);
+    }
+    return expr;
+}
+
+pub fn call(self: *Parser) anyerror!*ASTNode {
+    var expr = try self.primary();
+
+    while (true) {
+        if (self.match(.l_paren)) {
+            expr = try self.finishCall(expr);
+        } else if (self.match(.dot) or self.match(.question_dot)) {
+            const is_safe = self.previous.token_type == .question_dot;
+            try self.consume(.identifier, "Expected property name.");
+            const name = self.previous.lexeme;
+            expr = try self.createNode(.{ .get_expr = .{ .object = expr, .name = name, .is_safe = is_safe } });
+        } else if (self.match(.bang_bang)) {
+            expr = try self.createNode(.{ .unary_expr = .{ .operator = .bang_bang, .operand = expr } });
+        } else {
+            break;
+        }
+    }
+
+    return expr;
+}
+
+pub fn finishCall(self: *Parser, callee: *ASTNode) anyerror!*ASTNode {
+    const line = self.previous.line;
+    const col = self.previous.column;
+    var args = std.ArrayList(*ASTNode).init(self.allocator);
+    if (!self.check(.r_paren)) {
+        while (true) {
+            try args.append(try self.expression());
+            if (!self.match(.comma)) break;
+        }
+    }
+    try self.consume(.r_paren, "Expected ')' after arguments.");
+    return try self.createNodeAt(.{ .call_expr = .{ .callee = callee, .arguments = try args.toOwnedSlice() } }, line, col);
+}
+
+pub fn primary(self: *Parser) anyerror!*ASTNode {
+    const line = self.current.line;
+    const col = self.current.column;
+    
+    if (self.match(.kw_null)) {
+        return try self.createNode(.{ .null_literal = {} });
+    }
+
+    if (self.match(.kw_if)) {
+        try self.consume(.l_paren, "Expected '(' after 'if'.");
+        const condition = try self.expression();
+        try self.consume(.r_paren, "Expected ')' after condition.");
+        
+        var then_branch: *ASTNode = undefined;
+        if (self.match(.l_brace)) {
+            var stmts = std.ArrayList(*ASTNode).init(self.allocator);
+            while (!self.check(.r_brace) and !self.check(.eof)) {
+                try stmts.append(try self.declaration());
+            }
+            try self.consume(.r_brace, "Expected '}'.");
+            then_branch = try self.createNode(.{ .block = .{ .statements = try stmts.toOwnedSlice() } });
+        } else {
+            then_branch = try self.expression();
+        }
+        
+        var else_branch: ?*ASTNode = null;
+        if (self.match(.kw_else)) {
+            if (self.match(.l_brace)) {
+                var stmts = std.ArrayList(*ASTNode).init(self.allocator);
+                while (!self.check(.r_brace) and !self.check(.eof)) {
+                    try stmts.append(try self.declaration());
+                }
+                try self.consume(.r_brace, "Expected '}'.");
+                else_branch = try self.createNode(.{ .block = .{ .statements = try stmts.toOwnedSlice() } });
+            } else {
+                else_branch = try self.expression();
+            }
+        }
+        return try self.createNodeAt(.{ .if_expr = .{ .condition = condition, .then_branch = then_branch, .else_branch = else_branch } }, line, col);
+    }
+    
+    if (self.match(.bool_literal)) {
+        return try self.createNodeAt(.{ .bool_literal = std.mem.eql(u8, self.previous.lexeme, "true") }, line, col);
+    }
+    
+    if (self.match(.int_literal)) {
+        const value = try std.fmt.parseInt(i64, self.previous.lexeme, 10);
+        return try self.createNodeAt(.{ .int_literal = value }, line, col);
+    }
+    if (self.match(.string_literal)) {
+        const lexeme = self.previous.lexeme;
+        const value = lexeme[1 .. lexeme.len - 1];
+        return try self.createNodeAt(.{ .string_literal = value }, line, col);
+    }
+    if (self.match(.identifier)) {
+        return try self.createNodeAt(.{ .identifier = .{
+            .name = self.previous.lexeme,
+            .resolved_c_name = null,
+        } }, line, col);
+    }
+
+    self.errorAtCurrent("Expected expression.");
+    return error.ParseError;
+}

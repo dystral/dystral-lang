@@ -1,4 +1,5 @@
-import { add, Person } from "person"
+import { Person } from "person"
+import { add } from "math"
 
 val r = add(10, 5)
 print(r)

@@ -1,12 +1,6 @@
-import { add, Vector } from "../math"
+import { add } from "../math"
 
 test "math.ae: deve somar dois numeros corretamente" {
     val result = add(10, 5)
     assert(result == 15)
-}
-
-test "math.ae: vector deve guardar as variaveis x e y corretamente" {
-    val v = Vector(100, 200)
-    assert(v.x == 100)
-    assert(v.y == 200)
 }
