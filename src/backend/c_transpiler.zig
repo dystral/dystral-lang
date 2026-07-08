@@ -6,9 +6,12 @@ const TokenType = ast.TokenType;
 
 const std_lib_c = 
     \\#include <stdio.h>
+    \\#include <stdlib.h>
     \\#include <gc.h>
     \\#include <string.h>
     \\#include <stdbool.h>
+    \\
+    \\#define assert(condition) if (!(condition)) { printf("[FAIL] Assertion failed: %s\n", #condition); exit(1); }
     \\
     \\typedef struct {
     \\    char* buffer;
@@ -23,7 +26,26 @@ const std_lib_c =
     \\    return s;
     \\}
     \\
-    \\AetherString* AetherString_plus(AetherString* a, AetherString* b) {
+    \\AetherString* AetherString_fromInt(int val) {
+    \\    char buf[32];
+    \\    sprintf(buf, "%d", val);
+    \\    return AetherString_new(buf);
+    \\}
+    \\
+    \\AetherString* AetherString_fromBool(bool val) {
+    \\    return AetherString_new(val ? "true" : "false");
+    \\}
+    \\
+    \\#define toString(x) _Generic((x), \
+    \\    int: AetherString_fromInt((int)(size_t)(x)), \
+    \\    AetherString*: (AetherString*)(size_t)(x), \
+    \\    bool: AetherString_fromBool((bool)(size_t)(x)), \
+    \\    default: AetherString_new("unknown") \
+    \\)
+    \\
+    \\AetherString* _AetherString_plus(AetherString* a, AetherString* b) {
+    \\    if (!a) a = AetherString_new("null");
+    \\    if (!b) b = AetherString_new("null");
     \\    AetherString* s = (AetherString*)GC_MALLOC(sizeof(AetherString));
     \\    s->length = a->length + b->length;
     \\    s->buffer = (char*)GC_MALLOC(s->length + 1);
@@ -31,6 +53,8 @@ const std_lib_c =
     \\    strcat(s->buffer, b->buffer);
     \\    return s;
     \\}
+    \\
+    \\#define AetherString_plus(a, b) _AetherString_plus(toString(a), toString(b))
     \\
     \\void AetherString_print(void* ptr) {
     \\    AetherString* s = (AetherString*)ptr;
@@ -52,18 +76,25 @@ pub const CTranspiler = struct {
     allocator: std.mem.Allocator,
     writer: std.ArrayList(u8),
     classes: std.StringHashMap(void), // Set of known class names
+    is_test_mode: bool = false,
+    test_names: std.ArrayList([]const u8),
+    test_count: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator) CTranspiler {
         return CTranspiler{
             .allocator = allocator,
             .writer = std.ArrayList(u8).init(allocator),
             .classes = std.StringHashMap(void).init(allocator),
+            .is_test_mode = false,
+            .test_names = std.ArrayList([]const u8).init(allocator),
+            .test_count = 0,
         };
     }
 
     pub fn deinit(self: *CTranspiler) void {
         self.writer.deinit();
         self.classes.deinit();
+        self.test_names.deinit();
     }
 
     pub fn transpile(self: *CTranspiler, node: *ASTNode) ![]const u8 {
@@ -95,18 +126,48 @@ pub const CTranspiler = struct {
                     if (stmt.data == .fun_decl) {
                         if (std.mem.eql(u8, stmt.data.fun_decl.name, "main")) has_main = true;
                         try self.emitFunDecl(stmt);
+                    } else if (stmt.data == .test_decl and self.is_test_mode) {
+                        try self.emitTestDecl(stmt);
                     }
                 }
                 
-                // Pass 3: Main body
+                // Pass 3: Top-Level Statements Collection
+                var top_level_stmts = std.ArrayList(*ASTNode).init(self.allocator);
+                defer top_level_stmts.deinit();
                 for (p.statements) |stmt| {
-                    if (stmt.data != .fun_decl and stmt.data != .class_decl and stmt.data != .import_stmt) {
-                        try self.emitStatement(stmt);
+                    if (stmt.data != .fun_decl and stmt.data != .class_decl and stmt.data != .import_stmt and stmt.data != .test_decl) {
+                        try top_level_stmts.append(stmt);
                     }
                 }
 
-                if (is_root and !has_main) {
-                    try self.writer.appendSlice("int main() {\n    return 0;\n}\n");
+                if (is_root) {
+                    if (top_level_stmts.items.len > 0 and has_main) {
+                        std.debug.print("Error: Cannot mix top-level statements with fun main()\n", .{});
+                        return error.HybridMainConflict;
+                    }
+
+                    if (self.is_test_mode) {
+                        try self.writer.appendSlice("int main() {\n");
+                        for (self.test_names.items, 0..) |tname, i| {
+                            try self.writer.writer().print("    aether_test_{d}();\n", .{i});
+                            try self.writer.writer().print("    printf(\"[PASS] %s\\n\", \"{s}\");\n", .{tname});
+                        }
+                        try self.writer.appendSlice("    return 0;\n}\n");
+                    } else if (!has_main) {
+                        try self.writer.appendSlice("int main(int argc, char** argv) {\n");
+                        try self.writer.appendSlice("    (void)argc;\n"); // Suppress unused warnings for now
+                        try self.writer.appendSlice("    (void)argv;\n");
+                        
+                        for (top_level_stmts.items) |stmt| {
+                            try self.emitStatement(stmt);
+                        }
+                        try self.writer.appendSlice("    return 0;\n}\n");
+                    }
+                } else {
+                    if (top_level_stmts.items.len > 0) {
+                        std.debug.print("Error: Imported files cannot contain top-level statements (side-effects).\n", .{});
+                        return error.ImportSideEffectsNotAllowed;
+                    }
                 }
             },
             else => return error.InvalidProgramNode,
@@ -204,14 +265,46 @@ pub const CTranspiler = struct {
         try self.writer.appendSlice("}\n\n");
     }
 
+    fn emitTestDecl(self: *CTranspiler, node: *ASTNode) !void {
+        const decl = node.data.test_decl;
+        
+        try self.test_names.append(decl.name);
+        const test_id = self.test_count;
+        self.test_count += 1;
+        
+        try self.writer.writer().print("void aether_test_{d}() {{\n", .{test_id});
+        switch (decl.body.data) {
+            .block => |b| {
+                for (b.statements) |stmt| {
+                    try self.emitStatement(stmt);
+                }
+            },
+            else => unreachable,
+        }
+        try self.writer.appendSlice("}\n\n");
+    }
+
     fn emitFunDecl(self: *CTranspiler, node: *ASTNode) !void {
         const decl = node.data.fun_decl;
-        const actual_name = decl.resolved_c_name orelse decl.name;
         const is_main = std.mem.eql(u8, decl.name, "main");
+        
+        if (is_main and self.is_test_mode) {
+            return; // Skip user-defined main in test mode
+        }
+        
+        const actual_name = decl.resolved_c_name orelse decl.name;
         const func_name = if (is_main) "aether_main" else actual_name;
         
         if (is_main) {
             try self.writer.appendSlice("int ");
+        } else if (decl.type_name) |tn| {
+            if (std.mem.eql(u8, tn, "String")) {
+                try self.writer.appendSlice("AetherString* ");
+            } else if (self.classes.contains(tn)) {
+                try self.writer.writer().print("{s}* ", .{tn});
+            } else {
+                try self.writer.appendSlice("int ");
+            }
         } else if (decl.is_expr_body) {
             if (decl.body.resolved_type) |rt| {
                 if (rt.* == .String) {
@@ -361,6 +454,8 @@ pub const CTranspiler = struct {
             .identifier => |i| {
                 if (i.resolved_c_name) |cname| {
                     try self.writer.appendSlice(cname);
+                } else if (i.is_class_property) {
+                    try self.writer.writer().print("self->{s}", .{i.name});
                 } else {
                     try self.writer.appendSlice(i.name);
                 }

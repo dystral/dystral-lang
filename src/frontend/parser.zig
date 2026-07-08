@@ -113,6 +113,7 @@ pub const Parser = struct {
         }
 
         if (self.match(.kw_import)) return try self.importDeclaration();
+        if (self.match(.kw_test)) return try self.testDeclaration();
         if (self.match(.kw_while)) return try self.whileStatement();
         if (self.match(.kw_return)) return try self.returnStatement();
         return try self.expression();
@@ -138,6 +139,32 @@ pub const Parser = struct {
             .type_name = parsed_type.name,
             .type_is_nullable = parsed_type.is_nullable,
             .initializer = initializer,
+        } }, line, col);
+    }
+
+    fn testDeclaration(self: *Parser) anyerror!*ASTNode {
+        const line = self.previous.line;
+        const col = self.previous.column;
+
+        try self.consume(.string_literal, "Expected test description string.");
+        
+        // Remove quotes from the lexeme string ("my test" -> my test)
+        var name = self.previous.lexeme;
+        if (name.len >= 2 and name[0] == '"' and name[name.len - 1] == '"') {
+            name = name[1 .. name.len - 1];
+        }
+
+        try self.consume(.l_brace, "Expected '{' before test body.");
+        var stmts = std.ArrayList(*ASTNode).init(self.allocator);
+        while (!self.check(.r_brace) and !self.check(.eof)) {
+            try stmts.append(try self.declaration());
+        }
+        try self.consume(.r_brace, "Expected '}' after block.");
+        const body = try self.createNode(.{ .block = .{ .statements = try stmts.toOwnedSlice() } });
+
+        return try self.createNodeAt(.{ .test_decl = .{
+            .name = name,
+            .body = body,
         } }, line, col);
     }
 

@@ -17,6 +17,7 @@ Instead of running inside a heavy JVM or relying on interpreted bytecode, Aether
 - 🛡️ **Compile-Time Null Safety:** Null is treated as a strict Union Type (`.String | .Null`). The compiler strictly forbids unsafe access, forcing the use of `?.`, `?:`, and `!!`.
 - 📦 **Destructured Imports:** A modern, file-based module system without `package` bloat. Import exactly what you need with explicit destructuring (`import { fun1, Class2 } from "file.ae"`).
 - ⚙️ **Operator Overloading:** Overload math operators in classes with explicit contracts via the `operator` modifier.
+- 🧪 **Native Test System:** First-class testing support. Write `test` blocks directly and run `aether test` for an isolated and fast testing suite.
 - 🚀 **Zero Setup Execution:** Just `aether run` and your code compiles and runs instantly.
 - 🗑️ **Memory Safe:** Native integration with a conservative Garbage Collector eliminates memory leaks without the overhead of reference counting or pausing VMs.
 
@@ -59,9 +60,14 @@ aether run my_script.ae
 Perfect for distribution. Generates a standalone native binary locally with an incredibly low memory footprint, ready to be deployed to servers.
 ```bash
 aether build my_script.ae
-# Output: ./my_script (Native Executable)
 ```
 
+### `aether test` (Testing)
+Aether has native test integration. Simply create files ending in `_test.ae` containing native `test "name" { }` blocks and run the test CLI.
+The compiler will automatically find, group, and execute all tests locally, isolating them from your production binaries.
+```bash
+aether test
+```
 ---
 
 ## 🛠️ Contributing to the Compiler (For Contributors)

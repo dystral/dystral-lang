@@ -1,0 +1,8 @@
+import { fibonacci } from "../fibonacci"
+
+test "fibonacci.ae: should calculate the 10th fibonacci number correctly" {
+    val result: Int = fibonacci(10)
+    // 0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55
+    // Actually fibonacci(10) with our loop logic returns 55
+    assert(result == 55)
+}

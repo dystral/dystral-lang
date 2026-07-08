@@ -17,6 +17,7 @@ pub const TokenType = enum {
     kw_while,
     kw_import,
     kw_from,
+    kw_test,
 
     // Symbols and Operators
     eq,         // =
@@ -103,7 +104,7 @@ pub const ASTNodeType = union(enum) {
     fun_decl: struct {
         modifiers: []const TokenType,
         name: []const u8,
-        params: []const Param,
+        params: []Param,
         type_name: ?[]const u8,
         type_is_nullable: bool,
         body: *ASTNode,
@@ -112,9 +113,13 @@ pub const ASTNodeType = union(enum) {
     },
     class_decl: struct {
         name: []const u8,
-        primary_constructor: []const ClassProp,
+        primary_constructor: []ClassProp,
         methods: []const *ASTNode,
         resolved_c_name: ?[]const u8,
+    },
+    test_decl: struct {
+        name: []const u8,
+        body: *ASTNode,
     },
     
     // Literals
@@ -127,6 +132,7 @@ pub const ASTNodeType = union(enum) {
     identifier: struct {
         name: []const u8,
         resolved_c_name: ?[]const u8,
+        is_class_property: bool = false,
     },
 
     // Expressions

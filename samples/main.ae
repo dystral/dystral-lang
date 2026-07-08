@@ -1,9 +1,10 @@
-import { add, Vector } from "math"
+import { add, Person } from "person"
 
-fun main() {
-    val r = add(10, 5)
-    print(r)
-    val v = Vector(1, 3)
-    print(v.x)
-    print(v.y)
-}
+val r = add(10, 5)
+print(r)
+
+val v = Person("John", 30)
+print(v.name)
+print(v.age)
+print(v.greet())
+

@@ -13,20 +13,56 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    if (args.len < 3 or (!std.mem.eql(u8, args[1], "run") and !std.mem.eql(u8, args[1], "build"))) {
-        std.debug.print("Usage: aether <run|build> <file.ae | file.kt>\n", .{});
+    if (args.len < 2 or (!std.mem.eql(u8, args[1], "run") and !std.mem.eql(u8, args[1], "build") and !std.mem.eql(u8, args[1], "test"))) {
+        std.debug.print("Usage: aether <run|build|test> [file.ae]\n", .{});
         return;
     }
     const is_build = std.mem.eql(u8, args[1], "build");
+    const is_test = std.mem.eql(u8, args[1], "test");
 
-    const filename = args[2];
-    if (!std.mem.endsWith(u8, filename, ".ae") and !std.mem.endsWith(u8, filename, ".kt")) {
-        std.debug.print("Error: Unsupported file extension. Please use .ae or .kt files.\n", .{});
-        return;
+    var source_alloc = std.ArrayList(u8).init(allocator);
+    defer source_alloc.deinit();
+
+    var filename: []const u8 = "synthetic_test.ae";
+
+    if (is_test) {
+        var search_path: []const u8 = ".";
+        if (args.len > 2) {
+            search_path = args[2];
+        }
+        var dir = try std.fs.cwd().openDir(search_path, .{ .iterate = true });
+        defer dir.close();
+        var walker = try dir.walk(allocator);
+        defer walker.deinit();
+
+        while (try walker.next()) |entry| {
+            if (entry.kind == .file) {
+                if (std.mem.endsWith(u8, entry.basename, "_test.ae")) {
+                    const full_import_path = try std.fs.path.join(allocator, &.{ search_path, entry.path });
+                    defer allocator.free(full_import_path);
+                    try source_alloc.writer().print("import {{}} from \"{s}\"\n", .{full_import_path});
+                }
+            }
+        }
+        if (source_alloc.items.len == 0) {
+            std.debug.print("No tests found.\n", .{});
+            return;
+        }
+    } else {
+        if (args.len < 3) {
+            std.debug.print("Error: Missing file argument.\n", .{});
+            return;
+        }
+        filename = args[2];
+        if (!std.mem.endsWith(u8, filename, ".ae")) {
+            std.debug.print("Error: Unsupported file extension. Please use .ae files.\n", .{});
+            return;
+        }
+        const file_content = try std.fs.cwd().readFileAlloc(allocator, filename, 1024 * 1024);
+        defer allocator.free(file_content);
+        try source_alloc.appendSlice(file_content);
     }
-    
-    const source = try std.fs.cwd().readFileAlloc(allocator, filename, 1024 * 1024);
-    defer allocator.free(source);
+    const source = source_alloc.items;
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -43,6 +79,7 @@ pub fn main() !void {
 
     // Semantic Type Checking (Enforcement)
     var type_checker = @import("core/types.zig").TypeChecker.init(arena.allocator(), source, filename);
+    type_checker.is_test_mode = is_test;
     defer type_checker.deinit();
     type_checker.validate(ast_root) catch {
         std.debug.print("Compilation aborted due to semantic errors.\n", .{});
@@ -50,6 +87,7 @@ pub fn main() !void {
     };
 
     var transpiler = c_transpiler.CTranspiler.init(allocator);
+    transpiler.is_test_mode = is_test;
     defer transpiler.deinit();
 
     const c_code = try transpiler.transpile(ast_root);
@@ -63,7 +101,7 @@ pub fn main() !void {
     const basename = std.fs.path.basename(filename);
     const ext = std.fs.path.extension(basename);
     const out_bin_name = basename[0 .. basename.len - ext.len];
-    const final_bin = if (out_bin_name.len > 0) out_bin_name else "a.out";
+    const final_bin = if (is_test) "test_runner" else if (out_bin_name.len > 0) out_bin_name else "a.out";
 
     const actual_zig = "zig";
 
@@ -98,9 +136,14 @@ pub fn main() !void {
             allocator.free(run_res.stderr);
         }
         std.debug.print("{s}", .{run_res.stdout});
+        if (run_res.stderr.len > 0) std.debug.print("{s}", .{run_res.stderr});
         
         // Clean up binary after running
         std.fs.cwd().deleteFile(final_bin) catch {};
+
+        if (run_res.term == .Exited and run_res.term.Exited != 0) {
+            std.process.exit(run_res.term.Exited);
+        }
     } else {
         std.debug.print("Successfully built {s}\n", .{final_bin});
     }

@@ -1,0 +1,14 @@
+import { User } from "../null_safety"
+
+test "null_safety.ae: should handle null safety operators correctly" {
+    val u: User | null = null
+
+    // Safe call on nullable user (should return null safely)
+    val safe_email: String? = u?.email
+
+    // Elvis operator (should fallback)
+    val fallback: User = u ?: User("Default", "default@email.com")
+    
+    // Not-null assertion (should extract the email from the fallback User)
+    val forced_email: String = fallback.email!!
+}
