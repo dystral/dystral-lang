@@ -83,8 +83,9 @@ Aether adopts a modern, lightweight module system inspired by ES6 and Go. Every 
 To use symbols from another file, you must explicitly declare exactly what you want to import using destructuring. This prevents polluting your namespace and makes dependencies crystal clear.
 
 ```kotlin
-// Assumes a file named 'math.ae' exists in the same directory
-import { add, Vector } from "math.ae"
+// Assumes a file named 'math.ae' exists in the same directory.
+// The .ae extension is optional and will be inferred automatically.
+import { add, Vector } from "math"
 
 fun main() {
     val v = Vector(1, 1)
@@ -93,3 +94,21 @@ fun main() {
 ```
 
 *(Note: In the C backend, the compiler automatically performs Name Mangling to prevent collisions across files, meaning `add` inside `math.ae` becomes `math_add` in the final native binary, ensuring absolute safety).*
+
+---
+
+## 5. Native Testing
+
+Aether has a first-class, built-in testing system. You don't need external libraries or complex test runners. Just create a file with the suffix `_test.ae`, write a `test` block, and use the `assert` macro.
+
+```kotlin
+// math_test.ae
+import { add } from "math"
+
+test "should add two numbers correctly" {
+    val result = add(10, 5)
+    assert(result == 15)
+}
+```
+
+Then, run `aether test` in your terminal. The compiler will automatically discover, group, and run all your tests in an isolated native binary.

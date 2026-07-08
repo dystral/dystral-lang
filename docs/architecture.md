@@ -5,7 +5,7 @@ Aether is a statically typed, pragmatic programming language that uses Kotlin-in
 ## High-Level Pipeline
 
 The Aether compiler (`aether`) follows a classic multi-pass architecture:
-1. **Frontend**: Source Code (`.kt` / `.ae`) -> Tokens -> Abstract Syntax Tree (AST).
+1. **Frontend**: Source Code (`.ae`) -> Tokens -> Abstract Syntax Tree (AST).
 2. **Core (Semantic Engine)**: AST -> Scope Resolution -> Type Checking -> Resolved AST.
 3. **Backend**: Resolved AST -> Intermediate C Code -> Native Binary.
 

@@ -49,3 +49,14 @@ Um dos maiores diferenciais de qualidade do Aether.
 
 ### Phase 15: Memory Management (Em Andamento / Próximo)
 - Iniciando o planejamento para inserir o **Boehm GC** (Garbage Collector conservador), eliminando a necessidade de gerenciamento manual e extinguindo o Memory Leak nativo da arquitetura C bruta atual.
+
+### Phase 16: Módulos & Multi-file Compilation
+Arquitetura de múltiplos arquivos e imports.
+- Adicionado suporte a `import { } from "file"`.
+- O TypeChecker lê arquivos importados recursivamente e resolve conflitos no backend utilizando um sistema engenhoso de *Name Mangling* dinâmico.
+
+### Phase 21: Native Test System & CLI Refinements
+Integração profunda de testes como recurso *first-class*.
+- Fim da necessidade da extensão `.kt`, aceitando explicitamente a extensão nativa `.ae` e tornando sua citação opcional nas importações (`import { add } from "math"`).
+- O Lexer e Parser agora leem a nova palavra-chave `test`.
+- O comando `aether test` busca recursivamente por arquivos `_test.ae`, compilando-os e gerando a função de verificação `main()` que avalia os testes injetados com a nova macro nativa `assert()`.
