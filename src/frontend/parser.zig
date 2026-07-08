@@ -112,6 +112,7 @@ pub const Parser = struct {
             return error.ParseError;
         }
 
+        if (self.match(.kw_import)) return try self.importDeclaration();
         if (self.match(.kw_while)) return try self.whileStatement();
         if (self.match(.kw_return)) return try self.returnStatement();
         return try self.expression();
@@ -137,6 +138,36 @@ pub const Parser = struct {
             .type_name = parsed_type.name,
             .type_is_nullable = parsed_type.is_nullable,
             .initializer = initializer,
+        } }, line, col);
+    }
+
+    fn importDeclaration(self: *Parser) anyerror!*ASTNode {
+        const line = self.previous.line;
+        const col = self.previous.column;
+        
+        try self.consume(.l_brace, "Expected '{' after import.");
+        
+        var destructured = std.ArrayList([]const u8).init(self.allocator);
+        
+        if (!self.check(.r_brace)) {
+            while (true) {
+                try self.consume(.identifier, "Expected identifier in import list.");
+                try destructured.append(self.previous.lexeme);
+                if (!self.match(.comma)) break;
+            }
+        }
+        
+        try self.consume(.r_brace, "Expected '}' after import list.");
+        try self.consume(.kw_from, "Expected 'from' after import list.");
+        try self.consume(.string_literal, "Expected module path string.");
+        
+        const path_with_quotes = self.previous.lexeme;
+        const path = path_with_quotes[1 .. path_with_quotes.len - 1]; // Remove as aspas
+        
+        return try self.createNodeAt(.{ .import_stmt = .{
+            .module_path = path,
+            .destructured = try destructured.toOwnedSlice(),
+            .module_ast = null,
         } }, line, col);
     }
 
@@ -195,6 +226,7 @@ pub const Parser = struct {
             .type_is_nullable = parsed_ret.is_nullable,
             .body = body,
             .is_expr_body = is_expr,
+            .resolved_c_name = null,
         }}, line, col);
     }
 
@@ -205,7 +237,7 @@ pub const Parser = struct {
         try self.consume(.identifier, "Expected class name.");
         const name = self.previous.lexeme;
         
-        var primary_constructor = std.ArrayList(ast.ClassProp).init(self.allocator);
+        var props = std.ArrayList(ast.ClassProp).init(self.allocator);
         if (self.match(.l_paren)) {
             if (!self.check(.r_paren)) {
                 while (true) {
@@ -223,7 +255,7 @@ pub const Parser = struct {
                         return error.ParseError;
                     }
                     
-                    try primary_constructor.append(.{
+                    try props.append(.{
                         .is_mut = is_mut,
                         .name = prop_name,
                         .type_name = parsed_type.name.?,
@@ -256,8 +288,9 @@ pub const Parser = struct {
         
         return try self.createNodeAt(.{ .class_decl = .{
             .name = name,
-            .primary_constructor = try primary_constructor.toOwnedSlice(),
+            .primary_constructor = try props.toOwnedSlice(),
             .methods = try methods.toOwnedSlice(),
+            .resolved_c_name = null,
         }}, line, col);
     }
 
@@ -275,7 +308,7 @@ pub const Parser = struct {
             const value = try self.assignment();
 
             if (expr.data == .identifier) {
-                const name = expr.data.identifier;
+                const name = expr.data.identifier.name;
                 return try self.createNodeAt(.{ .assignment = .{ .name = name, .value = value } }, line, col);
             } else if (expr.data == .get_expr) {
                 return try self.createNodeAt(.{ .set_expr = .{ 
@@ -506,7 +539,10 @@ pub const Parser = struct {
             return try self.createNodeAt(.{ .string_literal = value }, line, col);
         }
         if (self.match(.identifier)) {
-            return try self.createNodeAt(.{ .identifier = self.previous.lexeme }, line, col);
+            return try self.createNodeAt(.{ .identifier = .{
+                .name = self.previous.lexeme,
+                .resolved_c_name = null,
+            } }, line, col);
         }
 
         self.errorAtCurrent("Expected expression.");

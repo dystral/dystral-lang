@@ -15,6 +15,8 @@ pub const TokenType = enum {
     kw_else,
     kw_return,
     kw_while,
+    kw_import,
+    kw_from,
 
     // Symbols and Operators
     eq,         // =
@@ -86,6 +88,11 @@ pub const ASTNodeType = union(enum) {
     program: struct {
         statements: []const *ASTNode,
     },
+    import_stmt: struct {
+        module_path: []const u8,
+        destructured: []const []const u8,
+        module_ast: ?*ASTNode,
+    },
     var_decl: struct {
         is_mut: bool,
         name: []const u8,
@@ -101,11 +108,13 @@ pub const ASTNodeType = union(enum) {
         type_is_nullable: bool,
         body: *ASTNode,
         is_expr_body: bool, // true for `= a + b`, false for `{ ... }`
+        resolved_c_name: ?[]const u8,
     },
     class_decl: struct {
         name: []const u8,
         primary_constructor: []const ClassProp,
         methods: []const *ASTNode,
+        resolved_c_name: ?[]const u8,
     },
     
     // Literals
@@ -115,7 +124,10 @@ pub const ASTNodeType = union(enum) {
     null_literal: void,
     
     // Identifiers
-    identifier: []const u8,
+    identifier: struct {
+        name: []const u8,
+        resolved_c_name: ?[]const u8,
+    },
 
     // Expressions
     unary_expr: struct {

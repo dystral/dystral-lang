@@ -105,7 +105,7 @@ Aether is a compiled programming language focused on systems performance, concis
 - **Task 15.2:** Eliminar vazamentos de memória (*memory leaks*) nos objetos nativos (`AetherString`, instâncias de classes).
 - **Task 15.3:** Garantir que o ciclo de vida dos objetos em tempo de execução seja seguro e não trave a máquina em loops infinitos.
 
-### Phase 16: Módulos & Multi-file Compilation (LATER)
+### Phase 16: Módulos & Multi-file Compilation (DONE)
 - **Task 16.1:** Adicionar suporte à palavra-chave `import` no Lexer/Parser.
 - **Task 16.2:** Permitir que o compilador leia, analise e costure múltiplos arquivos `.kt` ou `.ae` em uma única AST Global.
 - **Task 16.3:** Resolver colisões de namespace entre arquivos.

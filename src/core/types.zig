@@ -70,6 +70,8 @@ pub const TypeChecker = struct {
     global_scope: Scope,
     source: []const u8,
     filename: []const u8,
+    alias_map: std.StringHashMap([]const u8),
+    module_prefix: ?[]const u8 = null,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, filename: []const u8) TypeChecker {
         var checker = TypeChecker{
@@ -77,6 +79,8 @@ pub const TypeChecker = struct {
             .global_scope = Scope.init(allocator, null),
             .source = source,
             .filename = filename,
+            .alias_map = std.StringHashMap([]const u8).init(allocator),
+            .module_prefix = null,
         };
         
         // Inject String type into global scope
@@ -89,6 +93,7 @@ pub const TypeChecker = struct {
 
     pub fn deinit(self: *TypeChecker) void {
         self.global_scope.deinit();
+        self.alias_map.deinit();
     }
 
     fn reportError(self: *TypeChecker, line: usize, column: usize, comptime message: []const u8, args: anytype) void {
@@ -208,7 +213,58 @@ pub const TypeChecker = struct {
                 }
                 t.* = .Void;
             },
-            .class_decl => |c| {
+            .import_stmt => |*i| {
+                const dir_path = std.fs.path.dirname(self.filename) orelse ".";
+                const mod_path = try std.fs.path.join(self.allocator, &.{ dir_path, i.module_path });
+                const mod_source = std.fs.cwd().readFileAlloc(self.allocator, mod_path, 1024 * 1024) catch |err| {
+                    self.reportError(node.line, node.column, "ImportError: Failed to read module file '{s}': {}", .{mod_path, err});
+                    return error.ImportError;
+                };
+
+                var p = parser_mod.Parser.init(self.allocator, mod_source);
+                const mod_ast = try p.parse();
+                i.module_ast = mod_ast;
+
+                const basename = std.fs.path.basename(mod_path);
+                const ext_idx = std.mem.lastIndexOf(u8, basename, ".") orelse basename.len;
+                const prefix = basename[0..ext_idx];
+
+                var tc = TypeChecker.init(self.allocator, mod_source, mod_path);
+                tc.module_prefix = prefix;
+                try tc.validate(mod_ast);
+                tc.deinit();
+
+                for (i.destructured) |sym| {
+                    var found = false;
+                    for (mod_ast.data.program.statements) |stmt| {
+                        if (stmt.data == .fun_decl) {
+                            if (std.mem.eql(u8, stmt.data.fun_decl.name, sym)) {
+                                try self.alias_map.put(sym, stmt.data.fun_decl.resolved_c_name.?);
+                                found = true;
+                                break;
+                            }
+                        } else if (stmt.data == .class_decl) {
+                            if (std.mem.eql(u8, stmt.data.class_decl.name, sym)) {
+                                try self.alias_map.put(sym, stmt.data.class_decl.resolved_c_name.?);
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!found) {
+                        self.reportError(node.line, node.column, "ImportError: Symbol '{s}' not found in module '{s}'.", .{sym, mod_path});
+                        return error.ImportError;
+                    }
+                }
+                
+                t.* = .Void;
+            },
+            .class_decl => |*c| {
+                if (self.module_prefix) |prefix| {
+                    c.resolved_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{prefix, c.name});
+                } else {
+                    c.resolved_c_name = c.name;
+                }
                 const class_type = try self.allocator.create(AetherType);
                 class_type.* = .{ .Custom = c.name };
                 try scope.define(c.name, class_type);
@@ -243,7 +299,12 @@ pub const TypeChecker = struct {
                 }
                 t.* = .Void;
             },
-            .fun_decl => |f| {
+            .fun_decl => |*f| {
+                if (self.module_prefix) |prefix| {
+                    f.resolved_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{prefix, f.name});
+                } else {
+                    f.resolved_c_name = f.name;
+                }
                 var fun_scope = Scope.init(self.allocator, scope);
                 defer fun_scope.deinit();
                 
@@ -375,13 +436,21 @@ pub const TypeChecker = struct {
                     else => return error.TypeError,
                 }
             },
-            .identifier => |i| {
-                if (scope.lookup(i)) |found| {
+            .identifier => |*i| {
+                if (self.alias_map.get(i.name)) |c_name| {
+                    i.resolved_c_name = c_name;
+                }
+                if (scope.lookup(i.name)) |found| {
                     t.* = found.*;
                     node.resolved_type = t;
                     return t;
                 }
-                self.reportError(node.line, node.column, "TypeError: Undeclared variable '{s}'.", .{i});
+                if (self.alias_map.get(i.name)) |c_name| {
+                    t.* = .{ .Custom = c_name };
+                    node.resolved_type = t;
+                    return t;
+                }
+                self.reportError(node.line, node.column, "TypeError: Undeclared variable '{s}'.", .{i.name});
                 return error.TypeError;
             },
             .int_literal => t.* = .Int,
@@ -395,7 +464,10 @@ pub const TypeChecker = struct {
                 }
                 
                 if (c.callee.data == .identifier) {
-                    const name = c.callee.data.identifier;
+                    const name = c.callee.data.identifier.name;
+                    if (self.alias_map.get(name)) |c_name| {
+                        c.callee.data.identifier.resolved_c_name = c_name;
+                    }
                     if (std.mem.eql(u8, name, "print")) {
                         t.* = .Void;
                         node.resolved_type = t;
@@ -403,6 +475,12 @@ pub const TypeChecker = struct {
                     }
                     if (scope.lookup(name)) |_| {
                         t.* = .{ .Custom = name };
+                        node.resolved_type = t;
+                        return t;
+                    }
+                    if (self.alias_map.get(name)) |c_name| {
+                        // Very naive for v0.1: assume any imported call might return the class
+                        t.* = .{ .Custom = c_name };
                         node.resolved_type = t;
                         return t;
                     }

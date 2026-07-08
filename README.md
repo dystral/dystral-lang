@@ -15,15 +15,18 @@ Instead of running inside a heavy JVM or relying on interpreted bytecode, Aether
 
 - 💎 **Kotlin Familiarity + Pragmatism:** If you know Kotlin, you already know Aether. Supports `val`/`var`, implicit instantiation, expression bodies, and more.
 - 🛡️ **Compile-Time Null Safety:** Null is treated as a strict Union Type (`.String | .Null`). The compiler strictly forbids unsafe access, forcing the use of `?.`, `?:`, and `!!`.
+- 📦 **Destructured Imports:** A modern, file-based module system without `package` bloat. Import exactly what you need with explicit destructuring (`import { fun1, Class2 } from "file.ae"`).
 - ⚙️ **Operator Overloading:** Overload math operators in classes with explicit contracts via the `operator` modifier.
 - 🚀 **Zero Setup Execution:** Just `aether run` and your code compiles and runs instantly.
 - 🗑️ **Memory Safe:** Native integration with a conservative Garbage Collector eliminates memory leaks without the overhead of reference counting or pausing VMs.
 
 ---
 
-## 📖 Syntax Sneak Peek
+## 📖 Syntax & Language Tour
 
-Aether code looks familiar and clean. Here's a quick look at classes, properties, and null safety:
+Aether code looks familiar and clean. If you want to deeply understand how Aether differs from Kotlin (Union Types, Modifiers, and File-based Imports), **[read the full Language Tour](docs/language_tour.md)**.
+
+Here's a quick look at classes, properties, and null safety:
 
 ```kotlin
 // aether
@@ -32,7 +35,7 @@ class User(val name: String, var email: String?) {
 }
 
 fun main() {
-    val admin: User | null = null
+    val admin: User? = null // or User | null
 
     // Safe calls and Elvis Operator supported natively
     val emailToUse = admin?.email ?: "no-reply@aether.lang"
@@ -98,7 +101,6 @@ Aether's compiler is fully documented. If you are curious about how we process A
 ## 🛣️ What's Next? (Roadmap)
 
 We are currently on **v0.1.x**. The immediate next steps include:
-- **Phase 16:** Module System & Multi-file Compilation (`import`).
 - **Phase 17:** Core Stdlib, native Collections (`[String]`) and `for-in` loops.
 - **Phase 18:** Short Ternary Operator.
 - **Phase 19:** Exception Handling (`try-catch` & multi-catch).
