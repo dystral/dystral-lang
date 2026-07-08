@@ -105,7 +105,7 @@ Aether is a compiled programming language focused on systems performance, concis
 - **Task 15.2:** Eliminar vazamentos de memória (*memory leaks*) nos objetos nativos (`AetherString`, instâncias de classes).
 - **Task 15.3:** Garantir que o ciclo de vida dos objetos em tempo de execução seja seguro e não trave a máquina em loops infinitos.
 
-### Phase 16: Módulos & Multi-file Compilation (DONE)
+### Phase 16: Módulos & Multi-file Compilation (COMPLETED)
 - **Task 16.1:** Adicionar suporte à palavra-chave `import` no Lexer/Parser.
 - **Task 16.2:** Permitir que o compilador leia, analise e costure múltiplos `.ae` em uma única AST Global.
 - **Task 16.3:** Resolver colisões de namespace entre arquivos.
@@ -144,6 +144,11 @@ Aether is a compiled programming language focused on systems performance, concis
 - **Task 22.4:** Permitir a Abordagem Híbrida: se o usuário fornecer um `fun main()`, as top-level statements serão ignoradas ou o compilador irá jogar erro de conflito, a definir na implementação.
 - **Task 22.5:** Garantir que arquivos que são *importados* não executem seus top-level statements aleatoriamente. Apenas o arquivo CLI principal ou os testes devem rodar.
 - **VERIFY:** O `samples/fibonacci.ae` ou `samples/string_ops.ae` funcionam corretamente se apagarmos as chaves do `fun main()`.
+
+### Phase 23: Cross-Module Type Inference & Global Symbol Table (LATER)
+- **Task 23.1:** Substituir o tipo `.Unknown` temporário adicionado na Fase 22 por uma verdadeira Tabela de Símbolos Global (`Global Symbol Table`).
+- **Task 23.2:** O compilador deve fazer um pré-scan (Pass 1) em todos os arquivos importados para registrar a assinatura de todas as funções e propriedades exportadas antes de rodar o TypeChecker.
+- **Task 23.3:** O TypeChecker deve validar perfeitamente os tipos de retorno cruzados entre diferentes arquivos.
 
 ## ✅ Definition of Done (Per Phase)
 - [x] Security/Lint: No memory leaks using `std.testing.allocator` across all modules.
