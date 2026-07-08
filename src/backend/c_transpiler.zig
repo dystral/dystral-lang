@@ -6,7 +6,7 @@ const TokenType = ast.TokenType;
 
 const std_lib_c = 
     \\#include <stdio.h>
-    \\#include <stdlib.h>
+    \\#include <gc.h>
     \\#include <string.h>
     \\#include <stdbool.h>
     \\
@@ -16,17 +16,17 @@ const std_lib_c =
     \\} AetherString;
     \\
     \\AetherString* AetherString_new(const char* literal) {
-    \\    AetherString* s = (AetherString*)malloc(sizeof(AetherString));
+    \\    AetherString* s = (AetherString*)GC_MALLOC(sizeof(AetherString));
     \\    s->length = strlen(literal);
-    \\    s->buffer = (char*)malloc(s->length + 1);
+    \\    s->buffer = (char*)GC_MALLOC(s->length + 1);
     \\    strcpy(s->buffer, literal);
     \\    return s;
     \\}
     \\
     \\AetherString* AetherString_plus(AetherString* a, AetherString* b) {
-    \\    AetherString* s = (AetherString*)malloc(sizeof(AetherString));
+    \\    AetherString* s = (AetherString*)GC_MALLOC(sizeof(AetherString));
     \\    s->length = a->length + b->length;
-    \\    s->buffer = (char*)malloc(s->length + 1);
+    \\    s->buffer = (char*)GC_MALLOC(s->length + 1);
     \\    strcpy(s->buffer, a->buffer);
     \\    strcat(s->buffer, b->buffer);
     \\    return s;
@@ -126,7 +126,7 @@ pub const CTranspiler = struct {
             try self.writer.writer().print("{s} {s}", .{t_str, prop.name});
         }
         try self.writer.writer().print(") {{\n", .{});
-        try self.writer.writer().print("    {s}* instance = malloc(sizeof({s}));\n", .{class_decl.name, class_decl.name});
+        try self.writer.writer().print("    {s}* instance = ({s}*)GC_MALLOC(sizeof({s}));\n", .{class_decl.name, class_decl.name, class_decl.name});
         for (class_decl.primary_constructor) |prop| {
             try self.writer.writer().print("    instance->{s} = {s};\n", .{prop.name, prop.name});
         }

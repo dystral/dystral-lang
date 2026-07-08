@@ -13,10 +13,11 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    if (args.len < 3 or !std.mem.eql(u8, args[1], "run")) {
-        std.debug.print("Usage: aether run <file.ae | file.kt>\n", .{});
+    if (args.len < 3 or (!std.mem.eql(u8, args[1], "run") and !std.mem.eql(u8, args[1], "build"))) {
+        std.debug.print("Usage: aether <run|build> <file.ae | file.kt>\n", .{});
         return;
     }
+    const is_build = std.mem.eql(u8, args[1], "build");
 
     const filename = args[2];
     if (!std.mem.endsWith(u8, filename, ".ae") and !std.mem.endsWith(u8, filename, ".kt")) {
@@ -59,18 +60,16 @@ pub fn main() !void {
     defer std.fs.cwd().deleteFile(out_c_filename) catch {};
 
     // Invoke zig cc
-    const out_bin_name = "a.out";
-    defer std.fs.cwd().deleteFile(out_bin_name) catch {};
+    const basename = std.fs.path.basename(filename);
+    const ext = std.fs.path.extension(basename);
+    const out_bin_name = basename[0 .. basename.len - ext.len];
+    const final_bin = if (out_bin_name.len > 0) out_bin_name else "a.out";
 
-    // Try to use zig from path, or local zig if available (for local testing).
-    // const zig_bin = "./zig-linux-x86_64-0.13.0/zig"; // hardcoded fallback just for local env 
-    
-    // Fallback to "zig" if local doesn't exist? Just trying to make it run.
     const actual_zig = "zig";
 
     const result = try std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &[_][]const u8{ actual_zig, "cc", "-O0", out_c_filename, "-o", out_bin_name },
+        .argv = &[_][]const u8{ actual_zig, "cc", "-O0", out_c_filename, "-lgc", "-o", final_bin },
     });
     defer {
         allocator.free(result.stdout);
@@ -79,19 +78,32 @@ pub fn main() !void {
     
     if (result.term != .Exited or result.term.Exited != 0) {
         std.debug.print("C compilation error:\n{s}\n", .{result.stderr});
+        if (!is_build) {
+            std.fs.cwd().deleteFile(final_bin) catch {};
+        }
         return;
     }
 
-    // Execute final binary
-    const run_res = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &[_][]const u8{ "./a.out" },
-    });
-    defer {
-        allocator.free(run_res.stdout);
-        allocator.free(run_res.stderr);
+    if (!is_build) {
+        // Execute final binary
+        var exe_path_buf: [1024]u8 = undefined;
+        const exe_path = try std.fmt.bufPrint(&exe_path_buf, "./{s}", .{final_bin});
+        
+        const run_res = try std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &[_][]const u8{ exe_path },
+        });
+        defer {
+            allocator.free(run_res.stdout);
+            allocator.free(run_res.stderr);
+        }
+        std.debug.print("{s}", .{run_res.stdout});
+        
+        // Clean up binary after running
+        std.fs.cwd().deleteFile(final_bin) catch {};
+    } else {
+        std.debug.print("Successfully built {s}\n", .{final_bin});
     }
-    std.debug.print("{s}", .{run_res.stdout});
 }
 
 test "imports" {
