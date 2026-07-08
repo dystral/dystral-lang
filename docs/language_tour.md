@@ -97,7 +97,30 @@ fun main() {
 
 ---
 
-## 5. Native Testing
+## 5. Top-Level Statements & Side-Effects
+
+Aether is designed to be highly fluid for quick scripts. Because of this, `fun main()` is **optional**. You can write statements directly at the root of your file.
+
+```kotlin
+// script.ae
+import { add } from "math"
+
+// This is perfectly valid Aether code
+val a = 10
+val b = 5
+print(add(a, b))
+```
+
+If your code reaches the end of the file, it exits successfully (returning `0` to the OS). If you want to force an exit with an error code, you can use the built-in `exit(code)` function natively.
+
+**The Golden Rule of Modules (No Side-Effects):**
+Top-level execution is **only allowed in your root file** (the one you pass to `aether run`). If an *imported* file tries to run top-level statements (like calling `print`), the compiler will strictly block it and throw an `ImportSideEffectsNotAllowed` error. 
+
+Imported files must be "passive libraries", meaning they should only **declare** things (Functions, Classes, Tests, etc.). This ensures maximum code hygiene and predictable execution paths.
+
+---
+
+## 6. Native Testing
 
 Aether has a first-class, built-in testing system. You don't need external libraries or complex test runners. Just create a file with the suffix `_test.ae`, write a `test` block, and use the `assert` macro.
 
