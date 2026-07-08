@@ -1,0 +1,2 @@
+import { add } from "math"
+print("This should cause an error if imported")

@@ -1,0 +1,9 @@
+import { Person } from "../oop"
+
+test "oop.ae: classes devem ser instanciadas e lidar com getters e setters" {
+    val p = Person("Leo", 28)
+    assert(p.age == 28)
+    
+    p.age = 29
+    assert(p.age == 29)
+}

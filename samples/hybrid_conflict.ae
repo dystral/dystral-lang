@@ -1,0 +1,4 @@
+print("Top level!")
+fun main() {
+    print("Main")
+}

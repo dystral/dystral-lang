@@ -1,0 +1,3 @@
+print("Start")
+exit(1)
+print("Should not be printed")

@@ -1,4 +1,4 @@
-import { add, Vector } from "math.kt"
+import { add, Vector } from "math"
 
 fun main() {
     val r = add(10, 5)

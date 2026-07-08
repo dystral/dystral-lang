@@ -1,0 +1,10 @@
+import { Vector } from "../operator_overloading"
+
+test "operator_overloading.ae: '+' operator should sum vectors correctly" {
+    val a = Vector(10, 5)
+    val b = Vector(2, 3)
+    val c = a + b
+    
+    assert(c.x == 12)
+    assert(c.y == 8)
+}
