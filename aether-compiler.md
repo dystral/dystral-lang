@@ -95,13 +95,13 @@ Aether is a compiled programming language focused on systems performance, concis
 - **Task 13.4:** Adicionado suporte ao `print()` como uma função "Built-In" nativa, através de um bypass no TypeChecker que mapeia a invocação diretamente para o C `_Generic printf`. Isso deverá ser removido no futuro com a criação do módulo `Core/Stdlib` do Aether.
 - **VERIFY:** O compilador interceptou violações de Null Safety com precisão cirúrgica e o Transpilador C emitiu checagens ternárias que compilaram e executaram sem Segmentation Faults.
 
-### Phase 14: CLI & Build Pipeline (NEXT)
+### Phase 14: CLI & Build Pipeline (COMPLETED)
 - **Task 14.1:** Implementar o comando `aether build arquivo.ae` no CLI (`main.zig`).
 - **Task 14.2:** O comando `build` deve compilar o código gerando um binário final estático (ex: `arquivo`) sem executá-lo, diferente do `run`.
 - **Task 14.3:** Otimizar o pipeline do C Transpiler para apagar os arquivos intermediários (`.c` e `.o`) deixando a pasta limpa apenas com o executável.
 
-### Phase 15: Memory Management & Garbage Collection (LATER)
-- **Task 15.1:** Substituir alocações manuais soltas (`malloc`) no C Transpiler por um Garbage Collector conservador (ex: Boehm GC) ou implementar *Reference Counting*.
+### Phase 15: Memory Management & Garbage Collection (COMPLETED)
+- **Task 15.1:** Substituir alocações manuais soltas (`malloc`) no C Transpiler por um Garbage Collector conservador (Boehm GC) ou implementar *Reference Counting*.
 - **Task 15.2:** Eliminar vazamentos de memória (*memory leaks*) nos objetos nativos (`AetherString`, instâncias de classes).
 - **Task 15.3:** Garantir que o ciclo de vida dos objetos em tempo de execução seja seguro e não trave a máquina em loops infinitos.
 
@@ -137,7 +137,7 @@ Aether is a compiled programming language focused on systems performance, concis
 - **Task 21.3:** Tornar as extensões de arquivos opcionais nos imports, focando estritamente em arquivos `.ae` no ecossistema e abandonando a sintaxe `.kt` na invocação.
 - **VERIFY:** Os testes dos samples atuais rodam e passam com o sistema nativo da linguagem integrado, permitindo verificações diretas.
 
-### Phase 22: Top-Level Statements & Hybrid Main (NEXT)
+### Phase 22: Top-Level Statements & Hybrid Main (COMPLETED)
 - **Task 22.1:** Atualizar a AST e o Parser para permitir instruções livres (ex: `print`, chamadas de função, atribuições) na raiz do arquivo.
 - **Task 22.2:** O TypeChecker deve englobar todas as instruções Top-Level no momento da compilação, permitindo que elas executem em ordem.
 - **Task 22.3:** O CTranspiler precisa detectar Top-Level Statements e envelopá-los dentro da função gerada nativamente `aether_main()` ou `main()`, dispensando a escrita obrigatória do `fun main()`.

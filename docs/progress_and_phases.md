@@ -44,11 +44,14 @@ Um dos maiores diferenciais de qualidade do Aether.
 - Operadores protetores: `?.` (Safe Call), `?:` (Elvis) e `!!` (Not-Null Assertion).
 - O backend transpila a blindagem inteira em macros seguras usando o operador ternário em C, impedindo Segmentation Faults.
 
-### Phase 14: CLI & Build Pipeline (Próximo)
-- Criação do comando `aether build arquivo.ae` para compilar binários estáticos limpos, preparando a infraestrutura para a compilação final sem rodar os arquivos.
+### Phase 14: CLI & Build Pipeline
+- Criação do comando `aether build arquivo.ae` para compilar binários estáticos limpos.
+- Diferentemente do `run`, o `build` apenas gera o binário final no diretório atual sem executá-lo, pronto para distribuição.
+- O pipeline foi otimizado para apagar os arquivos intermediários C gerados (`temp_out.c`), deixando a pasta limpa.
 
-### Phase 15: Memory Management (Em Andamento / Próximo)
-- Iniciando o planejamento para inserir o **Boehm GC** (Garbage Collector conservador), eliminando a necessidade de gerenciamento manual e extinguindo o Memory Leak nativo da arquitetura C bruta atual.
+### Phase 15: Memory Management
+- A arquitetura do Aether nativo foi totalmente integrada com o **Boehm-Demers-Weiser Conservative Garbage Collector** (Boehm GC).
+- O backend de C foi alterado para instanciar strings e classes com `GC_MALLOC`, extinguindo perfeitamente os Memory Leaks da compilação e permitindo alocações nativas seguras. O flag `-lgc` foi acoplado por padrão no CLI.
 
 ### Phase 16: Módulos & Multi-file Compilation
 Arquitetura de múltiplos arquivos e imports.
