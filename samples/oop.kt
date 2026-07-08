@@ -1,0 +1,10 @@
+class Person(val name: String, var age: Int)
+
+fun main() {
+    val p = Person("Leo", 28)
+    print(p.name)
+    print(p.age)
+    
+    p.age = 29
+    print(p.age)
+}
