@@ -91,3 +91,8 @@ Transformamos Aether em uma linguagem autossuficiente e tipicamente forte por re
 - Adição da primitiva `Pointer` e o suporte à anotação `@Primitive`.
 - Transpilador polido para entender tipos nulos em retornos C (`void*`), permitindo encadeamento seguro com `u?.email` resolvido nativamente via C Ternaries transparentes e Typeset seguro.
 - A biblioteca C base foi segmentada modularmente, com `Standard` (`stdlib.h`, `stdio.h`) e `NativeString` (`string.h`), reforçando a segurança do código fonte na Stdlib.
+
+### Bugfixes & Tools (July 9, 2026)
+- **C Transpiler `.if_expr`**: Fix do Transpiler para emitir statements de `if/else` ao invés de ternários C (`?:`) quando em modo Statement. Isso impede erros críticos quando lidando com blocos complexos (ex: `return`) que eram flagrados como `UnsupportedExpression`.
+- **Runtime Stream**: CLI `aether run` agora exibe as linhas de `stdout` diretamente e sem buffer em tempo real usando `child.spawn()` com streams via herança (`.Inherit`). Permite a execução de loops eternos de monitoramento sem travar o TTY.
+- **Method Resolution Name Mangling**: Correção genial do TypeChecker e C Transpiler onde as primitivas (`Int`, `Bool`, etc) não podiam ter seus métodos chamados pois o sistema de herança tentava buscar a classe simples `Int` no `classes_ast` quando, na verdade, estava salva via *Name Mangling* como `system_Int`.
