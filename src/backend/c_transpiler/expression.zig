@@ -122,6 +122,10 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                 var class_name: []const u8 = "unknown";
                 if (rt.* == .String) {
                     class_name = "system_String";
+                } else if (rt.* == .Int) {
+                    class_name = "system_Int";
+                } else if (rt.* == .Bool) {
+                    class_name = "system_Bool";
                 } else if (rt.* == .Custom) {
                     class_name = rt.Custom;
                 } else if (rt.* == .Union) {

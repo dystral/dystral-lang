@@ -220,8 +220,17 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     var prop_type: ?*const AetherType = null;
     const base_type = core.extractBaseType(obj_type);
     var lookup_name: ?[]const u8 = null;
-    if (base_type.* == .Custom) {
-        lookup_name = self.alias_map.get(base_type.Custom) orelse base_type.Custom;
+    var base_name: ?[]const u8 = null;
+    switch (base_type.*) {
+        .Custom => |n| base_name = n,
+        .Int => base_name = "system_Int",
+        .String => base_name = "system_String",
+        .Bool => base_name = "system_Bool",
+        else => {},
+    }
+    
+    if (base_name) |bn| {
+        lookup_name = self.alias_map.get(bn) orelse bn;
     }
     
     if (lookup_name) |name| {
@@ -232,6 +241,21 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
                     const actual_type = self.alias_map.get(prop.type_name) orelse prop.type_name;
                     prop_type = try self.resolveTypeName(actual_type, false);
                     break;
+                }
+            }
+            if (prop_type == null) {
+                for (c.methods) |method| {
+                    if (std.mem.eql(u8, method.data.fun_decl.name, g.name)) {
+                        if (method.data.fun_decl.type_name) |tn| {
+                            const actual_type = self.alias_map.get(tn) orelse tn;
+                            prop_type = try self.resolveTypeName(actual_type, false);
+                        } else {
+                            const void_type = try self.allocator.create(AetherType);
+                            void_type.* = .Void;
+                            prop_type = void_type;
+                        }
+                        break;
+                    }
                 }
             }
         }

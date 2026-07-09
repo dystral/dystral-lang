@@ -18,7 +18,7 @@ fun isPrime(n: Int): Bool {
     return true
 }
 
-fun largestPrimeUpTo(max: Int): Int {
+fun lastUpTo(max: Int): Int {
     var i = max
     while (i > 1) {
         if (isPrime(i)) {

@@ -1,14 +1,16 @@
-import { largestPrimeUpTo } from "primes"
+import { lastUpTo } from "primes"
+
+class Person(val name: String, var age: Int)
 
 fun main(): Void {
-    print("Iniciando loop eterno (a cada 15 segundos)...")
+    print("Starting loop...")
     
     while (true) {
-        val prime = largestPrimeUpTo(100000)
-        
-        print("Valor primo ate 100000:")
-        print(prime.toString())
-        
-        sleep(15)
+        val prime = lastUpTo(1000000000)
+        val prime2 = lastUpTo(1000000000)
+        val p = Person("Leo", 38)
+
+        print(p.name + " counted " + (prime + prime2).toString() + " prime numbers up to two billions")
+        sleep(1)
     }
 }
