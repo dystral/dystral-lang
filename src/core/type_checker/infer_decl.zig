@@ -35,30 +35,61 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
     tc.module_prefix = prefix;
     tc.is_test_mode = self.is_test_mode;
     try tc.validate(mod_ast);
-    tc.deinit();
-
-    for (i.destructured) |sym| {
-        var found = false;
-        for (mod_ast.data.program.statements) |stmt| {
-            if (stmt.data == .fun_decl) {
-                if (std.mem.eql(u8, stmt.data.fun_decl.name, sym)) {
-                    try self.alias_map.put(sym, stmt.data.fun_decl.resolved_c_name.?);
-                    found = true;
-                    break;
+    
+    if (i.destructured.len == 0) {
+        var it = tc.global_scope.symbols.iterator();
+        while (it.next()) |entry| {
+            try self.global_scope.symbols.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+        var alias_it = tc.alias_map.iterator();
+        while (alias_it.next()) |entry| {
+            try self.alias_map.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+    } else {
+        for (i.destructured) |sym| {
+            var found = false;
+            
+            if (tc.alias_map.get(sym)) |aliased_name| {
+                try self.alias_map.put(sym, aliased_name);
+            } else {
+                const aliased_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ prefix, sym });
+                try self.alias_map.put(sym, aliased_name);
+            }
+            
+            if (tc.global_scope.lookupFunctions(sym)) |overloads| {
+                for (overloads) |overload| {
+                    try self.global_scope.define(sym, overload);
                 }
-            } else if (stmt.data == .class_decl) {
-                if (std.mem.eql(u8, stmt.data.class_decl.name, sym)) {
-                    try self.alias_map.put(sym, stmt.data.class_decl.resolved_c_name.?);
-                    found = true;
-                    break;
+                found = true;
+            } else if (tc.global_scope.lookupVariable(sym)) |variable| {
+                try self.global_scope.define(sym, variable);
+                found = true;
+            }
+            
+            if (!found) {
+                for (mod_ast.data.program.statements) |stmt| {
+                    if (stmt.data == .class_decl) {
+                        if (std.mem.eql(u8, stmt.data.class_decl.name, sym)) {
+                            found = true;
+                            break;
+                        }
+                    } else if (stmt.data == .lib_decl) {
+                        if (std.mem.eql(u8, stmt.data.lib_decl.name, sym)) {
+                            found = true;
+                            break;
+                        }
+                    }
                 }
             }
-        }
-        if (!found) {
-            self.reportError(node.line, node.column, "ImportError: Symbol '{s}' not found in module '{s}'.", .{ sym, mod_path });
-            return error.ImportError;
+            
+            if (!found) {
+                self.reportError(node.line, node.column, "ImportError: Symbol '{s}' not found in module '{s}'.", .{ sym, mod_path });
+                return error.ImportError;
+            }
         }
     }
+    
+    tc.deinit();
 
     t.* = .Void;
 }
@@ -75,7 +106,9 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
     const class_type = try self.allocator.create(AetherType);
     class_type.* = .{ .Custom = actual_c_name };
     try scope.define(c.name, class_type);
-    try scope.define(actual_c_name, class_type);
+    if (!std.mem.eql(u8, c.name, actual_c_name)) {
+        try scope.define(actual_c_name, class_type);
+    }
 
     var class_scope = Scope.init(self.allocator, scope);
     defer class_scope.deinit();
@@ -126,24 +159,15 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
 
 pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     var f = &node.data.fun_decl;
+    var param_types = std.ArrayList(*const AetherType).init(self.allocator);
+    var mangled_name = std.ArrayList(u8).init(self.allocator);
     if (self.module_prefix) |prefix| {
-        if (std.mem.eql(u8, f.name, "main")) {
-            f.resolved_c_name = "main";
-        } else {
-            f.resolved_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ prefix, f.name });
-            try self.alias_map.put(f.name, f.resolved_c_name.?);
-        }
+        try mangled_name.writer().print("{s}_{s}", .{prefix, f.name});
     } else {
-        f.resolved_c_name = f.name;
+        try mangled_name.appendSlice(f.name);
     }
     var fun_scope = Scope.init(self.allocator, scope);
     defer fun_scope.deinit();
-
-    if (f.type_name) |tn| {
-        if (self.alias_map.get(tn)) |aliased| {
-            f.type_name = aliased;
-        }
-    }
 
     for (f.params) |*p| {
         var param_type: *AetherType = undefined;
@@ -152,14 +176,56 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
                 p.type_name = aliased;
             }
             param_type = try self.resolveTypeName(p.type_name.?, p.type_is_nullable);
+            try mangled_name.writer().print("_{s}", .{p.type_name.?});
         } else {
             param_type = try self.allocator.create(AetherType);
             param_type.* = .Void;
+            try mangled_name.appendSlice("_Void");
         }
         try fun_scope.define(p.name, param_type);
+        try param_types.append(param_type);
     }
+    
+    if (std.mem.eql(u8, f.name, "main")) {
+        f.resolved_c_name = "main";
+    } else {
+        f.resolved_c_name = try mangled_name.toOwnedSlice();
+    }
+    
+    var return_type: *const AetherType = undefined;
+    var body_inferred = false;
+    
+    if (f.type_name) |tn| {
+        return_type = try self.resolveTypeName(tn, f.type_is_nullable);
+    } else if (f.is_expr_body) {
+        _ = try self.inferNode(f.body, &fun_scope);
+        body_inferred = true;
+        return_type = f.body.resolved_type.?;
+    } else {
+        const void_t = try self.allocator.create(AetherType);
+        void_t.* = .Void;
+        return_type = void_t;
+    }
+    
+    const fn_type = try self.allocator.create(AetherType);
+    fn_type.* = .{ .Function = .{
+        .params = try param_types.toOwnedSlice(),
+        .return_type = return_type,
+        .c_name = f.resolved_c_name.?,
+    } };
+    
+    try scope.define(f.name, fn_type);
 
-    _ = try self.inferNode(f.body, &fun_scope);
+    if (!body_inferred) {
+        _ = try self.inferNode(f.body, &fun_scope);
+    }
+    
+    if (f.is_expr_body) {
+        if (!isCompatible(return_type, f.body.resolved_type.?)) {
+            self.reportError(node.line, node.column, "TypeError: Expected {} but found {} in expression body.", .{return_type.*, f.body.resolved_type.?.*});
+            return error.TypeError;
+        }
+    }
     t.* = .Void;
 }
 
@@ -191,5 +257,29 @@ pub fn inferVarDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         break :blk void_t;
     });
     try scope.define(v.name, final_type);
+    t.* = .Void;
+}
+
+pub fn inferLibDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
+    const l = &node.data.lib_decl;
+    const lib_type = try self.allocator.create(AetherType);
+    lib_type.* = .{ .Custom = l.name };
+    try scope.define(l.name, lib_type);
+
+    for (l.functions) |func| {
+        const f = &func.data.fun_decl;
+        const full_name = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ l.name, f.name });
+        
+        var ret_type: *AetherType = undefined;
+        if (f.type_name) |tn| {
+            ret_type = try self.resolveTypeName(tn, f.type_is_nullable);
+        } else {
+            ret_type = try self.allocator.create(AetherType);
+            ret_type.* = .Void;
+        }
+        
+        try scope.define(full_name, ret_type);
+        try self.alias_map.put(full_name, f.name); // So CTranspiler knows the native name
+    }
     t.* = .Void;
 }

@@ -14,7 +14,7 @@ const isNullable = core.isNullable;
 pub fn inferAssignment(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const a = node.data.assignment;
     const assigned_type = try self.inferNode(a.value, scope);
-    if (scope.lookup(a.name)) |expected| {
+    if (scope.lookupVariable(a.name)) |expected| {
         if (!isCompatible(expected, assigned_type)) {
             self.reportError(node.line, node.column, "TypeError: Expected {} but found {} when reassigning variable '{s}'.", .{ expected.*, assigned_type.*, a.name });
             return error.TypeError;
@@ -102,7 +102,7 @@ pub fn inferIdentifier(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
     if (self.alias_map.get(i.name)) |c_name| {
         i.resolved_c_name = c_name;
     }
-    if (scope.lookup(i.name)) |found| {
+    if (scope.lookupVariable(i.name)) |found| {
         if (self.current_class_props) |props| {
             if (props.contains(i.name)) {
                 i.is_class_property = true;
@@ -127,28 +127,66 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
 
     if (c.callee.data == .identifier) {
         const name = c.callee.data.identifier.name;
-        if (self.alias_map.get(name)) |c_name| {
-            c.callee.data = .{ .identifier = .{
-                .name = name,
-                .resolved_c_name = c_name,
-            } };
+        if (scope.lookupFunctions(name)) |overloads| {
+            var best_match: ?*const AetherType = null;
+            
+            for (overloads) |overload| {
+                if (overload.* != .Function) continue;
+                const f = overload.Function;
+                if (f.params.len != c.arguments.len) continue;
+                
+                var all_match = true;
+                for (f.params, 0..) |p, i| {
+                    if (!isCompatible(p, c.arguments[i].resolved_type.?)) {
+                        all_match = false;
+                        break;
+                    }
+                }
+                
+                if (all_match) {
+                    best_match = overload;
+                    break;
+                }
+            }
+            
+            if (best_match) |matched| {
+                t.* = matched.Function.return_type.*;
+                c.callee.data = .{ .identifier = .{
+                    .name = name,
+                    .resolved_c_name = matched.Function.c_name,
+                } };
+                return;
+            } else {
+                self.reportError(node.line, node.column, "TypeError: No matching overload found for function '{s}'.", .{name});
+                return error.TypeError;
+            }
         }
-        if (std.mem.eql(u8, name, "print")) {
-            t.* = .Void;
-            return;
+        
+        if (scope.lookupVariable(name)) |variable| {
+            if (variable.* == .Custom) {
+                t.* = variable.*;
+                c.callee.data = .{ .identifier = .{
+                    .name = name,
+                    .resolved_c_name = variable.Custom,
+                } };
+                return;
+            }
         }
-        if (scope.lookup(name)) |found| {
-            t.* = found.*;
-            return;
-        }
+        
         if (self.alias_map.get(name)) |c_name| {
             if (name.len > 0 and name[0] >= 'A' and name[0] <= 'Z') {
                 t.* = .{ .Custom = c_name };
             } else {
                 t.* = .Unknown;
+                c.callee.data = .{ .identifier = .{
+                    .name = name,
+                    .resolved_c_name = c_name,
+                } };
             }
             return;
         }
+        self.reportError(node.line, node.column, "TypeError: Undeclared function '{s}'.", .{name});
+        return error.TypeError;
     } else if (c.callee.data == .get_expr) {
         _ = try self.inferNode(c.callee, scope);
         
@@ -163,6 +201,22 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
 
 pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const g = node.data.get_expr;
+    
+    // Check if it's a lib method call (e.g. C.printf)
+    if (g.object.data == .identifier) {
+        const full_name = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ g.object.data.identifier.name, g.name });
+        if (scope.lookupVariable(full_name)) |found_type| {
+            t.* = found_type.*;
+            node.resolved_type = found_type;
+            
+            const obj_t = try self.allocator.create(AetherType);
+            obj_t.* = .{ .Custom = g.object.data.identifier.name };
+            g.object.resolved_type = obj_t;
+            
+            return;
+        }
+    }
+
     const obj_type = try self.inferNode(g.object, scope);
     if (isNullable(obj_type) and !g.is_safe) {
         self.reportError(node.line, node.column, "TypeError: Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type {}.", .{obj_type.*});

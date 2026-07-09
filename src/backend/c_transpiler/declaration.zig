@@ -209,3 +209,22 @@ pub fn emitTestDecl(self: *CTranspiler, node: *ASTNode) !void {
     }
     try self.writer.appendSlice("}\n\n");
 }
+
+pub fn emitLibDecl(self: *CTranspiler, node: *ASTNode) !void {
+    const l = node.data.lib_decl;
+    if (self.libs.contains(l.name)) return;
+    try self.libs.put(l.name, {});
+
+    for (l.annotations) |ann| {
+        if (std.mem.eql(u8, ann.name, "Header")) {
+            for (ann.arguments) |arg| {
+                if (arg.len > 0 and arg[0] == '<' and arg[arg.len - 1] == '>') {
+                    try self.writer.writer().print("#include {s}\n", .{arg});
+                } else {
+                    try self.writer.writer().print("#include \"{s}\"\n", .{arg});
+                }
+            }
+        }
+    }
+    try self.writer.appendSlice("\n");
+}

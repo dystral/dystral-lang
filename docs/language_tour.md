@@ -87,11 +87,17 @@ To use symbols from another file, you must explicitly declare exactly what you w
 // The .ae extension is optional and will be inferred automatically.
 import { add, Vector } from "math"
 
+// Wildcard Import (Imports all public symbols from the module)
+import {} from "network"
+
 fun main() {
     val v = Vector(1, 1)
     val r = add(5, 5)
 }
 ```
+
+**The Implicit Standard Library**
+Aether comes with a core module named `system.ae` which contains fundamental types, C-bindings, and intrinsic functions (like `print`). The compiler automatically injects an `import {} from "system"` at the top of every file, making all standard functions globally available without explicitly requiring an import statement.
 
 *(Note: In the C backend, the compiler automatically performs Name Mangling to prevent collisions across files, meaning `add` inside `math.ae` becomes `math_add` in the final native binary, ensuring absolute safety).*
 
@@ -135,3 +141,31 @@ test "should add two numbers correctly" {
 ```
 
 Then, run `aether test` in your terminal. The compiler will automatically discover, group, and run all your tests in an isolated native binary.
+
+---
+
+## 7. C Interoperability & Annotations
+
+Because Aether transpiles to C, integrating with native C libraries is seamless. You can declare a `lib` block to map C functions into Aether without writing any wrapper code.
+
+Annotations (like `@Header`) instruct the C Transpiler to inject the corresponding `#include` directives at the top of the generated C file.
+
+```kotlin
+// core.ae (Aether's emerging Standard Library)
+@Header("<stdio.h>", "<stdlib.h>")
+lib System {
+    fun print(value: Unknown): Void
+    fun exit(code: Int): Void
+}
+```
+
+You can then import and use these native functions exactly like standard Aether code:
+
+```kotlin
+import { System } from "core"
+
+System.print("Hello from C!")
+System.exit(0)
+```
+
+*(Note: In the current phase, Annotations are structural compiler pragmas. In future phases, Aether will support declaring custom user-defined annotations natively).*

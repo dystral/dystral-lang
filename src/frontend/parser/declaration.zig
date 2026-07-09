@@ -6,11 +6,14 @@ const Param = ast.Param;
 const Parser = @import("core.zig").Parser;
 
 pub fn declaration(self: *Parser) anyerror!*ASTNode {
+    const annotations = try self.parseAnnotations();
     var modifiers = std.ArrayList(TokenType).init(self.allocator);
     
     while (self.match(.kw_override) or self.match(.kw_operator)) {
         try modifiers.append(self.previous.token_type);
     }
+    
+    if (self.match(.kw_lib)) return try self.libDeclaration(annotations);
     
     if (self.match(.kw_val)) {
         if (modifiers.items.len > 0) { self.errorAtCurrent("Modifiers not allowed on val"); return error.ParseError; }
@@ -20,7 +23,7 @@ pub fn declaration(self: *Parser) anyerror!*ASTNode {
         if (modifiers.items.len > 0) { self.errorAtCurrent("Modifiers not allowed on var"); return error.ParseError; }
         return try self.varDeclaration(true);
     }
-    if (self.match(.kw_fun)) return try self.funDeclaration(try modifiers.toOwnedSlice());
+    if (self.match(.kw_fun)) return try self.funDeclaration(try modifiers.toOwnedSlice(), false);
     if (self.match(.kw_class)) {
         if (modifiers.items.len > 0) { self.errorAtCurrent("Modifiers not allowed on class"); return error.ParseError; }
         return try self.classDeclaration();
@@ -36,6 +39,60 @@ pub fn declaration(self: *Parser) anyerror!*ASTNode {
     if (self.match(.kw_while)) return try self.whileStatement();
     if (self.match(.kw_return)) return try self.returnStatement();
     return try self.expression();
+}
+
+pub fn parseAnnotations(self: *Parser) anyerror![]ast.Annotation {
+    var annotations = std.ArrayList(ast.Annotation).init(self.allocator);
+    while (self.match(.at)) {
+        try self.consume(.identifier, "Expected annotation name after '@'.");
+        const name = self.previous.lexeme;
+        
+        var arguments = std.ArrayList([]const u8).init(self.allocator);
+        if (self.match(.l_paren)) {
+            if (!self.check(.r_paren)) {
+                while (true) {
+                    try self.consume(.string_literal, "Expected string literal as annotation argument.");
+                    const str_with_quotes = self.previous.lexeme;
+                    const str = str_with_quotes[1 .. str_with_quotes.len - 1];
+                    try arguments.append(str);
+                    if (!self.match(.comma)) break;
+                }
+            }
+            try self.consume(.r_paren, "Expected ')' after annotation arguments.");
+        }
+        try annotations.append(.{
+            .name = name,
+            .arguments = try arguments.toOwnedSlice(),
+        });
+    }
+    return try annotations.toOwnedSlice();
+}
+
+pub fn libDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*ASTNode {
+    const line = self.previous.line;
+    const col = self.previous.column;
+    
+    try self.consume(.identifier, "Expected lib name.");
+    const name = self.previous.lexeme;
+    
+    try self.consume(.l_brace, "Expected '{' before lib body.");
+    var functions = std.ArrayList(*ASTNode).init(self.allocator);
+    while (!self.check(.r_brace) and !self.check(.eof)) {
+        if (self.match(.kw_fun)) {
+            const func = try self.funDeclaration(&[_]TokenType{}, true);
+            try functions.append(func);
+        } else {
+            self.errorAtCurrent("Only functions are allowed inside 'lib' blocks.");
+            return error.ParseError;
+        }
+    }
+    try self.consume(.r_brace, "Expected '}' after lib body.");
+    
+    return try self.createNodeAt(.{ .lib_decl = .{
+        .annotations = annotations,
+        .name = name,
+        .functions = try functions.toOwnedSlice(),
+    } }, line, col);
 }
 
 pub fn varDeclaration(self: *Parser, is_mut: bool) anyerror!*ASTNode {
@@ -116,7 +173,7 @@ pub fn importDeclaration(self: *Parser) anyerror!*ASTNode {
     } }, line, col);
 }
 
-pub fn funDeclaration(self: *Parser, modifiers: []const TokenType) anyerror!*ASTNode {
+pub fn funDeclaration(self: *Parser, modifiers: []const TokenType, allow_no_body: bool) anyerror!*ASTNode {
     const line = self.previous.line;
     const col = self.previous.column;
     
@@ -158,6 +215,8 @@ pub fn funDeclaration(self: *Parser, modifiers: []const TokenType) anyerror!*AST
         }
         try self.consume(.r_brace, "Expected '}' after block.");
         body = try self.createNode(.{ .block = .{ .statements = try stmts.toOwnedSlice() } });
+    } else if (allow_no_body) {
+        body = try self.createNode(.{ .block = .{ .statements = &[_]*ASTNode{} } });
     } else {
         self.errorAtCurrent("Invalid function body.");
         return error.ParseError;
@@ -222,7 +281,7 @@ pub fn classDeclaration(self: *Parser) anyerror!*ASTNode {
             }
             
             if (self.match(.kw_fun)) {
-                try methods.append(try self.funDeclaration(try modifiers.toOwnedSlice()));
+                try methods.append(try self.funDeclaration(try modifiers.toOwnedSlice(), false));
             } else {
                 self.errorAtCurrent("Only methods are currently supported inside classes.");
                 return error.ParseError;

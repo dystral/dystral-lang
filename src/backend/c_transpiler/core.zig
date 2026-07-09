@@ -14,6 +14,7 @@ pub const CTranspiler = struct {
     allocator: std.mem.Allocator,
     writer: std.ArrayList(u8),
     classes: std.StringHashMap(void),
+    libs: std.StringHashMap(void),
     emitted_functions: std.StringHashMap(void),
     is_test_mode: bool = false,
     test_names: std.ArrayList([]const u8),
@@ -23,6 +24,7 @@ pub const CTranspiler = struct {
     pub const emitMethodDecl = decl_mod.emitMethodDecl;
     pub const emitFunDecl = decl_mod.emitFunDecl;
     pub const emitTestDecl = decl_mod.emitTestDecl;
+    pub const emitLibDecl = decl_mod.emitLibDecl;
 
     pub const emitStatement = stmt_mod.emitStatement;
     pub const emitExpression = expr_mod.emitExpression;
@@ -32,6 +34,7 @@ pub const CTranspiler = struct {
             .allocator = allocator,
             .writer = std.ArrayList(u8).init(allocator),
             .classes = std.StringHashMap(void).init(allocator),
+            .libs = std.StringHashMap(void).init(allocator),
             .emitted_functions = std.StringHashMap(void).init(allocator),
             .is_test_mode = false,
             .test_names = std.ArrayList([]const u8).init(allocator),
@@ -42,6 +45,7 @@ pub const CTranspiler = struct {
     pub fn deinit(self: *CTranspiler) void {
         self.writer.deinit();
         self.classes.deinit();
+        self.libs.deinit();
         self.emitted_functions.deinit();
         self.test_names.deinit();
     }
@@ -66,6 +70,8 @@ pub const CTranspiler = struct {
                         }
                     } else if (stmt.data == .class_decl) {
                         try self.emitClassDecl(stmt);
+                    } else if (stmt.data == .lib_decl) {
+                        try self.emitLibDecl(stmt);
                     }
                 }
                 
@@ -83,7 +89,7 @@ pub const CTranspiler = struct {
                 var top_level_stmts = std.ArrayList(*ASTNode).init(self.allocator);
                 defer top_level_stmts.deinit();
                 for (p.statements) |stmt| {
-                    if (stmt.data != .fun_decl and stmt.data != .class_decl and stmt.data != .import_stmt and stmt.data != .test_decl) {
+                    if (stmt.data != .fun_decl and stmt.data != .class_decl and stmt.data != .import_stmt and stmt.data != .test_decl and stmt.data != .lib_decl) {
                         try top_level_stmts.append(stmt);
                     }
                 }

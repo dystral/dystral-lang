@@ -58,6 +58,8 @@ pub const Parser = struct {
     pub const importDeclaration = declaration_mod.importDeclaration;
     pub const funDeclaration = declaration_mod.funDeclaration;
     pub const classDeclaration = declaration_mod.classDeclaration;
+    pub const libDeclaration = declaration_mod.libDeclaration;
+    pub const parseAnnotations = declaration_mod.parseAnnotations;
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Parser {
         var p = Parser{

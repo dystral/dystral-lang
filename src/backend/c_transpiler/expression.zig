@@ -76,6 +76,18 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             } else if (c.callee.data == .get_expr) {
                 const g = c.callee.data.get_expr;
                 const rt = g.object.resolved_type.?;
+                
+                if (rt.* == .Custom and self.libs.contains(rt.Custom)) {
+                    // It's a C method call from a lib block!
+                    try self.writer.writer().print("{s}(", .{g.name});
+                    for (c.arguments, 0..) |arg, i| {
+                        if (i > 0) try self.writer.appendSlice(", ");
+                        try self.emitExpression(arg);
+                    }
+                    try self.writer.appendSlice(")");
+                    return;
+                }
+
                 var class_name: []const u8 = "unknown";
                 if (rt.* == .String) {
                     class_name = "AetherString";

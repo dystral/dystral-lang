@@ -63,3 +63,16 @@ Integração profunda de testes como recurso *first-class*.
 - Fim da necessidade da extensão `.kt`, aceitando explicitamente a extensão nativa `.ae` e tornando sua citação opcional nas importações (`import { add } from "math"`).
 - O Lexer e Parser agora leem a nova palavra-chave `test`.
 - O comando `aether test` busca recursivamente por arquivos `_test.ae`, compilando-os e gerando a função de verificação `main()` que avalia os testes injetados com a nova macro nativa `assert()`.
+
+### Phase 22: Top-Level Statements & Hybrid Main
+Ergonomia máxima para scripts e módulos.
+- Permite escrever instruções diretamente na raiz do arquivo sem a necessidade de um `fun main()` obrigatório.
+- O TypeChecker coleta e executa as instruções top-level na ordem, enquanto o CTranspiler as encapsula em um bloco `main()` nativo do C.
+- Bloqueia magicamente `ImportSideEffectsNotAllowed` caso arquivos importados tentem rodar top-level statements, garantindo que módulos atuem apenas como bibliotecas passivas.
+
+### Phase 17.1: Interoperabilidade C e Standard Library (`core.ae`)
+Conexão nativa do compilador com ecossistema C e remoção de _bypasses_ fixos.
+- Adição da keyword `lib` para declarar blocos de funções nativas do C.
+- Suporte a anotações estruturais (ex: `@Header("<stdio.h>")`) que injetam `#include` dinamicamente no código C transpilado.
+- Adicionado o tipo `Unknown` na linguagem para simular flexibilidade no C (ex: funções que aceitam múltiplos tipos despachados via `_Generic`).
+- Criação do `samples/core.ae` (a semente da Standard Library), declarando `System.print` e `System.exit`, eliminando a dependência do compilador em conhecer internamente a função `print()`.

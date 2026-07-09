@@ -18,6 +18,7 @@ pub const TokenType = enum {
     kw_import,
     kw_from,
     kw_test,
+    kw_lib,
 
     // Symbols and Operators
     eq,         // =
@@ -26,13 +27,14 @@ pub const TokenType = enum {
     r_paren,    // )
     l_brace,    // {
     r_brace,    // }
+    at,         // @
     colon,      // :
     comma,      // ,
     dot,        // .
-    question,
-    question_dot,
-    elvis,
-    bang_bang,
+    question,   // ?
+    question_dot, // ?.
+    elvis,      // ?:
+    bang_bang,  // !!
     plus,       // +
     minus,      // -
     star,       // *
@@ -61,6 +63,11 @@ pub const Token = struct {
     lexeme: []const u8,
     line: usize,
     column: usize,
+};
+
+pub const Annotation = struct {
+    name: []const u8,
+    arguments: []const []const u8,
 };
 
 /// Auxiliary structures for the AST
@@ -120,6 +127,11 @@ pub const ASTNodeType = union(enum) {
     test_decl: struct {
         name: []const u8,
         body: *ASTNode,
+    },
+    lib_decl: struct {
+        annotations: []const Annotation,
+        name: []const u8,
+        functions: []const *ASTNode,
     },
     
     // Literals

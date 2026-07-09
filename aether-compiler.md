@@ -111,7 +111,7 @@ Aether is a compiled programming language focused on systems performance, concis
 - **Task 16.3:** Resolver colisões de namespace entre arquivos.
 
 ### Phase 17: Core Library, Arrays & For-Loops (LATER)
-- **Task 17.1:** Remover o bypass nativo de funções como `print()` no TypeChecker, introduzindo um arquivo base oculto (`core.ae`) que define a Stdlib do Aether.
+- **Task 17.1:** Remover o bypass nativo de funções como `print()`, `assert()`, `exit()` etc... no TypeChecker, introduzindo um arquivo base oculto (`core.ae`) que define a Stdlib do Aether.
 - **Task 17.2:** Suporte nativo a Coleções/Arrays (`[String]`).
 - **Task 17.3:** Adicionar suporte nativo à iteração com loop `for` (`for (item in list)`).
 
@@ -145,10 +145,15 @@ Aether is a compiled programming language focused on systems performance, concis
 - **Task 22.5:** Garantir que arquivos que são *importados* não executem seus top-level statements aleatoriamente. Apenas o arquivo CLI principal ou os testes devem rodar.
 - **VERIFY:** O `samples/fibonacci.ae` ou `samples/string_ops.ae` funcionam corretamente se apagarmos as chaves do `fun main()`.
 
-### Phase 23: Cross-Module Type Inference & Global Symbol Table (LATER)
-- **Task 23.1:** Substituir o tipo `.Unknown` temporário adicionado na Fase 22 por uma verdadeira Tabela de Símbolos Global (`Global Symbol Table`).
-- **Task 23.2:** O compilador deve fazer um pré-scan (Pass 1) em todos os arquivos importados para registrar a assinatura de todas as funções e propriedades exportadas antes de rodar o TypeChecker.
-- **Task 23.3:** O TypeChecker deve validar perfeitamente os tipos de retorno cruzados entre diferentes arquivos.
+### Phase 23: Function Overloading & Global Symbol Table (COMPLETED)
+- **Task 23.1:** Substituir o tipo `.Unknown` temporário adicionado na Fase 22 por uma verdadeira Tabela de Símbolos Global que suporta *Function Overloading* e *Name Mangling* para o backend C.
+- **Task 23.2:** O TypeChecker agora importa sobrecargas corretamente (ex: `System.print(String)` e `System.print(Int)`) checando os tipos de argumentos de forma perfeitamente segura.
+- **Task 23.3:** O TypeChecker valida perfeitamente os tipos cruzados entre diferentes arquivos importados através do agrupamento das funções no AST global.
+
+### Phase 24: User-Defined Annotations & Metadata (LATER)
+- **Task 24.1:** Adicionar suporte no Lexer, AST e Parser para declaração de anotações customizadas (ex: `annotation Header(files: [String])`).
+- **Task 24.2:** O `TypeChecker` deve validar se as anotações utilizadas (ex: `@Header("<stdio.h>")`) foram devidamente declaradas no escopo e se os argumentos informados batem com os tipos exigidos.
+- **Task 24.3:** O compilador deve ser capaz de salvar essas anotações como metadados refletíveis ou consumi-las durante a geração de código (como já é feito nativamente no bloco `lib`).
 
 ## ✅ Definition of Done (Per Phase)
 - [x] Security/Lint: No memory leaks using `std.testing.allocator` across all modules.

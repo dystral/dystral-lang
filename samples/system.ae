@@ -1,0 +1,22 @@
+@Header("<stdio.h>", "<stdlib.h>")
+lib System {
+    fun print(value: Unknown): Void
+    fun exit(code: Int): Void
+    fun assert(condition: Bool): Void
+}
+
+fun print(value: String): Void {
+    System.print(value)
+}
+
+fun print(value: Int): Void {
+    System.print(value)
+}
+
+fun print(value: Bool): Void {
+    System.print(value)
+}
+
+fun assert(condition: Bool): Void {
+    System.assert(condition)
+}
