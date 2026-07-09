@@ -1,7 +1,7 @@
 const std = @import("std");
 const lexer = @import("frontend/lexer.zig");
 const parser = @import("frontend/parser/core.zig");
-const c_transpiler = @import("backend/c_transpiler.zig");
+const c_transpiler = @import("backend/c_transpiler/core.zig");
 
 /// Main entry point for the Aether CLI.
 /// Orchestrates the pipeline: Source -> Lexer -> Parser -> AST -> C Transpiler -> Binary.
@@ -153,5 +153,5 @@ test "imports" {
     _ = @import("core/ast.zig");
     _ = @import("frontend/lexer.zig");
     _ = @import("frontend/parser/core.zig");
-    _ = @import("backend/c_transpiler.zig");
+    _ = @import("backend/c_transpiler/core.zig");
 }
