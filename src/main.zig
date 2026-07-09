@@ -7,11 +7,13 @@ const c_transpiler = @import("backend/c_transpiler/core.zig");
 /// Orchestrates the pipeline: Source -> Lexer -> Parser -> AST -> C Transpiler -> Binary.
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    
+    var global_arena = std.heap.ArenaAllocator.init(gpa.allocator());
+    defer global_arena.deinit();
+    const allocator = global_arena.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try std.process.argsAlloc(gpa.allocator());
+    defer std.process.argsFree(gpa.allocator(), args);
 
     if (args.len < 2 or (!std.mem.eql(u8, args[1], "run") and !std.mem.eql(u8, args[1], "build") and !std.mem.eql(u8, args[1], "test"))) {
         std.debug.print("Usage: aether <run|build|test> [file.ae]\n", .{});

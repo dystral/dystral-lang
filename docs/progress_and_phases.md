@@ -76,3 +76,18 @@ Conexão nativa do compilador com ecossistema C e remoção de _bypasses_ fixos.
 - Suporte a anotações estruturais (ex: `@Header("<stdio.h>")`) que injetam `#include` dinamicamente no código C transpilado.
 - Adicionado o tipo `Unknown` na linguagem para simular flexibilidade no C (ex: funções que aceitam múltiplos tipos despachados via `_Generic`).
 - Criação do `samples/core.ae` (a semente da Standard Library), declarando `System.print` e `System.exit`, eliminando a dependência do compilador em conhecer internamente a função `print()`.
+
+### Phase 23: Function Overloading & Global Symbol Table
+Substituímos tipos de bypass mágicos e gambiarras (`Unknown`, `_Generic`) por tipagem explícita e rica.
+- Implementação de Tabela de Símbolos Global e verificação rígida no TypeChecker para tipos cruzados em módulos.
+- Suporte a múltiplas assinaturas para a mesma função via **Function Overloading** (ex: `print(Int)` e `print(String)` coexistindo pacificamente).
+- O transpilador adota um sistema automático de *Name Mangling* para evitar colisões no backend C.
+- Suporte nativo ao **Wildcard Import** (`import * from "system"`), injetando bibliotecas padrão em todos os arquivos de forma transparente.
+
+### Phase 24: Native SDK Architecture (100% Aether)
+Transformamos Aether em uma linguagem autossuficiente e tipicamente forte por reflexão nas próprias estruturas.
+- Migração completa de **Primitivas Hardcoded** no Compilador (C Transpiler / TypeChecker) para a nova Arquitetura SDK Nativa (`system.ae`).
+- O Compilador agora não injeta "gambiarras" ou validações _hardcoded_ de propriedades (ex: `length`) de String/Int/Bool. Ele usa reflexão direta no AST e delega toda a arquitetura de tipos da linguagem para a declaração no `system.ae`.
+- Adição da primitiva `Pointer` e o suporte à anotação `@Primitive`.
+- Transpilador polido para entender tipos nulos em retornos C (`void*`), permitindo encadeamento seguro com `u?.email` resolvido nativamente via C Ternaries transparentes e Typeset seguro.
+- A biblioteca C base foi segmentada modularmente, com `Standard` (`stdlib.h`, `stdio.h`) e `NativeString` (`string.h`), reforçando a segurança do código fonte na Stdlib.

@@ -10,83 +10,75 @@ pub fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
     if (self.classes.contains(actual_name)) return;
     try self.classes.put(actual_name, {});
 
-    // Emit Struct
-    try self.writer.writer().print("typedef struct {{\n", .{});
-    for (class_decl.primary_constructor) |prop| {
-        const t_str = if (std.mem.eql(u8, prop.type_name, "Int")) "int" else if (std.mem.eql(u8, prop.type_name, "String")) "AetherString*" else "int";
-        try self.writer.writer().print("    {s} {s};\n", .{t_str, prop.name});
+    var primitive_type: ?[]const u8 = null;
+    for (class_decl.annotations) |ann| {
+        if (std.mem.eql(u8, ann.name, "Primitive") and ann.arguments.len > 0) {
+            primitive_type = ann.arguments[0];
+            break;
+        }
     }
-    try self.writer.writer().print("}} {s};\n\n", .{actual_name});
 
-    // Emit Allocator/Constructor
-    try self.writer.writer().print("{s}* {s}_new(", .{actual_name, actual_name});
-    for (class_decl.primary_constructor, 0..) |prop, i| {
-        if (i > 0) try self.writer.appendSlice(", ");
-        const t_str = if (std.mem.eql(u8, prop.type_name, "Int")) "int" else if (std.mem.eql(u8, prop.type_name, "String")) "AetherString*" else "int";
-        try self.writer.writer().print("{s} {s}", .{t_str, prop.name});
+    if (primitive_type == null) {
+        // Emit Struct
+        try self.header_writer.writer().print("typedef struct {s} {s};\n", .{actual_name, actual_name});
+        try self.header_writer.writer().print("struct {s} {{\n", .{actual_name});
+        for (class_decl.primary_constructor) |prop| {
+            const t_str = if (std.mem.eql(u8, prop.type_name, "Int")) "int" 
+                          else if (std.mem.eql(u8, prop.type_name, "Bool")) "bool"
+                          else if (std.mem.eql(u8, prop.type_name, "Pointer")) "void*"
+                          else if (std.mem.eql(u8, prop.type_name, "String")) "system_String*" 
+                          else "void*";
+            try self.header_writer.writer().print("    {s} {s};\n", .{t_str, prop.name});
+        }
+        try self.header_writer.writer().print("}};\n\n", .{});
+
+        // Emit Allocator/Constructor
+        try self.writer.writer().print("{s}* {s}_new(", .{actual_name, actual_name});
+        for (class_decl.primary_constructor, 0..) |prop, i| {
+            if (i > 0) try self.writer.appendSlice(", ");
+            const t_str = if (std.mem.eql(u8, prop.type_name, "Int")) "int" 
+                          else if (std.mem.eql(u8, prop.type_name, "Bool")) "bool"
+                          else if (std.mem.eql(u8, prop.type_name, "Pointer")) "void*"
+                          else if (std.mem.eql(u8, prop.type_name, "String")) "system_String*" 
+                          else "void*";
+            try self.writer.writer().print("{s} {s}", .{t_str, prop.name});
+        }
+        try self.writer.writer().print(") {{\n", .{});
+        try self.writer.writer().print("    {s}* instance = ({s}*)GC_MALLOC(sizeof({s}));\n", .{actual_name, actual_name, actual_name});
+        for (class_decl.primary_constructor) |prop| {
+            try self.writer.writer().print("    instance->{s} = {s};\n", .{prop.name, prop.name});
+        }
+        try self.writer.appendSlice("    return instance;\n}\n\n");
     }
-    try self.writer.writer().print(") {{\n", .{});
-    try self.writer.writer().print("    {s}* instance = ({s}*)GC_MALLOC(sizeof({s}));\n", .{actual_name, actual_name, actual_name});
-    for (class_decl.primary_constructor) |prop| {
-        try self.writer.writer().print("    instance->{s} = {s};\n", .{prop.name, prop.name});
-    }
-    try self.writer.appendSlice("    return instance;\n}\n\n");
     
     for (class_decl.methods) |method| {
-        try self.emitMethodDecl(actual_name, method);
+        try self.emitMethodDecl(actual_name, method, primitive_type);
     }
 }
 
-pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode) !void {
+pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode, primitive_type: ?[]const u8) !void {
     const decl = node.data.fun_decl;
     
-    if (decl.is_expr_body) {
-        if (decl.body.resolved_type) |rt| {
-            if (rt.* == .String) {
-                try self.writer.appendSlice("AetherString* ");
-            } else if (rt.* == .Custom) {
-                try self.writer.writer().print("{s}* ", .{rt.Custom});
-            } else {
-                try self.writer.appendSlice("int ");
-            }
-        } else {
-            try self.writer.appendSlice("int ");
-        }
+    if (node.resolved_type) |rt| {
+        const fun_type = rt.Function;
+        const ret_str = try core.getCTypeStr(self.allocator, fun_type.return_type);
+        try self.writer.writer().print("{s} ", .{ret_str});
     } else {
-        if (decl.type_name) |tn| {
-            if (std.mem.eql(u8, tn, "String")) {
-                try self.writer.appendSlice("AetherString* ");
-            } else if (std.mem.eql(u8, tn, "Int")) {
-                try self.writer.appendSlice("int ");
-            } else if (std.mem.eql(u8, tn, "Bool")) {
-                try self.writer.appendSlice("bool ");
-            } else {
-                try self.writer.writer().print("{s}* ", .{tn});
-            }
-        } else {
-            try self.writer.appendSlice("void ");
-        }
+        try self.writer.appendSlice("void ");
     }
     
-    try self.writer.writer().print("{s}_{s}({s}* self", .{class_name, decl.name, class_name});
+    if (primitive_type) |pt| {
+        try self.writer.writer().print("{s}_{s}({s} this", .{class_name, decl.name, pt});
+    } else {
+        try self.writer.writer().print("{s}_{s}({s}* this", .{class_name, decl.name, class_name});
+    }
     
-    for (decl.params) |p| {
-        try self.writer.appendSlice(", ");
-        var is_ptr = false;
-        var t_str: []const u8 = "int";
-        if (p.type_name) |tn| {
-            if (std.mem.eql(u8, tn, "String")) {
-                t_str = "AetherString";
-                is_ptr = true;
-            } else if (self.classes.contains(tn)) {
-                t_str = tn;
-                is_ptr = true;
-            }
-        }
-        if (is_ptr) {
-            try self.writer.writer().print("{s}* {s}", .{t_str, p.name});
-        } else {
-            try self.writer.writer().print("{s} {s}", .{t_str, p.name});
+    if (node.resolved_type) |rt| {
+        const fun_type = rt.Function;
+        for (decl.params, 0..) |p, i| {
+            try self.writer.appendSlice(", ");
+            const param_t_str = try core.getCTypeStr(self.allocator, fun_type.params[i]);
+            try self.writer.writer().print("{s} {s}", .{param_t_str, p.name});
         }
     }
     try self.writer.appendSlice(") {\n");
@@ -124,48 +116,23 @@ pub fn emitFunDecl(self: *CTranspiler, node: *ASTNode) !void {
 
     if (is_main) {
         try self.writer.appendSlice("int ");
-    } else if (decl.type_name) |tn| {
-        if (std.mem.eql(u8, tn, "String")) {
-            try self.writer.appendSlice("AetherString* ");
-        } else if (self.classes.contains(tn)) {
-            try self.writer.writer().print("{s}* ", .{tn});
-        } else {
-            try self.writer.appendSlice("int ");
-        }
-    } else if (decl.is_expr_body) {
-        if (decl.body.resolved_type) |rt| {
-            if (rt.* == .String) {
-                try self.writer.appendSlice("AetherString* ");
-            } else if (rt.* == .Custom) {
-                try self.writer.writer().print("{s}* ", .{rt.Custom});
-            } else {
-                try self.writer.appendSlice("int ");
-            }
-        } else {
-            try self.writer.appendSlice("int ");
-        }
+    } else if (node.resolved_type) |rt| {
+        const fun_type = rt.Function;
+        const ret_str = try core.getCTypeStr(self.allocator, fun_type.return_type);
+        try self.writer.writer().print("{s} ", .{ret_str});
     } else {
         try self.writer.appendSlice("void ");
     }
     
     try self.writer.writer().print("{s}(", .{func_name});
-    for (decl.params, 0..) |p, i| {
-        if (i > 0) try self.writer.appendSlice(", ");
-        var is_ptr = false;
-        var t_str: []const u8 = "int";
-        if (p.type_name) |tn| {
-            if (std.mem.eql(u8, tn, "String")) {
-                t_str = "AetherString";
-                is_ptr = true;
-            } else if (self.classes.contains(tn)) {
-                t_str = tn;
-                is_ptr = true;
-            }
-        }
-        if (is_ptr) {
-            try self.writer.writer().print("{s}* {s}", .{t_str, p.name});
-        } else {
-            try self.writer.writer().print("{s} {s}", .{t_str, p.name});
+    if (is_main) {
+        // main has no params or argc/argv if needed later
+    } else if (node.resolved_type) |rt| {
+        const fun_type = rt.Function;
+        for (decl.params, 0..) |p, i| {
+            if (i > 0) try self.writer.appendSlice(", ");
+            const param_t_str = try core.getCTypeStr(self.allocator, fun_type.params[i]);
+            try self.writer.writer().print("{s} {s}", .{param_t_str, p.name});
         }
     }
     try self.writer.appendSlice(") {\n");

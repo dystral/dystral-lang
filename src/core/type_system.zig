@@ -4,9 +4,11 @@ pub const AetherType = union(enum) {
     Int,
     String,
     Bool,
+    Pointer,
     Void,
     Null,
     Unknown,
+    Array: *const AetherType,
     Custom: []const u8,
     Function: struct {
         params: []const *const AetherType,
@@ -24,9 +26,15 @@ pub const AetherType = union(enum) {
             .Int => try writer.writeAll("Int"),
             .String => try writer.writeAll("String"),
             .Bool => try writer.writeAll("Bool"),
+            .Pointer => try writer.writeAll("Pointer"),
             .Void => try writer.writeAll("Void"),
             .Null => try writer.writeAll("null"),
             .Unknown => try writer.writeAll("Unknown"),
+            .Array => |elem| {
+                try writer.writeAll("[");
+                try elem.format("", options, writer);
+                try writer.writeAll("]");
+            },
             .Custom => |name| try writer.writeAll(name),
             .Function => |f| {
                 try writer.writeAll("fun(");
@@ -131,6 +139,17 @@ pub fn extractBaseType(t: *const AetherType) *const AetherType {
     };
 }
 
+pub fn isBool(t: *const AetherType) bool {
+    const base = extractBaseType(t);
+    switch (base.*) {
+        .Bool => return true,
+        .Custom => |name| {
+            return std.mem.eql(u8, name, "Bool") or std.mem.eql(u8, name, "system_Bool");
+        },
+        else => return false,
+    }
+}
+
 pub fn isCompatible(expected: *const AetherType, actual: *const AetherType) bool {
     if (expected.* == .Unknown or actual.* == .Unknown) return true;
     if (isNullable(expected) and actual.* == .Null) return true;
@@ -144,6 +163,12 @@ pub fn isCompatible(expected: *const AetherType, actual: *const AetherType) bool
             .Custom => |name| {
                 if (act_base.* == .Custom) {
                     return std.mem.eql(u8, name, act_base.Custom);
+                }
+                return false;
+            },
+            .Array => |elem| {
+                if (act_base.* == .Array) {
+                    return isCompatible(elem, act_base.Array);
                 }
                 return false;
             },

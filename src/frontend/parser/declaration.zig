@@ -26,7 +26,7 @@ pub fn declaration(self: *Parser) anyerror!*ASTNode {
     if (self.match(.kw_fun)) return try self.funDeclaration(try modifiers.toOwnedSlice(), false);
     if (self.match(.kw_class)) {
         if (modifiers.items.len > 0) { self.errorAtCurrent("Modifiers not allowed on class"); return error.ParseError; }
-        return try self.classDeclaration();
+        return try self.classDeclaration(annotations);
     }
     
     if (modifiers.items.len > 0) {
@@ -37,6 +37,7 @@ pub fn declaration(self: *Parser) anyerror!*ASTNode {
     if (self.match(.kw_import)) return try self.importDeclaration();
     if (self.match(.kw_test)) return try self.testDeclaration();
     if (self.match(.kw_while)) return try self.whileStatement();
+    if (self.match(.kw_for)) return try self.forStatement();
     if (self.match(.kw_return)) return try self.returnStatement();
     return try self.expression();
 }
@@ -234,7 +235,7 @@ pub fn funDeclaration(self: *Parser, modifiers: []const TokenType, allow_no_body
     }}, line, col);
 }
 
-pub fn classDeclaration(self: *Parser) anyerror!*ASTNode {
+pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*ASTNode {
     const line = self.previous.line;
     const col = self.previous.column;
     
@@ -291,6 +292,7 @@ pub fn classDeclaration(self: *Parser) anyerror!*ASTNode {
     }
     
     return try self.createNodeAt(.{ .class_decl = .{
+        .annotations = annotations,
         .name = name,
         .primary_constructor = try props.toOwnedSlice(),
         .methods = try methods.toOwnedSlice(),

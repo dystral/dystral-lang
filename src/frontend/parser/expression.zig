@@ -139,6 +139,10 @@ pub fn call(self: *Parser) anyerror!*ASTNode {
             expr = try self.createNode(.{ .get_expr = .{ .object = expr, .name = name, .is_safe = is_safe } });
         } else if (self.match(.bang_bang)) {
             expr = try self.createNode(.{ .unary_expr = .{ .operator = .bang_bang, .operand = expr } });
+        } else if (self.match(.l_bracket)) {
+            const index = try self.expression();
+            try self.consume(.r_bracket, "Expected ']' after index.");
+            expr = try self.createNode(.{ .index_expr = .{ .object = expr, .index = index } });
         } else {
             break;
         }
@@ -220,6 +224,18 @@ pub fn primary(self: *Parser) anyerror!*ASTNode {
             .name = self.previous.lexeme,
             .resolved_c_name = null,
         } }, line, col);
+    }
+    
+    if (self.match(.l_bracket)) {
+        var elements = std.ArrayList(*ASTNode).init(self.allocator);
+        if (!self.check(.r_bracket)) {
+            while (true) {
+                try elements.append(try self.expression());
+                if (!self.match(.comma)) break;
+            }
+        }
+        try self.consume(.r_bracket, "Expected ']' after array elements.");
+        return try self.createNodeAt(.{ .array_literal = .{ .elements = try elements.toOwnedSlice() } }, line, col);
     }
 
     self.errorAtCurrent("Expected expression.");

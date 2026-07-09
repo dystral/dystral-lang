@@ -1,0 +1,13 @@
+import { assert } from "../system"
+import { sumArray, getFirstElement } from "../arrays_and_loops"
+
+test "arrays_and_loops_test.ae: should iterate over array of integers" {
+    val arr = [1, 2, 3]
+    val sum = sumArray(arr)
+    assert(sum == 6)
+}
+
+test "arrays_and_loops_test.ae: should allow index access" {
+    val arr = ["hello", "world"]
+    assert(getFirstElement(arr) == "hello")
+}

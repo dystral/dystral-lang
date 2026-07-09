@@ -1,0 +1,9 @@
+fun sumArray(arr: [Int]): Int {
+    var sum = 0
+    for (item in arr) {
+        sum = sum + item
+    }
+    return sum
+}
+
+fun getFirstElement(arr: [String]) = arr[0]

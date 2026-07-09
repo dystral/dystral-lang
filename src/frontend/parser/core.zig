@@ -50,6 +50,7 @@ pub const Parser = struct {
     pub const primary = expression_mod.primary;
 
     pub const whileStatement = statement_mod.whileStatement;
+    pub const forStatement = statement_mod.forStatement;
     pub const returnStatement = statement_mod.returnStatement;
 
     pub const declaration = declaration_mod.declaration;
@@ -76,8 +77,16 @@ pub const Parser = struct {
 
 fn core_parseTypeAnnotation(self: *Parser) anyerror!ParsedType {
     if (self.match(.colon)) {
-        try self.consume(.identifier, "Expected type name.");
-        const name = self.previous.lexeme;
+        var name: []const u8 = undefined;
+        if (self.match(.l_bracket)) {
+            try self.consume(.identifier, "Expected element type name.");
+            const inner = self.previous.lexeme;
+            try self.consume(.r_bracket, "Expected ']' after array type.");
+            name = try std.fmt.allocPrint(self.allocator, "[{s}]", .{inner});
+        } else {
+            try self.consume(.identifier, "Expected type name.");
+            name = self.previous.lexeme;
+        }
         var is_nullable = false;
         
         if (self.match(.question)) {

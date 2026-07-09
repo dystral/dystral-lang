@@ -169,3 +169,36 @@ System.exit(0)
 ```
 
 *(Note: In the current phase, Annotations are structural compiler pragmas. In future phases, Aether will support declaring custom user-defined annotations natively).*
+
+---
+
+## 8. Arrays and Loops
+
+Aether features a native type system for dynamic arrays, similar to `List` em Kotlin, along with ergonomic `for` and `while` loops.
+
+**IMPORTANT:** The `[Type]` syntax is purely syntactic sugar for a **strictly immutable** `List<Type>`. You cannot push new elements, pop them, or reassign indices (e.g., `arr[0] = 5`). If you need mutability, you will need to use a mutable collection explicitly (like `MutableList<Type>`, which will be introduced in future phases).
+
+Arrays are declared with `[Type]`, and literals use the `[1, 2, 3]` syntax.
+
+```kotlin
+fun main() {
+    // Array declaration and initialization
+    val numbers = [1, 2, 3, 4, 5]
+    
+    // Arrays can be accessed by index
+    val first = numbers[0]
+    
+    // For-loops iterate seamlessly over arrays
+    var sum = 0
+    for (item in numbers) {
+        sum = sum + item
+    }
+    
+    // While loops are also fully supported
+    var i = 0
+    while (i < 5) {
+        // do something
+        i = i + 1
+    }
+}
+```

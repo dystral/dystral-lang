@@ -13,6 +13,7 @@ const infer_decl_mod = @import("infer_decl.zig");
 pub const isCompatible = type_system.isCompatible;
 pub const isNullable = type_system.isNullable;
 pub const extractBaseType = type_system.extractBaseType;
+pub const isBool = type_system.isBool;
 pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
     global_scope: Scope,
@@ -22,6 +23,7 @@ pub const TypeChecker = struct {
     module_prefix: ?[]const u8 = null,
     is_test_mode: bool = false,
     current_class_props: ?*std.StringHashMap(void) = null,
+    classes_ast: std.StringHashMap(*ASTNode),
 
 
     pub const inferNode = core_inferNode;
@@ -31,7 +33,7 @@ pub const TypeChecker = struct {
     pub const checkBlock = infer_stmt_mod.checkBlock;
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, filename: []const u8) TypeChecker {
-        var checker = TypeChecker{
+        const checker = TypeChecker{
             .allocator = allocator,
             .global_scope = Scope.init(allocator, null),
             .source = source,
@@ -40,11 +42,8 @@ pub const TypeChecker = struct {
             .module_prefix = null,
             .is_test_mode = false,
             .current_class_props = null,
+            .classes_ast = std.StringHashMap(*ASTNode).init(allocator),
         };
-
-        const string_t = allocator.create(AetherType) catch unreachable;
-        string_t.* = .String;
-        checker.global_scope.define("String", string_t) catch unreachable;
 
         return checker;
     }
@@ -52,6 +51,7 @@ pub const TypeChecker = struct {
     pub fn deinit(self: *TypeChecker) void {
         self.global_scope.deinit();
         self.alias_map.deinit();
+        self.classes_ast.deinit();
     }
 };
 
@@ -86,14 +86,25 @@ fn core_reportError(self: *TypeChecker, line: usize, column: usize, comptime mes
 
 fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool) !*AetherType {
     var base_type: AetherType = .Void;
+    
+    // Check primitives first
     if (std.mem.eql(u8, name, "Int")) {
         base_type = .Int;
-    } else if (std.mem.eql(u8, name, "String")) {
-        base_type = .String;
     } else if (std.mem.eql(u8, name, "Bool")) {
         base_type = .Bool;
+    } else if (std.mem.eql(u8, name, "Void")) {
+        base_type = .Void;
+    } else if (std.mem.eql(u8, name, "Pointer")) {
+        base_type = .Pointer;
     } else {
-        base_type = .{ .Custom = name };
+        const actual_name = self.alias_map.get(name) orelse name;
+        if (std.mem.startsWith(u8, actual_name, "[") and std.mem.endsWith(u8, actual_name, "]")) {
+            const inner_name = actual_name[1 .. actual_name.len - 1];
+            const inner_type = try self.resolveTypeName(inner_name, false);
+            base_type = .{ .Array = inner_type };
+        } else {
+            base_type = .{ .Custom = actual_name };
+        }
     }
 
     const t = try self.allocator.create(AetherType);
@@ -179,14 +190,65 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
         .call_expr => try infer_expr_mod.inferCallExpr(self, node, scope, t),
         .if_expr => try infer_stmt_mod.inferIfExpr(self, node, scope, t),
         .while_stmt => try infer_stmt_mod.inferWhileStmt(self, node, scope, t),
+        .for_stmt => try infer_stmt_mod.inferForStmt(self, node, scope, t),
         .return_stmt => try infer_stmt_mod.inferReturnStmt(self, node, scope, t),
         .block => return try self.checkBlock(node.data.block.statements, scope),
         .identifier => try infer_expr_mod.inferIdentifier(self, node, scope, t),
         .int_literal => t.* = .Int,
-        .string_literal => t.* = .String,
+        .string_literal => {
+            const literal_str = node.data.string_literal;
+            const len = literal_str.len;
+            
+            const ptr_node = try self.allocator.create(ASTNode);
+            ptr_node.* = .{
+                .line = node.line,
+                .column = node.column,
+                .resolved_type = null,
+                .data = .{ .string_literal = literal_str },
+            };
+            const ptr_type = try self.allocator.create(AetherType);
+            ptr_type.* = .Pointer;
+            ptr_node.resolved_type = ptr_type;
+            
+            const len_node = try self.allocator.create(ASTNode);
+            len_node.* = .{
+                .line = node.line,
+                .column = node.column,
+                .resolved_type = null,
+                .data = .{ .int_literal = @as(i64, @intCast(len)) },
+            };
+            const int_type = try self.allocator.create(AetherType);
+            int_type.* = .Int;
+            len_node.resolved_type = int_type;
+            
+            const callee_node = try self.allocator.create(ASTNode);
+            const resolved_c_name = self.alias_map.get("String");
+            const actual_c_name = resolved_c_name orelse "String";
+            
+            callee_node.* = .{
+                .line = node.line,
+                .column = node.column,
+                .resolved_type = null,
+                .data = .{ .identifier = .{ .name = "String", .resolved_c_name = actual_c_name, .is_class_property = false } },
+            };
+            const callee_type = try self.allocator.create(AetherType);
+            callee_type.* = .{ .Custom = actual_c_name };
+            callee_node.resolved_type = callee_type;
+            
+            var args = try self.allocator.alloc(*ASTNode, 2);
+            args[0] = ptr_node;
+            args[1] = len_node;
+            
+            node.data = .{ .call_expr = .{ .callee = callee_node, .arguments = args } };
+            t.* = .{ .Custom = actual_c_name };
+        },
         .bool_literal => t.* = .Bool,
         .null_literal => t.* = .Null,
+        .array_literal => try infer_expr_mod.inferArrayLiteral(self, node, scope, t),
+        .index_expr => try infer_expr_mod.inferIndexExpr(self, node, scope, t),
     }
-    node.resolved_type = t;
+    if (node.resolved_type == null) {
+        node.resolved_type = t;
+    }
     return t;
 }

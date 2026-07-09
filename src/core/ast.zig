@@ -19,6 +19,8 @@ pub const TokenType = enum {
     kw_from,
     kw_test,
     kw_lib,
+    kw_in,
+    kw_for,
 
     // Symbols and Operators
     eq,         // =
@@ -27,6 +29,8 @@ pub const TokenType = enum {
     r_paren,    // )
     l_brace,    // {
     r_brace,    // }
+    l_bracket,  // [
+    r_bracket,  // ]
     at,         // @
     colon,      // :
     comma,      // ,
@@ -119,6 +123,7 @@ pub const ASTNodeType = union(enum) {
         resolved_c_name: ?[]const u8,
     },
     class_decl: struct {
+        annotations: []const Annotation,
         name: []const u8,
         primary_constructor: []ClassProp,
         methods: []const *ASTNode,
@@ -138,6 +143,9 @@ pub const ASTNodeType = union(enum) {
     int_literal: i64,
     string_literal: []const u8,
     bool_literal: bool,
+    array_literal: struct {
+        elements: []const *ASTNode,
+    },
     null_literal: void,
     
     // Identifiers
@@ -166,6 +174,10 @@ pub const ASTNodeType = union(enum) {
         then_branch: *ASTNode,
         else_branch: ?*ASTNode,
     },
+    index_expr: struct {
+        object: *ASTNode,
+        index: *ASTNode,
+    },
     assignment: struct {
         name: []const u8,
         value: *ASTNode,
@@ -186,6 +198,11 @@ pub const ASTNodeType = union(enum) {
     },
     while_stmt: struct {
         condition: *ASTNode,
+        body: *ASTNode,
+    },
+    for_stmt: struct {
+        item_name: []const u8,
+        iterable: *ASTNode,
         body: *ASTNode,
     },
     return_stmt: struct {

@@ -17,7 +17,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             try self.writer.appendSlice("NULL");
         },
         .string_literal => |val| {
-            try self.writer.writer().print("AetherString_new(\"{s}\")", .{val});
+            try self.writer.writer().print("\"{s}\"", .{val});
         },
         .identifier => |i| {
             if (i.resolved_c_name) |cname| {
@@ -32,6 +32,37 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             if (u.operator == .bang_bang) {
                 try self.emitExpression(u.operand);
             }
+        },
+        .array_literal => |a| {
+            if (node.resolved_type) |rt| {
+                if (rt.* == .Array) {
+                    try self.emitArrayStruct(rt.Array);
+                    
+                    const inner_c_type = try core.getCTypeStr(self.allocator, rt.Array);
+                    var safe_inner = std.ArrayList(u8).init(self.allocator);
+                    for (inner_c_type) |c| {
+                        if (c == '*') continue;
+                        if (c == ' ') continue;
+                        try safe_inner.append(c);
+                    }
+                    const struct_name = try std.fmt.allocPrint(self.allocator, "AetherArray_{s}", .{safe_inner.items});
+                    
+                    try self.writer.appendSlice("({ ");
+                    try self.writer.writer().print("{s}* _tmp_arr = {s}_new(); ", .{struct_name, struct_name});
+                    for (a.elements) |elem| {
+                        try self.writer.writer().print("{s}_push(_tmp_arr, ", .{struct_name});
+                        try self.emitExpression(elem);
+                        try self.writer.appendSlice("); ");
+                    }
+                    try self.writer.appendSlice("_tmp_arr; })");
+                }
+            }
+        },
+        .index_expr => |idx| {
+            try self.emitExpression(idx.object);
+            try self.writer.appendSlice("->data[");
+            try self.emitExpression(idx.index);
+            try self.writer.appendSlice("]");
         },
         .assignment => |a| {
             try self.writer.writer().print("{s} = ", .{a.name});
@@ -90,12 +121,12 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
 
                 var class_name: []const u8 = "unknown";
                 if (rt.* == .String) {
-                    class_name = "AetherString";
+                    class_name = "system_String";
                 } else if (rt.* == .Custom) {
                     class_name = rt.Custom;
                 } else if (rt.* == .Union) {
                     if (rt.Union.left.* == .String) {
-                        class_name = "AetherString";
+                        class_name = "system_String";
                     } else if (rt.Union.left.* == .Custom) {
                         class_name = rt.Union.left.Custom;
                     }
@@ -165,7 +196,23 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                 try self.writer.appendSlice("))");
                 return;
             }
-            
+            if (b.op == .eq_eq or b.op == .bang_eq) {
+                if (b.left.resolved_type) |rt| {
+                    if (rt.* == .String or rt.* == .Custom) {
+                        if (b.op == .bang_eq) {
+                            try self.writer.appendSlice("!");
+                        }
+                        const class_name = if (rt.* == .String) "system_String" else rt.Custom;
+                        try self.writer.writer().print("{s}_equals(", .{class_name});
+                        try self.emitExpression(b.left);
+                        try self.writer.appendSlice(", ");
+                        try self.emitExpression(b.right);
+                        try self.writer.appendSlice(")");
+                        return;
+                    }
+                }
+            }
+
             try self.emitExpression(b.left);
             const op_str = switch (b.op) {
                 .plus => " + ",

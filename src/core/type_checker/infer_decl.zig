@@ -45,6 +45,10 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
         while (alias_it.next()) |entry| {
             try self.alias_map.put(entry.key_ptr.*, entry.value_ptr.*);
         }
+        var class_ast_it = tc.classes_ast.iterator();
+        while (class_ast_it.next()) |entry| {
+            try self.classes_ast.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
     } else {
         for (i.destructured) |sym| {
             var found = false;
@@ -87,6 +91,11 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
                 return error.ImportError;
             }
         }
+        
+        var class_ast_it = tc.classes_ast.iterator();
+        while (class_ast_it.next()) |entry| {
+            try self.classes_ast.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
     }
     
     tc.deinit();
@@ -98,21 +107,35 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
     var c = &node.data.class_decl;
     if (self.module_prefix) |prefix| {
         c.resolved_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ prefix, c.name });
-        try self.alias_map.put(c.name, c.resolved_c_name.?);
+        if (!std.mem.eql(u8, c.name, "Int") and !std.mem.eql(u8, c.name, "Bool") and !std.mem.eql(u8, c.name, "Pointer")) {
+            try self.alias_map.put(c.name, c.resolved_c_name.?);
+        }
     } else {
         c.resolved_c_name = c.name;
     }
     const actual_c_name = c.resolved_c_name.?;
     const class_type = try self.allocator.create(AetherType);
-    class_type.* = .{ .Custom = actual_c_name };
+    if (std.mem.eql(u8, c.name, "Int")) {
+        class_type.* = .Int;
+    } else if (std.mem.eql(u8, c.name, "Bool")) {
+        class_type.* = .Bool;
+    } else if (std.mem.eql(u8, c.name, "String")) {
+        class_type.* = .{ .Custom = actual_c_name };
+    } else if (std.mem.eql(u8, c.name, "Pointer")) {
+        class_type.* = .Pointer;
+    } else {
+        class_type.* = .{ .Custom = actual_c_name };
+    }
     try scope.define(c.name, class_type);
     if (!std.mem.eql(u8, c.name, actual_c_name)) {
         try scope.define(actual_c_name, class_type);
     }
+    
+    try self.classes_ast.put(actual_c_name, node);
 
     var class_scope = Scope.init(self.allocator, scope);
     defer class_scope.deinit();
-    try class_scope.define("self", class_type);
+    try class_scope.define("this", class_type);
 
     var class_props = std.StringHashMap(void).init(self.allocator);
     defer class_props.deinit();
@@ -176,7 +199,19 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
                 p.type_name = aliased;
             }
             param_type = try self.resolveTypeName(p.type_name.?, p.type_is_nullable);
-            try mangled_name.writer().print("_{s}", .{p.type_name.?});
+            
+            // Sanitize type name for mangling
+            var sanitized_name = std.ArrayList(u8).init(self.allocator);
+            for (p.type_name.?) |c| {
+                if (c == '[') {
+                    try sanitized_name.appendSlice("Array_");
+                } else if (c == ']') {
+                    // ignore
+                } else {
+                    try sanitized_name.append(c);
+                }
+            }
+            try mangled_name.writer().print("_{s}", .{sanitized_name.items});
         } else {
             param_type = try self.allocator.create(AetherType);
             param_type.* = .Void;
@@ -226,7 +261,7 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
             return error.TypeError;
         }
     }
-    t.* = .Void;
+    t.* = fn_type.*;
 }
 
 pub fn inferVarDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
@@ -257,6 +292,7 @@ pub fn inferVarDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         break :blk void_t;
     });
     try scope.define(v.name, final_type);
+    node.resolved_type = final_type;
     t.* = .Void;
 }
 

@@ -10,7 +10,7 @@ const AetherType = core.AetherType;
 pub fn inferIfExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const i = node.data.if_expr;
     const cond_type = try self.inferNode(i.condition, scope);
-    if (cond_type.* != .Bool) {
+    if (!core.isBool(cond_type)) {
         self.reportError(node.line, node.column, "TypeError: if condition must be Bool, found {}.", .{cond_type.*});
         return error.TypeError;
     }
@@ -30,11 +30,28 @@ pub fn inferIfExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aether
 pub fn inferWhileStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const w = node.data.while_stmt;
     const cond_type = try self.inferNode(w.condition, scope);
-    if (cond_type.* != .Bool) {
+    if (!core.isBool(cond_type)) {
         self.reportError(node.line, node.column, "TypeError: while condition must be Bool, found {}.", .{cond_type.*});
         return error.TypeError;
     }
     _ = try self.inferNode(w.body, scope);
+    t.* = .Void;
+}
+
+pub fn inferForStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
+    const f = node.data.for_stmt;
+    const iter_type = try self.inferNode(f.iterable, scope);
+    if (iter_type.* != .Array) {
+        self.reportError(node.line, node.column, "TypeError: for loop iterable must be an Array, found {}.", .{iter_type.*});
+        return error.TypeError;
+    }
+    
+    var for_scope = Scope.init(self.allocator, scope);
+    defer for_scope.deinit();
+    
+    try for_scope.define(f.item_name, iter_type.Array);
+    
+    _ = try self.inferNode(f.body, &for_scope);
     t.* = .Void;
 }
 

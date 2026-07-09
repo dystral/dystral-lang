@@ -150,6 +150,11 @@ Aether is a compiled programming language focused on systems performance, concis
 - **Task 23.2:** O TypeChecker agora importa sobrecargas corretamente (ex: `System.print(String)` e `System.print(Int)`) checando os tipos de argumentos de forma perfeitamente segura.
 - **Task 23.3:** O TypeChecker valida perfeitamente os tipos cruzados entre diferentes arquivos importados através do agrupamento das funções no AST global.
 
+### Phase 24: Native SDK Architecture (COMPLETED)
+- **Task 24.1:** Eliminar a dependência de métodos utilitários no C (`aether_runtime.h`), movendo lógicas de Type (String, Int, Bool) para a Aether SDK.
+- **Task 24.2:** Criar bindings limpos do C (`lib C { fun printf(format: CString, ...) }`) e implementar a classe `String` inteiramente em Aether.
+- **Task 24.3:** Mover sobrecargas de `print`, conversões `toString`, e operador de concatenação para o `system.ae` e módulos core.
+
 ### Phase 24: User-Defined Annotations & Metadata (LATER)
 - **Task 24.1:** Adicionar suporte no Lexer, AST e Parser para declaração de anotações customizadas (ex: `annotation Header(files: [String])`).
 - **Task 24.2:** O `TypeChecker` deve validar se as anotações utilizadas (ex: `@Header("<stdio.h>")`) foram devidamente declaradas no escopo e se os argumentos informados batem com os tipos exigidos.

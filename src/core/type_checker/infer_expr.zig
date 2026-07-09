@@ -165,25 +165,19 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
         if (scope.lookupVariable(name)) |variable| {
             if (variable.* == .Custom) {
                 t.* = variable.*;
-                c.callee.data = .{ .identifier = .{
-                    .name = name,
-                    .resolved_c_name = variable.Custom,
-                } };
+                c.callee.data.identifier.resolved_c_name = variable.Custom;
                 return;
             }
         }
         
         if (self.alias_map.get(name)) |c_name| {
-            if (name.len > 0 and name[0] >= 'A' and name[0] <= 'Z') {
-                t.* = .{ .Custom = c_name };
-            } else {
-                t.* = .Unknown;
-                c.callee.data = .{ .identifier = .{
-                    .name = name,
-                    .resolved_c_name = c_name,
-                } };
+            if (scope.lookupVariable(c_name)) |variable| {
+                if (variable.* == .Custom) {
+                    t.* = variable.*;
+                    c.callee.data.identifier.resolved_c_name = variable.Custom;
+                    return;
+                }
             }
-            return;
         }
         self.reportError(node.line, node.column, "TypeError: Undeclared function '{s}'.", .{name});
         return error.TypeError;
@@ -191,7 +185,7 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
         _ = try self.inferNode(c.callee, scope);
         
         t.* = .Void;
-        if (c.callee.data.get_expr.object.resolved_type) |rt| {
+        if (c.callee.resolved_type) |rt| {
             t.* = rt.*;
         }
     } else {
@@ -223,23 +217,39 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         return error.TypeError;
     }
 
+    var prop_type: ?*const AetherType = null;
+    const base_type = core.extractBaseType(obj_type);
+    var lookup_name: ?[]const u8 = null;
+    if (base_type.* == .Custom) {
+        lookup_name = self.alias_map.get(base_type.Custom) orelse base_type.Custom;
+    }
+    
+    if (lookup_name) |name| {
+        if (self.classes_ast.get(name)) |class_node| {
+            const c = class_node.data.class_decl;
+            for (c.primary_constructor) |prop| {
+                if (std.mem.eql(u8, prop.name, g.name)) {
+                    const actual_type = self.alias_map.get(prop.type_name) orelse prop.type_name;
+                    prop_type = try self.resolveTypeName(actual_type, false);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (prop_type == null) {
+        self.reportError(node.line, node.column, "TypeError: Unresolved property '{s}' on type {}.", .{ g.name, obj_type.* });
+        return error.TypeError;
+    }
+
     if (isNullable(obj_type) and g.is_safe) {
         t.* = .{ .Union = .{
-            .left = try self.allocator.create(AetherType),
+            .left = prop_type.?,
             .right = try self.allocator.create(AetherType),
         } };
-        if (std.mem.eql(u8, g.name, "x") or std.mem.eql(u8, g.name, "y") or std.mem.eql(u8, g.name, "age")) {
-            @constCast(t.Union.left).* = .Int;
-        } else {
-            @constCast(t.Union.left).* = .String;
-        }
         @constCast(t.Union.right).* = .Null;
     } else {
-        if (std.mem.eql(u8, g.name, "x") or std.mem.eql(u8, g.name, "y") or std.mem.eql(u8, g.name, "age")) {
-            t.* = .Int;
-        } else {
-            t.* = .String;
-        }
+        t.* = prop_type.?.*;
     }
 }
 
@@ -248,4 +258,41 @@ pub fn inferSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     _ = try self.inferNode(s.object, scope);
     const assigned_type = try self.inferNode(s.value, scope);
     t.* = assigned_type.*;
+}
+
+pub fn inferArrayLiteral(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
+    const a = node.data.array_literal;
+    if (a.elements.len == 0) {
+        self.reportError(node.line, node.column, "TypeError: Cannot infer type of empty array literal.", .{});
+        return error.TypeError;
+    }
+    
+    const first_type = try self.inferNode(a.elements[0], scope);
+    for (a.elements[1..]) |elem| {
+        const elem_type = try self.inferNode(elem, scope);
+        if (!isCompatible(first_type, elem_type)) {
+            self.reportError(node.line, node.column, "TypeError: Incompatible types in array literal. Expected {} but found {}.", .{ first_type.*, elem_type.* });
+            return error.TypeError;
+        }
+    }
+    
+    t.* = .{ .Array = first_type };
+}
+
+pub fn inferIndexExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
+    const i = node.data.index_expr;
+    const obj_type = try self.inferNode(i.object, scope);
+    
+    if (obj_type.* != .Array) {
+        self.reportError(node.line, node.column, "TypeError: Index operator '[]' can only be used on arrays. Found {}.", .{obj_type.*});
+        return error.TypeError;
+    }
+    
+    const index_type = try self.inferNode(i.index, scope);
+    if (index_type.* != .Int) {
+        self.reportError(node.line, node.column, "TypeError: Array index must be Int. Found {}.", .{index_type.*});
+        return error.TypeError;
+    }
+    
+    t.* = obj_type.Array.*;
 }

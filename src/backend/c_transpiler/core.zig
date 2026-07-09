@@ -10,8 +10,42 @@ pub const expr_mod = @import("expression.zig");
 pub const stmt_mod = @import("statement.zig");
 pub const decl_mod = @import("declaration.zig");
 
+pub fn getCTypeStr(allocator: std.mem.Allocator, t: *const type_system.AetherType) ![]const u8 {
+    switch (t.*) {
+        .Int => return "int",
+        .Bool => return "bool",
+        .Pointer => return "char*",
+        .String => return "system_String*",
+        .Void => return "void",
+        .Custom => |name| {
+            if (std.mem.eql(u8, name, "Int")) return "int";
+            if (std.mem.eql(u8, name, "Bool")) return "bool";
+            return try std.fmt.allocPrint(allocator, "{s}*", .{name});
+        },
+        .Array => |elem| {
+            const inner = try getCTypeStr(allocator, elem);
+            var safe_inner = std.ArrayList(u8).init(allocator);
+            for (inner) |c| {
+                if (c == '*') continue;
+                if (c == ' ') continue;
+                try safe_inner.append(c);
+            }
+            return try std.fmt.allocPrint(allocator, "AetherArray_{s}*", .{safe_inner.items});
+        },
+        .Union => |u| {
+            if (u.left.* != .Null) {
+                return try getCTypeStr(allocator, u.left);
+            } else {
+                return try getCTypeStr(allocator, u.right);
+            }
+        },
+        else => return "void*",
+    }
+}
+
 pub const CTranspiler = struct {
     allocator: std.mem.Allocator,
+    header_writer: std.ArrayList(u8),
     writer: std.ArrayList(u8),
     classes: std.StringHashMap(void),
     libs: std.StringHashMap(void),
@@ -32,6 +66,7 @@ pub const CTranspiler = struct {
     pub fn init(allocator: std.mem.Allocator) CTranspiler {
         return CTranspiler{
             .allocator = allocator,
+            .header_writer = std.ArrayList(u8).init(allocator),
             .writer = std.ArrayList(u8).init(allocator),
             .classes = std.StringHashMap(void).init(allocator),
             .libs = std.StringHashMap(void).init(allocator),
@@ -43,6 +78,7 @@ pub const CTranspiler = struct {
     }
 
     pub fn deinit(self: *CTranspiler) void {
+        self.header_writer.deinit();
         self.writer.deinit();
         self.classes.deinit();
         self.libs.deinit();
@@ -51,10 +87,53 @@ pub const CTranspiler = struct {
     }
 
     pub fn transpile(self: *CTranspiler, node: *ASTNode) ![]const u8 {
-        try self.writer.appendSlice(std_lib_c);
-        try self.writer.appendSlice("\n");
         try self.transpileNode(node, true);
-        return try self.writer.toOwnedSlice();
+        
+        var final = std.ArrayList(u8).init(self.allocator);
+        try final.appendSlice(std_lib_c);
+        try final.appendSlice("\n");
+        try final.appendSlice(self.header_writer.items);
+        try final.appendSlice(self.writer.items);
+        
+        return try final.toOwnedSlice();
+    }
+
+    pub fn emitArrayStruct(self: *CTranspiler, elem: *const type_system.AetherType) !void {
+        const inner_c_type = try getCTypeStr(self.allocator, elem);
+        
+        var safe_inner = std.ArrayList(u8).init(self.allocator);
+        for (inner_c_type) |c| {
+            if (c == '*') continue;
+            if (c == ' ') continue;
+            try safe_inner.append(c);
+        }
+        const struct_name = try std.fmt.allocPrint(self.allocator, "AetherArray_{s}", .{safe_inner.items});
+        
+        if (self.classes.contains(struct_name)) return;
+        try self.classes.put(struct_name, {});
+        
+        var w = self.header_writer.writer();
+        try w.print("typedef struct {{\n", .{});
+        try w.print("    {s}* data;\n", .{inner_c_type});
+        try w.print("    size_t length;\n", .{});
+        try w.print("    size_t capacity;\n", .{});
+        try w.print("}} {s};\n\n", .{struct_name});
+        
+        try w.print("{s}* {s}_new() {{\n", .{struct_name, struct_name});
+        try w.print("    {s}* arr = GC_MALLOC(sizeof({s}));\n", .{struct_name, struct_name});
+        try w.print("    arr->data = GC_MALLOC(4 * sizeof({s}));\n", .{inner_c_type});
+        try w.print("    arr->length = 0;\n", .{});
+        try w.print("    arr->capacity = 4;\n", .{});
+        try w.print("    return arr;\n", .{});
+        try w.print("}}\n\n", .{});
+        
+        try w.print("void {s}_push({s}* arr, {s} val) {{\n", .{struct_name, struct_name, inner_c_type});
+        try w.print("    if (arr->length == arr->capacity) {{\n", .{});
+        try w.print("        arr->capacity *= 2;\n", .{});
+        try w.print("        arr->data = GC_REALLOC(arr->data, arr->capacity * sizeof({s}));\n", .{inner_c_type});
+        try w.print("    }}\n", .{});
+        try w.print("    arr->data[arr->length++] = val;\n", .{});
+        try w.print("}}\n\n", .{});
     }
 
     pub fn transpileNode(self: *CTranspiler, node: *ASTNode, is_root: bool) !void {

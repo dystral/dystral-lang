@@ -43,6 +43,8 @@ pub const Lexer = struct {
             ')' => self.makeToken(.r_paren),
             '{' => self.makeToken(.l_brace),
             '}' => self.makeToken(.r_brace),
+            '[' => self.makeToken(.l_bracket),
+            ']' => self.makeToken(.r_bracket),
             '@' => self.makeToken(.at),
             ',' => self.makeToken(.comma),
             '.' => self.makeToken(.dot),
@@ -85,6 +87,8 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, text, "else")) return .kw_else;
         if (std.mem.eql(u8, text, "return")) return .kw_return;
         if (std.mem.eql(u8, text, "while")) return .kw_while;
+        if (std.mem.eql(u8, text, "for")) return .kw_for;
+        if (std.mem.eql(u8, text, "in")) return .kw_in;
         if (std.mem.eql(u8, text, "import")) return .kw_import;
         if (std.mem.eql(u8, text, "from")) return .kw_from;
         if (std.mem.eql(u8, text, "test")) return .kw_test;

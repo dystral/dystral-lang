@@ -1,22 +1,54 @@
-@Header("<stdio.h>", "<stdlib.h>")
-lib System {
-    fun print(value: Unknown): Void
+@Header("<stdlib.h>", "<stdio.h>")
+lib Standard {
+    fun printf(format: Pointer, value: Int): Void
+    fun sprintf(buffer: Pointer, format: Pointer, value: Int): Int
+    fun puts(str: Pointer): Int
+    fun GC_MALLOC(size: Int): Pointer
     fun exit(code: Int): Void
     fun assert(condition: Bool): Void
 }
 
-fun print(value: String): Void {
-    System.print(value)
+@Header("<string.h>")
+lib NativeString {
+    fun strcmp(s1: Pointer, s2: Pointer): Int
+}
+
+class String(val ptr: Pointer, val length: Int) {
+    operator fun equals(other: String): Bool {
+        return NativeString.strcmp(this.ptr, other.ptr) == 0
+    }
+    operator fun plus(other: String): String {
+        val total_len = this.length + other.length
+        val buf = Standard.GC_MALLOC(total_len + 1)
+        Standard.sprintf(buf, "%s%s".ptr, this.ptr, other.ptr)
+        return String(buf, total_len)
+    }
+}
+
+@Primitive("int")
+class Int {
+    override fun toString(): String {
+        val buf = Standard.GC_MALLOC(32)
+        Standard.sprintf(buf, "%d".ptr, this)
+        return String(buf, 0)
+    }
+}
+
+@Primitive("bool")
+class Bool {
+    override fun toString(): String {
+        return if (this) "true" else "false"
+    }
 }
 
 fun print(value: Int): Void {
-    System.print(value)
+    Standard.printf("%d\n".ptr, value)
 }
 
-fun print(value: Bool): Void {
-    System.print(value)
+fun print(value: String): Void {
+    Standard.puts(value.ptr)
 }
 
 fun assert(condition: Bool): Void {
-    System.assert(condition)
+    Standard.assert(condition)
 }
