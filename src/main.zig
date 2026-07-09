@@ -129,22 +129,19 @@ pub fn main() !void {
         var exe_path_buf: [1024]u8 = undefined;
         const exe_path = try std.fmt.bufPrint(&exe_path_buf, "./{s}", .{final_bin});
         
-        const run_res = try std.process.Child.run(.{
-            .allocator = allocator,
-            .argv = &[_][]const u8{ exe_path },
-        });
-        defer {
-            allocator.free(run_res.stdout);
-            allocator.free(run_res.stderr);
-        }
-        std.debug.print("{s}", .{run_res.stdout});
-        if (run_res.stderr.len > 0) std.debug.print("{s}", .{run_res.stderr});
+        var child = std.process.Child.init(&[_][]const u8{ exe_path }, allocator);
+        child.stdin_behavior = .Inherit;
+        child.stdout_behavior = .Inherit;
+        child.stderr_behavior = .Inherit;
+        
+        try child.spawn();
+        const term = try child.wait();
         
         // Clean up binary after running
         std.fs.cwd().deleteFile(final_bin) catch {};
 
-        if (run_res.term == .Exited and run_res.term.Exited != 0) {
-            std.process.exit(run_res.term.Exited);
+        if (term == .Exited and term.Exited != 0) {
+            std.process.exit(term.Exited);
         }
     } else {
         std.debug.print("Successfully built {s}\n", .{final_bin});

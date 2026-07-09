@@ -13,6 +13,11 @@ lib NativeString {
     fun strcmp(s1: Pointer, s2: Pointer): Int
 }
 
+@Header("<unistd.h>")
+lib Posix {
+    fun sleep(seconds: Int): Int
+}
+
 class String(val ptr: Pointer, val length: Int) {
     operator fun equals(other: String): Bool {
         return NativeString.strcmp(this.ptr, other.ptr) == 0
@@ -52,3 +57,5 @@ fun print(value: String): Void {
 fun assert(condition: Bool): Void {
     Standard.assert(condition)
 }
+
+fun sleep(seconds: Int) = Posix.sleep(seconds)

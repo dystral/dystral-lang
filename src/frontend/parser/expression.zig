@@ -210,6 +210,12 @@ pub fn primary(self: *Parser) anyerror!*ASTNode {
         return try self.createNodeAt(.{ .bool_literal = std.mem.eql(u8, self.previous.lexeme, "true") }, line, col);
     }
     
+    if (self.match(.l_paren)) {
+        const expr = try self.expression();
+        try self.consume(.r_paren, "Expected ')' after expression.");
+        return expr;
+    }
+    
     if (self.match(.int_literal)) {
         const value = try std.fmt.parseInt(i64, self.previous.lexeme, 10);
         return try self.createNodeAt(.{ .int_literal = value }, line, col);

@@ -1,0 +1,14 @@
+import { largestPrimeUpTo } from "primes"
+
+fun main(): Void {
+    print("Iniciando loop eterno (a cada 15 segundos)...")
+    
+    while (true) {
+        val prime = largestPrimeUpTo(100000)
+        
+        print("Valor primo ate 100000:")
+        print(prime.toString())
+        
+        sleep(15)
+    }
+}

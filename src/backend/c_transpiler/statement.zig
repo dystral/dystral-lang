@@ -19,6 +19,28 @@ pub fn emitStatement(self: *CTranspiler, node: *ASTNode) !void {
             }
             try self.writer.appendSlice(";\n");
         },
+        .if_expr => |i| {
+            try self.writer.appendSlice("    if (");
+            try self.emitExpression(i.condition);
+            try self.writer.appendSlice(") ");
+            if (i.then_branch.data == .block) {
+                try self.emitStatement(i.then_branch);
+            } else {
+                try self.writer.appendSlice("{\n    ");
+                try self.emitStatement(i.then_branch);
+                try self.writer.appendSlice("    }\n");
+            }
+            if (i.else_branch) |eb| {
+                try self.writer.appendSlice("    else ");
+                if (eb.data == .block) {
+                    try self.emitStatement(eb);
+                } else {
+                    try self.writer.appendSlice("{\n    ");
+                    try self.emitStatement(eb);
+                    try self.writer.appendSlice("    }\n");
+                }
+            }
+        },
         .while_stmt => |w| {
             try self.writer.appendSlice("    while (");
             try self.emitExpression(w.condition);
