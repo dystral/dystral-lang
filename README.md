@@ -14,12 +14,14 @@ Instead of running inside a heavy JVM or relying on interpreted bytecode, Aether
 ## ✨ Key Features
 
 - 💎 **Kotlin Familiarity + Pragmatism:** If you know Kotlin, you already know Aether. Supports `val`/`var`, implicit instantiation, expression bodies, and more.
+- ⚡ **Top-Level Execution:** Start scripting immediately without boilerplate. No `fun main()` required unless you want it (Hybrid Main approach).
 - 🛡️ **Compile-Time Null Safety:** Null is treated as a strict Union Type (`.String | .Null`). The compiler strictly forbids unsafe access, forcing the use of `?.`, `?:`, and `!!`.
-- 📦 **Destructured Imports:** A modern, file-based module system without `package` bloat. Import exactly what you need with explicit destructuring (`import { fun1, Class2 } from "file.ae"`).
-- ⚙️ **Operator Overloading:** Overload math operators in classes with explicit contracts via the `operator` modifier.
-- 🧪 **Native Test System:** First-class testing support. Write `test` blocks directly and run `aether test` for an isolated and fast testing suite.
-- 🚀 **Zero Setup Execution:** Just `aether run` and your code compiles and runs instantly.
-- 🗑️ **Memory Safe:** Native integration with a conservative Garbage Collector eliminates memory leaks without the overhead of reference counting or pausing VMs.
+- 📦 **File-Based Modules & Standard Library:** A modern module system with destructured imports (`import { fun1 } from "file.ae"`). Features an ever-growing Standard Library built natively (`std.core`, `std.math`, `std.time`).
+- 🕒 **Epoch-First Time API:** Time handling done right, inspired by Go. Zero-overhead Time and Duration mathematics leveraging the language's native Operator Overloading.
+- 🔁 **Native Arrays and Loops:** First-class support for native typed arrays (`[1, 2, 3]`), combined with ergonomic `for (item in array)` and `while` loops.
+- ⚙️ **Operator Overloading:** Overload math operators in classes with explicit contracts via the `operator` modifier (e.g., `operator fun plus()`).
+- 🧪 **Native Test System:** First-class testing support. Write `test "name" {}` blocks directly and run `aether test` for an isolated and fast native testing suite.
+- 🗑️ **Memory Safe:** Native integration with a conservative Garbage Collector (Boehm GC) eliminates memory leaks without the overhead of reference counting or pausing VMs.
 
 ---
 
@@ -27,22 +29,53 @@ Instead of running inside a heavy JVM or relying on interpreted bytecode, Aether
 
 Aether code looks familiar and clean. If you want to deeply understand how Aether differs from Kotlin (Union Types, Modifiers, and File-based Imports), **[read the full Language Tour](docs/language_tour.md)**.
 
-Here's a quick look at classes, properties, and null safety:
+Here's a quick look at top-level statements, operator overloading, the native Time API, and arrays:
 
 ```kotlin
-// aether
-class User(val name: String, var email: String?) {
-    fun greet() = "Hello, " + name
+// script.ae
+import { date, hours, now, Time, Duration } from "std.time"
+
+class Flight(val destination: String, val departure: Time) {
+    fun isDelayed() = now() > departure
+    
+    // Custom Operator Overloading
+    operator fun plus(delay: Duration): Flight {
+        return Flight(this.destination, this.departure + delay)
+    }
 }
 
-fun main() {
-    val admin: User? = null // or User | null
+// Top-Level execution (no `fun main()` required)
+val flights = [
+    Flight("Tokyo", date(2026, 12, 10)),
+    Flight("Paris", now() + hours(2))
+]
 
-    // Safe calls and Elvis Operator supported natively
-    val emailToUse = admin?.email ?: "no-reply@aether.lang"
-    print(emailToUse)
+// Ergonomic loops over strictly typed arrays
+for (f in flights) {
+    if (f.isDelayed()) {
+        val newFlight = f + hours(1) // Triggers `operator plus`
+        print("Delayed to: " + newFlight.departure.format("HH:mm"))
+    }
 }
 ```
+
+### 🧪 Built-in Testing
+Testing is a first-class citizen in Aether. No external libraries or configurations required.
+
+```kotlin
+// script_test.ae
+import { assert } from "std.core"
+import { hours, now } from "std.time"
+import { Flight } from "./script.ae"
+
+test "adding duration to flight shifts departure" {
+    val f = Flight("Tokyo", now())
+    val delayed = f + hours(5)
+    
+    assert(delayed.departure > f.departure)
+}
+```
+Run it simply with `aether test`.
 
 ---
 
@@ -106,10 +139,11 @@ Aether's compiler is fully documented. If you are curious about how we process A
 
 ## 🛣️ What's Next? (Roadmap)
 
-We are currently on **v0.1.x**. The immediate next steps include:
-- **Phase 17:** Core Stdlib, native Collections (`[String]`) and `for-in` loops.
-- **Phase 18:** Short Ternary Operator.
-- **Phase 19:** Exception Handling (`try-catch` & multi-catch).
-- **Phase 20:** LLVM IR Native Release Backend for maximum optimization.
+We are currently finishing the stabilization of **v0.1.x** (Phase 27). The immediate next steps include:
+- **Phase 28:** File I/O nativo (Desenvolvimento do `std.fs` para manipulação de arquivos).
+- **Phase 29:** Custom Module Imports e caminhos relativos avançados (`import { x } from "./../utils"`).
+- **Phase 30:** JSON Serialization/Deserialization.
+- **Phase 31:** Network Sockets / HTTP Foundation.
+- **Phase 32:** LLVM IR Native Release Backend for maximum optimization (Production build transition).
 
-*(See [aether-compiler.md](aether-compiler.md) for the full granular roadmap).*
+*(See [aether-compiler.md](aether-compiler.md) for the full granular roadmap and historic evolution).*
