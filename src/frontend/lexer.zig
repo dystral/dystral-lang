@@ -54,7 +54,7 @@ pub const Lexer = struct {
             '*' => self.makeToken(.star),
             '/' => self.makeToken(.slash),
             '=' => self.makeToken(if (self.match('=')) .eq_eq else .eq),
-            '!' => self.makeToken(if (self.match('=')) .bang_eq else if (self.match('!')) .bang_bang else .eof),
+            '!' => self.makeToken(if (self.match('=')) .bang_eq else if (self.match('!')) .bang_bang else .bang),
             '<' => self.makeToken(if (self.match('=')) .less_eq else .less),
             '>' => self.makeToken(if (self.match('=')) .greater_eq else .greater),
             '&' => self.makeToken(if (self.match('&')) .and_and else .eof),

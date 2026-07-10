@@ -28,9 +28,25 @@ pub fn inferAssignment(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
 
 pub fn inferUnaryExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const u = node.data.unary_expr;
+    const op_type = try self.inferNode(u.operand, scope);
+    
     if (u.operator == .bang_bang) {
-        const op_type = try self.inferNode(u.operand, scope);
         t.* = extractBaseType(op_type).*;
+    } else if (u.operator == .bang) {
+        if (op_type.* != .Bool) {
+            self.reportError(node.line, node.column, "TypeError: Operator '!' requires a Bool operand, but got {}.", .{op_type.*});
+            return error.TypeError;
+        }
+        t.* = .Bool;
+    } else if (u.operator == .minus) {
+        if (op_type.* != .Int) {
+            self.reportError(node.line, node.column, "TypeError: Operator '-' requires an Int operand, but got {}.", .{op_type.*});
+            return error.TypeError;
+        }
+        t.* = .Int;
+    } else {
+        self.reportError(node.line, node.column, "TypeError: Unknown unary operator.", .{});
+        return error.TypeError;
     }
 }
 

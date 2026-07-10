@@ -166,7 +166,7 @@ Aether is a compiled programming language focused on systems performance, concis
 - **Task 26.3:** Projetar o pacote `std.time` (`std/time.ae`) implementando a classe `Time` sob o modelo estrutural **Epoch-First**, acompanhada da abstração `Duration`.
 - **Task 26.4:** Encapsular as chamadas do `<time.h>` dentro do bloco `lib NativeTime`.
 
-### Phase 27: Unary Operators (LATER)
+### Phase 27: Unary Operators (COMPLETED)
 - **Task 27.1:** Adicionar suporte no Lexer e Parser para operadores unários (ex: `-10`, `!condicao`).
 - **Task 27.2:** Atualizar a AST para suportar `UnaryExpression`.
 - **Task 27.3:** O `TypeChecker` deve inferir corretamente o tipo baseado na expressão unária (ex: `!` requer e retorna `Bool`, `-` requer `Int` ou `Float` e retorna o mesmo tipo).

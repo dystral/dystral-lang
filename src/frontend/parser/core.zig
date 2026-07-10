@@ -45,6 +45,7 @@ pub const Parser = struct {
     pub const comparison = expression_mod.comparison;
     pub const term = expression_mod.term;
     pub const factor = expression_mod.factor;
+    pub const unary = expression_mod.unary;
     pub const call = expression_mod.call;
     pub const finishCall = expression_mod.finishCall;
     pub const primary = expression_mod.primary;

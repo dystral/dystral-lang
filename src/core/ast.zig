@@ -44,6 +44,7 @@ pub const TokenType = enum {
     star,       // *
     slash,      // /
     eq_eq,      // ==
+    bang,       // !
     bang_eq,    // !=
     less,       // <
     greater,    // >

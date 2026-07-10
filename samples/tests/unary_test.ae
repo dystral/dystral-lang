@@ -1,0 +1,34 @@
+import { assert } from "std.core"
+
+test "should negate integers" {
+    val a = 10
+    val b = -a
+    assert(b == -10)
+    
+    val c = - -10
+    assert(c == 10)
+}
+
+test "should invert booleans" {
+    val t = true
+    val f = !t
+    assert(f == false)
+    
+    val tt = !(!true)
+    assert(tt == true)
+}
+
+test "should work in complex expressions" {
+    val a = 5
+    val b = -a + 10
+    assert(b == 5)
+    
+    val c = 10 + -5
+    assert(c == 5)
+    
+    var triggered = false
+    if (!false) {
+        triggered = true
+    }
+    assert(triggered)
+}

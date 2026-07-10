@@ -114,16 +114,27 @@ pub fn term(self: *Parser) anyerror!*ASTNode {
 }
 
 pub fn factor(self: *Parser) anyerror!*ASTNode {
-    var expr = try self.call();
+    var expr = try self.unary();
 
     while (self.match(.slash) or self.match(.star)) {
         const op = self.previous.token_type;
         const line = self.previous.line;
         const col = self.previous.column;
-        const right = try self.call();
+        const right = try self.unary();
         expr = try self.createNodeAt(.{ .binary_expr = .{ .left = expr, .op = op, .right = right } }, line, col);
     }
     return expr;
+}
+
+pub fn unary(self: *Parser) anyerror!*ASTNode {
+    if (self.match(.bang) or self.match(.minus)) {
+        const op = self.previous.token_type;
+        const line = self.previous.line;
+        const col = self.previous.column;
+        const right = try self.unary();
+        return try self.createNodeAt(.{ .unary_expr = .{ .operator = op, .operand = right } }, line, col);
+    }
+    return try self.call();
 }
 
 pub fn call(self: *Parser) anyerror!*ASTNode {

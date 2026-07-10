@@ -31,6 +31,14 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
         .unary_expr => |u| {
             if (u.operator == .bang_bang) {
                 try self.emitExpression(u.operand);
+            } else if (u.operator == .bang) {
+                try self.writer.appendSlice("!(");
+                try self.emitExpression(u.operand);
+                try self.writer.appendSlice(")");
+            } else if (u.operator == .minus) {
+                try self.writer.appendSlice("-(");
+                try self.emitExpression(u.operand);
+                try self.writer.appendSlice(")");
             }
         },
         .array_literal => |a| {
