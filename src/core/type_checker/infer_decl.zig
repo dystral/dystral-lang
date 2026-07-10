@@ -9,6 +9,12 @@ const Scope = core.Scope;
 const AetherType = core.AetherType;
 const isCompatible = core.isCompatible;
 
+const std_modules = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "core.ae", @embedFile("../../std/core.ae") },
+    .{ "time.ae", @embedFile("../../std/time.ae") },
+    .{ "math.ae", @embedFile("../../std/math.ae") },
+});
+
 pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     _ = scope;
     var i = &node.data.import_stmt;
@@ -17,11 +23,26 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
     if (!std.mem.endsWith(u8, actual_module_path, ".ae")) {
         actual_module_path = try std.fmt.allocPrint(self.allocator, "{s}.ae", .{actual_module_path});
     }
-    const mod_path = try std.fs.path.join(self.allocator, &.{ dir_path, actual_module_path });
-    const mod_source = std.fs.cwd().readFileAlloc(self.allocator, mod_path, 1024 * 1024) catch |err| {
-        self.reportError(node.line, node.column, "ImportError: Failed to read module file '{s}': {}", .{ mod_path, err });
-        return error.ImportError;
-    };
+    var mod_path: []const u8 = undefined;
+    var mod_source: []const u8 = undefined;
+    
+    if (std.mem.startsWith(u8, actual_module_path, "std.")) {
+        const pkg_name = actual_module_path[4..];
+        mod_path = try std.fmt.allocPrint(self.allocator, "std/{s}", .{pkg_name});
+        
+        if (std_modules.get(pkg_name)) |source| {
+            mod_source = source;
+        } else {
+            self.reportError(node.line, node.column, "ImportError: Unknown standard library package 'std.{s}'", .{pkg_name});
+            return error.ImportError;
+        }
+    } else {
+        mod_path = try std.fs.path.join(self.allocator, &.{ dir_path, actual_module_path });
+        mod_source = std.fs.cwd().readFileAlloc(self.allocator, mod_path, 1024 * 1024) catch |err| {
+            self.reportError(node.line, node.column, "ImportError: Failed to read module file '{s}': {}", .{ mod_path, err });
+            return error.ImportError;
+        };
+    }
 
     var p = parser_mod.Parser.init(self.allocator, mod_source);
     const mod_ast = try p.parse();

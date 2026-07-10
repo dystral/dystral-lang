@@ -1,0 +1,66 @@
+import { daysInMonth, hours, minutes, seconds, date, Time, Duration } from "std.time"
+import { mod } from "std.math"
+
+test "should calculate daysInMonth math helpers" {
+    assert(mod(10, 3) == 1)
+    assert(mod(20, 5) == 0)
+    assert(mod(1990, 4) == 2)
+    
+    // Non-leap year
+    assert(daysInMonth(0, false) == 31) // Jan
+    assert(daysInMonth(1, false) == 28) // Feb
+    assert(daysInMonth(2, false) == 31) // Mar
+    assert(daysInMonth(3, false) == 30) // Apr
+    
+    // Leap year
+    assert(daysInMonth(1, true) == 29) // Feb leap
+}
+
+test "should support duration functions" {
+    val h = hours(2)
+    assert(h.seconds == 7200)
+    assert(h.minutes() == 120)
+    assert(h.hours() == 2)
+    
+    val m = minutes(90)
+    assert(m.seconds == 5400)
+    assert(m.minutes() == 90)
+    assert(m.hours() == 1)
+    
+    val s = seconds(45)
+    assert(s.seconds == 45)
+}
+
+test "should parse and format dates" {
+    val d = date(2026, 7, 10)
+    assert(d.year() == 2026)
+    assert(d.month() == 7)
+    assert(d.day() == 10)
+    assert(d.hour() == 0)
+    assert(d.minute() == 0)
+    assert(d.second() == 0)
+    
+    assert(d.format("YYYY-MM-DD") == "2026-07-10")
+    
+    val leapDay = date(2024, 2, 29)
+    assert(leapDay.year() == 2024)
+    assert(leapDay.month() == 2)
+    assert(leapDay.day() == 29)
+    assert(leapDay.format("YYYY-MM-DD") == "2024-02-29")
+}
+
+test "should support time math" {
+    val d1 = date(1990, 7, 20)
+    val d2 = date(1990, 7, 21) // One day later
+    
+    val diff = d2 - d1
+    assert(diff.seconds == 86400)
+    assert(diff.hours() == 24)
+    
+    val dur = hours(48)
+    val future = d1 + dur
+    assert(future.year() == 1990)
+    assert(future.month() == 7)
+    assert(future.day() == 22)
+    assert(future.hour() == 0)
+}

@@ -1,4 +1,5 @@
-import { lastUpTo } from "primes"
+import { findLargestPrime } from "primes"
+import { now } from "std.time"
 
 class Person(val name: String, var age: Int)
 
@@ -6,11 +7,13 @@ fun main(): Void {
     print("Starting loop...")
     
     while (true) {
-        val prime = lastUpTo(1000000000)
-        val prime2 = lastUpTo(1000000000)
+        val prime = findLargestPrime(1000000000)
+        val prime2 = findLargestPrime(1000000000)
         val p = Person("Leo", 38)
+        
+        val currentTime = now()
 
-        print(p.name + " counted " + (prime + prime2).toString() + " prime numbers up to two billions")
+        print("[" + currentTime.format("YYYY-MM-DD HH:mm:ss") + "] " + p.name + " counted " + (prime + prime2).toString() + " prime numbers up to two billions")
         sleep(1)
     }
 }

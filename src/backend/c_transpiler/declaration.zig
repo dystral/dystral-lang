@@ -26,7 +26,7 @@ pub fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
             const t_str = if (std.mem.eql(u8, prop.type_name, "Int")) "int" 
                           else if (std.mem.eql(u8, prop.type_name, "Bool")) "bool"
                           else if (std.mem.eql(u8, prop.type_name, "Pointer")) "void*"
-                          else if (std.mem.eql(u8, prop.type_name, "String")) "system_String*" 
+                          else if (std.mem.eql(u8, prop.type_name, "String")) "core_String*" 
                           else "void*";
             try self.header_writer.writer().print("    {s} {s};\n", .{t_str, prop.name});
         }
@@ -39,7 +39,7 @@ pub fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
             const t_str = if (std.mem.eql(u8, prop.type_name, "Int")) "int" 
                           else if (std.mem.eql(u8, prop.type_name, "Bool")) "bool"
                           else if (std.mem.eql(u8, prop.type_name, "Pointer")) "void*"
-                          else if (std.mem.eql(u8, prop.type_name, "String")) "system_String*" 
+                          else if (std.mem.eql(u8, prop.type_name, "String")) "core_String*" 
                           else "void*";
             try self.writer.writer().print("{s} {s}", .{t_str, prop.name});
         }
@@ -62,6 +62,7 @@ pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode
     if (node.resolved_type) |rt| {
         const fun_type = rt.Function;
         const ret_str = try core.getCTypeStr(self.allocator, fun_type.return_type);
+        if (fun_type.return_type.* == .Array) try self.emitArrayStruct(fun_type.return_type.Array);
         try self.writer.writer().print("{s} ", .{ret_str});
     } else {
         try self.writer.appendSlice("void ");
@@ -78,6 +79,7 @@ pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode
         for (decl.params, 0..) |p, i| {
             try self.writer.appendSlice(", ");
             const param_t_str = try core.getCTypeStr(self.allocator, fun_type.params[i]);
+            if (fun_type.params[i].* == .Array) try self.emitArrayStruct(fun_type.params[i].Array);
             try self.writer.writer().print("{s} {s}", .{param_t_str, p.name});
         }
     }
@@ -114,28 +116,34 @@ pub fn emitFunDecl(self: *CTranspiler, node: *ASTNode) !void {
     if (self.emitted_functions.contains(func_name)) return;
     try self.emitted_functions.put(func_name, {});
 
+    var sig = std.ArrayList(u8).init(self.allocator);
     if (is_main) {
-        try self.writer.appendSlice("int ");
+        try sig.writer().print("int ", .{});
     } else if (node.resolved_type) |rt| {
         const fun_type = rt.Function;
         const ret_str = try core.getCTypeStr(self.allocator, fun_type.return_type);
-        try self.writer.writer().print("{s} ", .{ret_str});
+        if (fun_type.return_type.* == .Array) try self.emitArrayStruct(fun_type.return_type.Array);
+        try sig.writer().print("{s} ", .{ret_str});
     } else {
-        try self.writer.appendSlice("void ");
+        try sig.writer().print("void ", .{});
     }
     
-    try self.writer.writer().print("{s}(", .{func_name});
+    try sig.writer().print("{s}(", .{func_name});
     if (is_main) {
         // main has no params or argc/argv if needed later
     } else if (node.resolved_type) |rt| {
         const fun_type = rt.Function;
         for (decl.params, 0..) |p, i| {
-            if (i > 0) try self.writer.appendSlice(", ");
+            if (i > 0) try sig.writer().print(", ", .{});
             const param_t_str = try core.getCTypeStr(self.allocator, fun_type.params[i]);
-            try self.writer.writer().print("{s} {s}", .{param_t_str, p.name});
+            if (fun_type.params[i].* == .Array) try self.emitArrayStruct(fun_type.params[i].Array);
+            try sig.writer().print("{s} {s}", .{param_t_str, p.name});
         }
     }
-    try self.writer.appendSlice(") {\n");
+    try sig.writer().print(")", .{});
+
+    try self.header_writer.writer().print("{s};\n", .{sig.items});
+    try self.writer.writer().print("{s} {{\n", .{sig.items});
 
     if (decl.is_expr_body) {
         try self.writer.appendSlice("    return ");

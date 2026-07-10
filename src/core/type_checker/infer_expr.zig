@@ -53,6 +53,8 @@ pub fn inferBinaryExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
         .plus => {
             if (left_type.* == .Int and right_type.* == .Int) {
                 t.* = .Int;
+            } else if (left_type.* == .Pointer and right_type.* == .Int) {
+                t.* = .Pointer;
             } else {
                 const get_expr_node = try self.allocator.create(ASTNode);
                 get_expr_node.* = .{
@@ -66,11 +68,13 @@ pub fn inferBinaryExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
                 args[0] = b.right;
 
                 node.data = .{ .call_expr = .{ .callee = get_expr_node, .arguments = args } };
-                t.* = left_type.*;
+                try inferCallExpr(self, node, scope, t);
             }
         },
         .minus => {
             if (left_type.* == .Int and right_type.* == .Int) {
+                t.* = .Int;
+            } else if (left_type.* == .Pointer and right_type.* == .Pointer) {
                 t.* = .Int;
             } else {
                 const get_expr_node = try self.allocator.create(ASTNode);
@@ -80,7 +84,7 @@ pub fn inferBinaryExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
                 args[0] = b.right;
 
                 node.data = .{ .call_expr = .{ .callee = get_expr_node, .arguments = args } };
-                t.* = left_type.*;
+                try inferCallExpr(self, node, scope, t);
             }
         },
         .star, .slash => {
@@ -223,9 +227,9 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     var base_name: ?[]const u8 = null;
     switch (base_type.*) {
         .Custom => |n| base_name = n,
-        .Int => base_name = "system_Int",
-        .String => base_name = "system_String",
-        .Bool => base_name = "system_Bool",
+        .Int => base_name = "core_Int",
+        .String => base_name = "core_String",
+        .Bool => base_name = "core_Bool",
         else => {},
     }
     
@@ -249,6 +253,14 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
                         if (method.data.fun_decl.type_name) |tn| {
                             const actual_type = self.alias_map.get(tn) orelse tn;
                             prop_type = try self.resolveTypeName(actual_type, false);
+                        } else if (method.data.fun_decl.is_expr_body) {
+                            if (method.data.fun_decl.body.resolved_type) |rt| {
+                                prop_type = rt;
+                            } else {
+                                const void_type = try self.allocator.create(AetherType);
+                                void_type.* = .Void;
+                                prop_type = void_type;
+                            }
                         } else {
                             const void_type = try self.allocator.create(AetherType);
                             void_type.* = .Void;

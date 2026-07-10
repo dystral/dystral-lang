@@ -23,7 +23,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             if (i.resolved_c_name) |cname| {
                 try self.writer.appendSlice(cname);
             } else if (i.is_class_property) {
-                try self.writer.writer().print("self->{s}", .{i.name});
+                try self.writer.writer().print("this->{s}", .{i.name});
             } else {
                 try self.writer.appendSlice(i.name);
             }
@@ -64,6 +64,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             try self.emitExpression(idx.index);
             try self.writer.appendSlice("]");
         },
+
         .assignment => |a| {
             try self.writer.writer().print("{s} = ", .{a.name});
             try self.emitExpression(a.value);
@@ -121,16 +122,16 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
 
                 var class_name: []const u8 = "unknown";
                 if (rt.* == .String) {
-                    class_name = "system_String";
+                    class_name = "core_String";
                 } else if (rt.* == .Int) {
-                    class_name = "system_Int";
+                    class_name = "core_Int";
                 } else if (rt.* == .Bool) {
-                    class_name = "system_Bool";
+                    class_name = "core_Bool";
                 } else if (rt.* == .Custom) {
                     class_name = rt.Custom;
                 } else if (rt.* == .Union) {
                     if (rt.Union.left.* == .String) {
-                        class_name = "system_String";
+                        class_name = "core_String";
                     } else if (rt.Union.left.* == .Custom) {
                         class_name = rt.Union.left.Custom;
                     }
@@ -167,7 +168,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             }
         },
         .if_expr => |i| {
-            try self.writer.appendSlice("(");
+            try self.writer.appendSlice("((");
             try self.emitExpression(i.condition);
             try self.writer.appendSlice(") ? ");
             
@@ -188,6 +189,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             } else {
                 try self.writer.appendSlice("0"); // fallback
             }
+            try self.writer.appendSlice(")");
         },
         .binary_expr => |b| {
             if (b.op == .elvis) {
@@ -206,7 +208,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                         if (b.op == .bang_eq) {
                             try self.writer.appendSlice("!");
                         }
-                        const class_name = if (rt.* == .String) "system_String" else rt.Custom;
+                        const class_name = if (rt.* == .String) "core_String" else rt.Custom;
                         try self.writer.writer().print("{s}_equals(", .{class_name});
                         try self.emitExpression(b.left);
                         try self.writer.appendSlice(", ");
@@ -216,7 +218,24 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     }
                 }
             }
+            if (b.op == .plus and b.left.resolved_type.?.* == .Pointer) {
+                try self.writer.appendSlice("(((char*)(");
+                try self.emitExpression(b.left);
+                try self.writer.appendSlice(")) + ");
+                try self.emitExpression(b.right);
+                try self.writer.appendSlice(")");
+                return;
+            }
+            if (b.op == .minus and b.left.resolved_type.?.* == .Pointer and b.right.resolved_type.?.* == .Pointer) {
+                try self.writer.appendSlice("(((char*)(");
+                try self.emitExpression(b.left);
+                try self.writer.appendSlice(")) - ((char*)(");
+                try self.emitExpression(b.right);
+                try self.writer.appendSlice(")))");
+                return;
+            }
 
+            try self.writer.appendSlice("(");
             try self.emitExpression(b.left);
             const op_str = switch (b.op) {
                 .plus => " + ",
@@ -235,6 +254,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             };
             try self.writer.appendSlice(op_str);
             try self.emitExpression(b.right);
+            try self.writer.appendSlice(")");
         },
         else => return error.UnsupportedExpression,
     }

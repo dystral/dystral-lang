@@ -18,8 +18,8 @@ fun isPrime(n: Int): Bool {
     return true
 }
 
-fun lastUpTo(max: Int): Int {
-    var i = max
+fun findLargestPrime(limit: Int): Int {
+    var i = limit
     while (i > 1) {
         if (isPrime(i)) {
             return i

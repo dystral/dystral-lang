@@ -144,7 +144,7 @@ pub fn isBool(t: *const AetherType) bool {
     switch (base.*) {
         .Bool => return true,
         .Custom => |name| {
-            return std.mem.eql(u8, name, "Bool") or std.mem.eql(u8, name, "system_Bool");
+            return std.mem.eql(u8, name, "Bool") or std.mem.eql(u8, name, "core_Bool");
         },
         else => return false,
     }

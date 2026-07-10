@@ -97,7 +97,7 @@ pub fn main() !void {
 
     const out_c_filename = "temp_out.c";
     try std.fs.cwd().writeFile(.{ .sub_path = out_c_filename, .data = c_code });
-    defer std.fs.cwd().deleteFile(out_c_filename) catch {};
+    // defer std.fs.cwd().deleteFile(out_c_filename) catch {};
 
     // Invoke zig cc
     const basename = std.fs.path.basename(filename);

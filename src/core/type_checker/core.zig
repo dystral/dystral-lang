@@ -124,21 +124,8 @@ fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool)
 fn core_validate(self: *TypeChecker, node: *ASTNode) anyerror!void {
     if (node.data == .program) {
         const basename = std.fs.path.basename(self.filename);
-        if (!std.mem.eql(u8, basename, "system.ae")) {
-            const dir_path = std.fs.path.dirname(self.filename) orelse ".";
-            var mod_path = try std.fs.path.join(self.allocator, &.{ dir_path, "system.ae" });
-            
-            var final_module_path: []const u8 = "system";
-            
-            if (std.fs.cwd().access(mod_path, .{}) == error.FileNotFound) {
-                // Try parent dir
-                const parent = std.fs.path.dirname(dir_path) orelse ".";
-                mod_path = try std.fs.path.join(self.allocator, &.{ parent, "system.ae" });
-                final_module_path = "../system";
-            }
-            
-            if (std.fs.cwd().access(mod_path, .{})) |_| {
-                var new_stmts = try self.allocator.alloc(*ASTNode, node.data.program.statements.len + 1);
+        if (!std.mem.eql(u8, basename, "core.ae")) {
+            var new_stmts = try self.allocator.alloc(*ASTNode, node.data.program.statements.len + 1);
                 
                 const import_node = try self.allocator.create(ASTNode);
                 import_node.* = .{
@@ -146,7 +133,7 @@ fn core_validate(self: *TypeChecker, node: *ASTNode) anyerror!void {
                     .column = 0,
                     .resolved_type = null,
                     .data = .{ .import_stmt = .{
-                        .module_path = final_module_path,
+                        .module_path = "std.core",
                         .destructured = &[_][]const u8{}, // Empty means import ALL
                         .module_ast = null,
                     }}
@@ -157,13 +144,15 @@ fn core_validate(self: *TypeChecker, node: *ASTNode) anyerror!void {
                     new_stmts[i + 1] = stmt;
                 }
                 node.data.program.statements = new_stmts;
-            } else |_| {}
         }
     }
     _ = try self.inferNode(node, &self.global_scope);
 }
 
 fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*const AetherType {
+    if (node.resolved_type) |rt| {
+        return rt;
+    }
     const t = try self.allocator.create(AetherType);
     switch (node.data) {
         .program => |p| {

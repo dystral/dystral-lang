@@ -1,0 +1,111 @@
+@Header("<stdlib.h>", "<stdio.h>")
+lib Standard {
+    fun printf(format: Pointer, value: Int): Void
+    fun sprintf(buffer: Pointer, format: Pointer, value: Int): Int
+    fun puts(str: Pointer): Int
+    fun GC_MALLOC(size: Int): Pointer
+    fun exit(code: Int): Void
+}
+
+@Header("<string.h>")
+lib NativeString {
+    fun strcmp(s1: Pointer, s2: Pointer): Int
+    fun strstr(haystack: Pointer, needle: Pointer): Pointer
+    fun strcpy(dest: Pointer, src: Pointer): Pointer
+    fun strncpy(dest: Pointer, src: Pointer, n: Int): Pointer
+    fun strlen(s: Pointer): Int
+}
+
+@Header("<unistd.h>")
+lib Posix {
+    fun sleep(seconds: Int): Int
+}
+
+class String(val ptr: Pointer, val length: Int) {
+    operator fun equals(other: String): Bool {
+        return NativeString.strcmp(this.ptr, other.ptr) == 0
+    }
+    operator fun plus(other: String): String {
+        val total_len = this.length + other.length
+        val buf = Standard.GC_MALLOC(total_len + 1)
+        Standard.sprintf(buf, "%s%s".ptr, this.ptr, other.ptr)
+        return String(buf, total_len)
+    }
+
+    fun replace(old: String, newStr: String): String {
+        var count = 0
+        var curr = this.ptr
+        var searching = true
+        
+        while (searching) {
+            val match = NativeString.strstr(curr, old.ptr)
+            if (match != null) {
+                count = count + 1
+                curr = match + old.length
+            } else {
+                searching = false
+            }
+        }
+        
+        if (count == 0) { return this }
+        
+        val newLen = this.length + (count * (newStr.length - old.length))
+        val res = Standard.GC_MALLOC(newLen + 1)
+        
+        curr = this.ptr
+        var resCurr = res
+        searching = true
+        
+        while (searching) {
+            val match = NativeString.strstr(curr, old.ptr)
+            if (match != null) {
+                val prefixLen = match - curr
+                NativeString.strncpy(resCurr, curr, prefixLen)
+                resCurr = resCurr + prefixLen
+                
+                NativeString.strcpy(resCurr, newStr.ptr)
+                resCurr = resCurr + newStr.length
+                
+                curr = match + old.length
+            } else {
+                NativeString.strcpy(resCurr, curr)
+                searching = false
+            }
+        }
+        
+        return String(res, newLen)
+    }
+}
+
+@Primitive("int")
+class Int {
+    override fun toString(): String {
+        val buf = Standard.GC_MALLOC(32)
+        Standard.sprintf(buf, "%d".ptr, this)
+        return String(buf, NativeString.strlen(buf))
+    }
+}
+
+@Primitive("bool")
+class Bool {
+    override fun toString(): String {
+        return if (this) "true" else "false"
+    }
+}
+
+fun print(value: Int): Void {
+    Standard.printf("%d\n".ptr, value)
+}
+
+fun print(value: String): Void {
+    Standard.puts(value.ptr)
+}
+
+fun assert(condition: Bool): Void {
+    if (condition == false) {
+        print("[FAIL] Assertion failed")
+        Standard.exit(1)
+    }
+}
+
+fun sleep(seconds: Int) = Posix.sleep(seconds)

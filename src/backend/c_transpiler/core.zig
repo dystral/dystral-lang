@@ -15,7 +15,7 @@ pub fn getCTypeStr(allocator: std.mem.Allocator, t: *const type_system.AetherTyp
         .Int => return "int",
         .Bool => return "bool",
         .Pointer => return "char*",
-        .String => return "system_String*",
+        .String => return "core_String*",
         .Void => return "void",
         .Custom => |name| {
             if (std.mem.eql(u8, name, "Int")) return "int";

@@ -1,0 +1,175 @@
+import { mod } from "std.math"
+
+@Header("<time.h>")
+lib NativeTime {
+    fun time(tloc: Pointer): Int
+}
+
+fun daysInMonth(m: Int, isLeap: Bool): Int {
+    return if (m == 0) 31 
+    else if (m == 1) (if (isLeap) 29 else 28)
+    else if (m == 2) 31
+    else if (m == 3) 30
+    else if (m == 4) 31
+    else if (m == 5) 30
+    else if (m == 6) 31
+    else if (m == 7) 31
+    else if (m == 8) 30
+    else if (m == 9) 31
+    else if (m == 10) 30
+    else 31
+}
+
+class Duration(val seconds: Int) {
+    fun minutes(): Int {
+        return this.seconds / 60
+    }
+    fun hours(): Int {
+        return this.seconds / 3600
+    }
+}
+
+fun hours(h: Int): Duration = Duration(h * 3600)
+fun minutes(m: Int): Duration = Duration(m * 60)
+fun seconds(s: Int): Duration = Duration(s)
+
+class Time(val sec: Int) {
+    fun second(): Int = mod(this.sec, 60)
+    fun minute(): Int = mod(this.sec / 60, 60)
+    fun hour(): Int = mod(this.sec / 3600, 24)
+
+    fun year(): Int {
+        var days = this.sec / 86400
+        var y = 1970
+        var searching = true
+        while (searching) {
+            val isLeap = (mod(y, 4) == 0 && mod(y, 100) != 0) || (mod(y, 400) == 0)
+            val daysInYear = if (isLeap) 366 else 365
+            if (days < daysInYear) {
+                searching = false
+            } else {
+                days = days - daysInYear
+                y = y + 1
+            }
+        }
+        return y
+    }
+
+    fun month(): Int {
+        var days = this.sec / 86400
+        var y = 1970
+        var isLeap = false
+        var searching = true
+        while (searching) {
+            isLeap = (mod(y, 4) == 0 && mod(y, 100) != 0) || (mod(y, 400) == 0)
+            val daysInYear = if (isLeap) 366 else 365
+            if (days < daysInYear) {
+                searching = false
+            } else {
+                days = days - daysInYear
+                y = y + 1
+            }
+        }
+        
+        var m = 0
+        searching = true
+        while (searching) {
+            val dim = daysInMonth(m, isLeap)
+            if (days < dim) {
+                searching = false
+            } else {
+                days = days - dim
+                m = m + 1
+            }
+        }
+        return m + 1
+    }
+
+    fun day(): Int {
+        var days = this.sec / 86400
+        var y = 1970
+        var isLeap = false
+        var searching = true
+        while (searching) {
+            isLeap = (mod(y, 4) == 0 && mod(y, 100) != 0) || (mod(y, 400) == 0)
+            val daysInYear = if (isLeap) 366 else 365
+            if (days < daysInYear) {
+                searching = false
+            } else {
+                days = days - daysInYear
+                y = y + 1
+            }
+        }
+        
+        var m = 0
+        searching = true
+        while (searching) {
+            val dim = daysInMonth(m, isLeap)
+            if (days < dim) {
+                searching = false
+            } else {
+                days = days - dim
+                m = m + 1
+            }
+        }
+        return days + 1
+    }
+
+    fun pad(value: Int): String {
+        return if (value < 10) "0" + value.toString() else value.toString()
+    }
+
+    fun format(pattern: String): String {
+        var res = pattern.replace("YYYY", this.year().toString())
+        res = res.replace("MM", this.pad(this.month()))
+        res = res.replace("DD", this.pad(this.day()))
+        res = res.replace("HH", this.pad(this.hour()))
+        res = res.replace("mm", this.pad(this.minute()))
+        res = res.replace("ss", this.pad(this.second()))
+        return res
+    }
+    
+    operator fun plus(duration: Duration): Time {
+        return Time(this.sec + duration.seconds)
+    }
+
+    operator fun minus(other: Time): Duration {
+        return Duration(this.sec - other.sec)
+    }
+}
+
+fun now(): Time {
+    val current = NativeTime.time(null)
+    return Time(current)
+}
+
+fun date(year: Int, month: Int, day: Int): Time {
+    var days = 0
+    var y = 1970
+    var searching = true
+    while (searching) {
+        if (y >= year) {
+            searching = false
+        } else {
+            val isLeap = (mod(y, 4) == 0 && mod(y, 100) != 0) || (mod(y, 400) == 0)
+            days = days + (if (isLeap) 366 else 365)
+            y = y + 1
+        }
+    }
+    
+    val isTargetLeap = (mod(year, 4) == 0 && mod(year, 100) != 0) || (mod(year, 400) == 0)
+    var m = 0
+    searching = true
+    while (searching) {
+        if (m >= month - 1) {
+            searching = false
+        } else {
+            val dim = daysInMonth(m, isTargetLeap)
+            days = days + dim
+            m = m + 1
+        }
+    }
+    
+    days = days + (day - 1)
+    return Time(days * 86400)
+}

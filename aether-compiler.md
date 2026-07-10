@@ -155,12 +155,29 @@ Aether is a compiled programming language focused on systems performance, concis
 - **Task 24.2:** Criar bindings limpos do C (`lib C { fun printf(format: CString, ...) }`) e implementar a classe `String` inteiramente em Aether.
 - **Task 24.3:** Mover sobrecargas de `print`, conversões `toString`, e operador de concatenação para o `system.ae` e módulos core.
 
-### Phase 24: User-Defined Annotations & Metadata (LATER)
-- **Task 24.1:** Adicionar suporte no Lexer, AST e Parser para declaração de anotações customizadas (ex: `annotation Header(files: [String])`).
-- **Task 24.2:** O `TypeChecker` deve validar se as anotações utilizadas (ex: `@Header("<stdio.h>")`) foram devidamente declaradas no escopo e se os argumentos informados batem com os tipos exigidos.
-- **Task 24.3:** O compilador deve ser capaz de salvar essas anotações como metadados refletíveis ou consumi-las durante a geração de código (como já é feito nativamente no bloco `lib`).
+### Phase 25: User-Defined Annotations & Metadata (LATER)
+- **Task 25.1:** Adicionar suporte no Lexer, AST e Parser para declaração de anotações customizadas (ex: `annotation Header(files: [String])`).
+- **Task 25.2:** O `TypeChecker` deve validar se as anotações utilizadas (ex: `@Header("<stdio.h>")`) foram devidamente declaradas no escopo e se os argumentos informados batem com os tipos exigidos.
+- **Task 25.3:** O compilador deve ser capaz de salvar essas anotações como metadados refletíveis ou consumi-las durante a geração de código (como já é feito nativamente no bloco `lib`).
+
+### Phase 26: Standard Library Packages & Time API (COMPLETED)
+- **Task 26.1:** Mapear o prefixo virtual `std.*` no roteador do `inferImportStmt` para apontar diretamente para a pasta da biblioteca padrão no repositório.
+- **Task 26.2:** Migrar `system.ae` para a infraestrutura de pacote (`std/core.ae`).
+- **Task 26.3:** Projetar o pacote `std.time` (`std/time.ae`) implementando a classe `Time` sob o modelo estrutural **Epoch-First**, acompanhada da abstração `Duration`.
+- **Task 26.4:** Encapsular as chamadas do `<time.h>` dentro do bloco `lib NativeTime`.
+
+### Phase 27: Unary Operators (LATER)
+- **Task 27.1:** Adicionar suporte no Lexer e Parser para operadores unários (ex: `-10`, `!condicao`).
+- **Task 27.2:** Atualizar a AST para suportar `UnaryExpression`.
+- **Task 27.3:** O `TypeChecker` deve inferir corretamente o tipo baseado na expressão unária (ex: `!` requer e retorna `Bool`, `-` requer `Int` ou `Float` e retorna o mesmo tipo).
+- **Task 27.4:** Implementar a geração de código correspondente no C Transpiler.
 
 ## ✅ Definition of Done (Per Phase)
 - [x] Security/Lint: No memory leaks using `std.testing.allocator` across all modules.
 - [x] Build: `zig build test` and `zig build run` execute successfully.
 - [x] Errors: Semantic validations fail gracefully with rich terminal outputs.
+
+### Bugfixes & Tools (July 9, 2026)
+- **C Transpiler `.if_expr`**: Fix do Transpiler para emitir statements de `if/else` ao invés de ternários C (`?:`) quando em modo Statement. Isso impede erros críticos quando lidando com blocos complexos (ex: `return`) que eram flagrados como `UnsupportedExpression`.
+- **Runtime Stream**: CLI `aether run` agora exibe as linhas de `stdout` diretamente e sem buffer em tempo real usando `child.spawn()` com streams via herança (`.Inherit`). Permite a execução de loops eternos de monitoramento sem travar o TTY.
+- **Method Resolution Name Mangling**: Correção genial do TypeChecker e C Transpiler onde as primitivas (`Int`, `Bool`, etc) não podiam ter seus métodos chamados pois o sistema de herança tentava buscar a classe simples `Int` no `classes_ast` quando, na verdade, estava salva via *Name Mangling* como `system_Int`.

@@ -7,3 +7,15 @@ fun sumArray(arr: [Int]): Int {
 }
 
 fun getFirstElement(arr: [String]) = arr[0]
+
+fun main() {
+    val arr = [10, 20, 30]
+    val sum = sumArray(arr)
+    assert(sum == 60)
+    
+    val strings = ["Hello", "World"]
+    val first = getFirstElement(strings)
+    assert(first == "Hello")
+    
+    print("Array and loop tests passed!")
+}

@@ -1,0 +1,49 @@
+import { assert } from "std.core"
+
+test "should compare strings" {
+    val a = "hello"
+    val b = "hello"
+    val c = "world"
+    
+    assert(a == b)
+    assert((a == c) == false)
+}
+
+test "should concatenate strings" {
+    val a = "hello"
+    val b = " world"
+    val c = a + b
+    
+    assert(c == "hello world")
+}
+
+test "should replace substring" {
+    val str = "The quick brown fox jumps over the lazy dog"
+    val replaced = str.replace("fox", "cat")
+    assert(replaced == "The quick brown cat jumps over the lazy dog")
+    
+    val str2 = "aaaa"
+    val replaced2 = str2.replace("a", "b")
+    assert(replaced2 == "bbbb")
+    
+    val str3 = "hello"
+    val replaced3 = str3.replace("x", "y")
+    assert(replaced3 == "hello")
+}
+
+test "should convert Int to string" {
+    val a = 42
+    val str = a.toString()
+    assert(str == "42")
+    
+    val b = 0 - 10
+    val str2 = b.toString()
+    assert(str2 == "-10")
+}
+
+test "should convert Bool to string" {
+    val t = true
+    val f = false
+    assert(t.toString() == "true")
+    assert(f.toString() == "false")
+}

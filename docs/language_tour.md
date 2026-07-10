@@ -202,3 +202,36 @@ fun main() {
     }
 }
 ```
+
+---
+
+## 9. Standard Library Packages & Time API
+
+Aether organizes its standard library into virtual packages starting with `std.`. The compiler automatically maps these to the language's internal SDK.
+
+For example, manipulating Date and Time in Aether is done through the `std.time` package, which uses an ultra-fast **Epoch-First** architecture (inspired by Go). Instead of bloated objects containing Year/Month/Day properties, Aether's `Time` class is a zero-overhead wrapper around a simple Unix Epoch integer. 
+
+```kotlin
+import { Time, Duration, now, date, hours, minutes, seconds } from "std.time"
+
+fun main() {
+    // Current time (machine epoch)
+    val today = now()
+    
+    // Creating specific dates directly
+    val birthday = date(1990, 7, 20)
+    
+    // Time mathematics uses Aether's native Operator Overloading
+    val dur = hours(48)
+    val future = birthday + dur // Birthday + 48 hours
+    
+    // Time difference returns a Duration
+    val diff = today - birthday 
+    print(diff.hours().toString())
+    
+    // Formatting uses the traditional standard
+    print(future.format("YYYY-MM-DD HH:mm:ss"))
+}
+```
+
+Because time math is just adding integers (`epoch + seconds`), it avoids the historic timezone bugs that plague other languages when dealing with daylight savings and calendar math. The `std.time` package makes all duration math explicit (e.g., `hours(2)`) and heavily leverages Operator Overloading for ergonomics.
