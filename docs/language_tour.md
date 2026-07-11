@@ -176,7 +176,7 @@ System.exit(0)
 
 Aether features a native type system for dynamic arrays and full-featured generic **collections**, along with ergonomic `for` and `while` loops.
 
-The `[Type]` syntax is syntactic sugar for an immutable **`List<T>`**. Read elements with `[index]` or `.get(index)`, check size with `.size()`. For mutation, wrap with `MutableList<T>` (see [Section 10](#10-collections-list-map-set)).
+The `[Type]` syntax is syntactic sugar for an immutable **`List<T>`**. Read elements with `[index]` or `.get(index)`, check size with `.size()`. For mutation, call `.mut()` on any immutable collection to get a `MutableList<T>` (see [Section 10.5](#105-mutability-conversion----mut-and-freeze)).
 
 ```kotlin
 fun main() {
@@ -280,6 +280,15 @@ assert(list.size() == 2)
 assert(list.get(0) == 99)
 ```
 
+You can also get a `MutableList` from any existing `List` by calling `.mut()`, and convert back to an immutable `List` via `.freeze()` (see [Section 10.5](#105-mutability-conversion----mut-and-freeze)):
+
+```kotlin
+val frozen: List<Int> = [1, 2, 3]
+val mutable = frozen.mut()   // MutableList<Int>
+mutable.add(4)
+val back = mutable.freeze()  // List<Int> again
+```
+
 **Type inference** works out-of-the-box. The compiler resolves the element type from the literal:
 
 ```kotlin
@@ -342,3 +351,59 @@ assert(tags.contains("Rust")   == false)
 | `map["key"] = val` | write to `MutableMap` |
 
 > **Note:** The bracket literal `[x of y, ...]` always produces an **immutable** `Map`. For a mutable map you must use `MutableMap(...)` explicitly.
+
+---
+
+### 10.5 Mutability Conversion — `.mut()` and `.freeze()`
+
+Aether collections are **immutable by default**. When you need to mutate a snapshot, call `.mut()` to get a mutable view. When you're done mutating and want to hand off a safe read-only handle, call `.freeze()`.
+
+| Method | From | To | Description |
+|---|---|---|---|
+| `.mut()` | `List<T>` | `MutableList<T>` | Wraps the list for mutation |
+| `.mut()` | `Map<K,V>` | `MutableMap<K,V>` | Wraps the map for mutation |
+| `.mut()` | `Set<T>` | `MutableSet<T>` | Wraps the set for mutation |
+| `.freeze()` | `MutableList<T>` | `List<T>` | Returns the immutable backing list |
+| `.freeze()` | `MutableMap<K,V>` | `Map<K,V>` | Returns the immutable backing list |
+| `.freeze()` | `MutableSet<T>` | `Set<T>` | Returns the immutable backing map |
+
+**Pattern: build then freeze**
+
+```kotlin
+import { List } from "std.collections"
+
+fun main() {
+    // Start with an immutable snapshot
+    val base: List<Int> = [10, 20]
+
+    // Upgrade to mutable, mutate freely
+    val builder = base.mut()
+    builder.add(30)
+    builder.set(0, 99)
+
+    // Downgrade back to safe, immutable view
+    val result = builder.freeze()
+    assert(result.size() == 3)
+    assert(result[0] == 99)
+    assert(result[2] == 30)
+}
+```
+
+**Pattern: collect into a mutable map, then share immutably**
+
+```kotlin
+import { Map } from "std.collections"
+
+fun main() {
+    val seed: Map<String, Int> = ["a" of 1]
+
+    val m = seed.mut()
+    m["b"] = 2
+    m["c"] = 3
+
+    val snapshot = m.freeze()  // safe to pass around
+    assert(snapshot["b"] == 2)
+}
+```
+
+> **Design note:** `.mut()` does not copy the underlying data — the mutable wrapper operates directly on the same internal storage. `.freeze()` returns a reference to that same storage as an immutable handle. This means both operations are **O(1)** regardless of collection size.
