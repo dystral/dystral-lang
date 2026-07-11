@@ -46,13 +46,16 @@ pub fn getCTypeStr(allocator: std.mem.Allocator, t: *const type_system.AetherTyp
 pub const CTranspiler = struct {
     allocator: std.mem.Allocator,
     header_writer: std.ArrayList(u8),
+    forward_writer: std.ArrayList(u8), // for type forward declarations (before header)
     writer: std.ArrayList(u8),
     classes: std.StringHashMap(void),
+    known_constructors: std.StringHashMap(void), // pre-registered, not yet emitted
     libs: std.StringHashMap(void),
     emitted_functions: std.StringHashMap(void),
     is_test_mode: bool = false,
     test_names: std.ArrayList([]const u8),
     test_count: usize = 0,
+    classes_ast: ?*std.StringHashMap(*ASTNode) = null,
 
     pub const emitClassDecl = decl_mod.emitClassDecl;
     pub const emitMethodDecl = decl_mod.emitMethodDecl;
@@ -67,8 +70,10 @@ pub const CTranspiler = struct {
         return CTranspiler{
             .allocator = allocator,
             .header_writer = std.ArrayList(u8).init(allocator),
+            .forward_writer = std.ArrayList(u8).init(allocator),
             .writer = std.ArrayList(u8).init(allocator),
             .classes = std.StringHashMap(void).init(allocator),
+            .known_constructors = std.StringHashMap(void).init(allocator),
             .libs = std.StringHashMap(void).init(allocator),
             .emitted_functions = std.StringHashMap(void).init(allocator),
             .is_test_mode = false,
@@ -79,19 +84,53 @@ pub const CTranspiler = struct {
 
     pub fn deinit(self: *CTranspiler) void {
         self.header_writer.deinit();
+        self.forward_writer.deinit();
         self.writer.deinit();
         self.classes.deinit();
+        self.known_constructors.deinit();
         self.libs.deinit();
         self.emitted_functions.deinit();
         self.test_names.deinit();
     }
 
     pub fn transpile(self: *CTranspiler, node: *ASTNode) ![]const u8 {
+        // Pre-register all monomorphized class names into known_constructors AND
+        // emit their forward declarations (typedef struct X X) into forward_writer.
+        // This guarantees every struct name is known before any prototype is emitted.
+        if (self.classes_ast) |ca| {
+            var pre_it = ca.iterator();
+            while (pre_it.next()) |entry| {
+                if (entry.value_ptr.*.data == .class_decl) {
+                    const cd = entry.value_ptr.*.data.class_decl;
+                    if (cd.generic_params.len == 0) {
+                        const actual_name = cd.resolved_c_name orelse cd.name;
+                        if (!self.known_constructors.contains(actual_name)) {
+                            try self.known_constructors.put(actual_name, {});
+                            try self.forward_writer.writer().print("typedef struct {s} {s};\n", .{actual_name, actual_name});
+                        }
+                    }
+                }
+            }
+            try self.forward_writer.appendSlice("\n");
+        }
+
         try self.transpileNode(node, true);
+        
+        if (self.classes_ast) |ca| {
+            var it = ca.iterator();
+            while (it.next()) |entry| {
+                if (entry.value_ptr.*.data == .class_decl) {
+                    if (entry.value_ptr.*.data.class_decl.generic_params.len == 0) {
+                        try self.emitClassDecl(entry.value_ptr.*);
+                    }
+                }
+            }
+        }
         
         var final = std.ArrayList(u8).init(self.allocator);
         try final.appendSlice(std_lib_c);
         try final.appendSlice("\n");
+        try final.appendSlice(self.forward_writer.items); // forward decls go first
         try final.appendSlice(self.header_writer.items);
         try final.appendSlice(self.writer.items);
         
@@ -134,6 +173,12 @@ pub const CTranspiler = struct {
         try w.print("    }}\n", .{});
         try w.print("    arr->data[arr->length++] = val;\n", .{});
         try w.print("}}\n\n", .{});
+        
+        try w.print("void {s}_set({s}* arr, int index, {s} val) {{\n", .{struct_name, struct_name, inner_c_type});
+        try w.print("    if (index >= 0 && index < arr->length) {{\n", .{});
+        try w.print("        arr->data[index] = val;\n", .{});
+        try w.print("    }}\n", .{});
+        try w.print("}}\n\n", .{});
     }
 
     pub fn transpileNode(self: *CTranspiler, node: *ASTNode, is_root: bool) !void {
@@ -148,7 +193,9 @@ pub const CTranspiler = struct {
                             try self.transpileNode(mod_ast, false);
                         }
                     } else if (stmt.data == .class_decl) {
-                        try self.emitClassDecl(stmt);
+                        if (stmt.data.class_decl.generic_params.len == 0) {
+                            try self.emitClassDecl(stmt);
+                        }
                     } else if (stmt.data == .lib_decl) {
                         try self.emitLibDecl(stmt);
                     }

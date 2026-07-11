@@ -27,6 +27,12 @@ pub fn assignment(self: *Parser) anyerror!*ASTNode {
                 .is_safe = expr.data.get_expr.is_safe,
                 .value = value 
             } }, line, col);
+        } else if (expr.data == .index_expr) {
+            return try self.createNodeAt(.{ .index_set_expr = .{
+                .object = expr.data.index_expr.object,
+                .index = expr.data.index_expr.index,
+                .value = value
+            } }, line, col);
         }
 
         self.errorAtCurrent("Invalid assignment target.");
@@ -75,9 +81,22 @@ pub fn logicAnd(self: *Parser) anyerror!*ASTNode {
 }
 
 pub fn equality(self: *Parser) anyerror!*ASTNode {
-    var expr = try self.comparison();
+    var expr = try self.ofOperator();
 
     while (self.match(.eq_eq) or self.match(.bang_eq)) {
+        const op = self.previous.token_type;
+        const line = self.previous.line;
+        const col = self.previous.column;
+        const right = try self.ofOperator();
+        expr = try self.createNodeAt(.{ .binary_expr = .{ .left = expr, .op = op, .right = right } }, line, col);
+    }
+    return expr;
+}
+
+pub fn ofOperator(self: *Parser) anyerror!*ASTNode {
+    var expr = try self.comparison();
+
+    while (self.match(.kw_of)) {
         const op = self.previous.token_type;
         const line = self.previous.line;
         const col = self.previous.column;
@@ -86,7 +105,6 @@ pub fn equality(self: *Parser) anyerror!*ASTNode {
     }
     return expr;
 }
-
 pub fn comparison(self: *Parser) anyerror!*ASTNode {
     var expr = try self.term();
 
@@ -99,6 +117,7 @@ pub fn comparison(self: *Parser) anyerror!*ASTNode {
     }
     return expr;
 }
+
 
 pub fn term(self: *Parser) anyerror!*ASTNode {
     var expr = try self.factor();
@@ -245,14 +264,25 @@ pub fn primary(self: *Parser) anyerror!*ASTNode {
     
     if (self.match(.l_bracket)) {
         var elements = std.ArrayList(*ASTNode).init(self.allocator);
+        var is_map = false;
+        
         if (!self.check(.r_bracket)) {
             while (true) {
-                try elements.append(try self.expression());
+                const expr = try self.expression();
+                if (expr.data == .binary_expr and expr.data.binary_expr.op == .kw_of) {
+                    is_map = true;
+                }
+                try elements.append(expr);
                 if (!self.match(.comma)) break;
             }
         }
         try self.consume(.r_bracket, "Expected ']' after array elements.");
-        return try self.createNodeAt(.{ .array_literal = .{ .elements = try elements.toOwnedSlice() } }, line, col);
+        
+        if (is_map) {
+            return try self.createNodeAt(.{ .map_literal = .{ .elements = try elements.toOwnedSlice() } }, line, col);
+        } else {
+            return try self.createNodeAt(.{ .array_literal = .{ .elements = try elements.toOwnedSlice() } }, line, col);
+        }
     }
 
     self.errorAtCurrent("Expected expression.");

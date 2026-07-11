@@ -42,6 +42,7 @@ pub const Parser = struct {
     pub const logicOr = expression_mod.logicOr;
     pub const logicAnd = expression_mod.logicAnd;
     pub const equality = expression_mod.equality;
+    pub const ofOperator = expression_mod.ofOperator;
     pub const comparison = expression_mod.comparison;
     pub const term = expression_mod.term;
     pub const factor = expression_mod.factor;
@@ -78,27 +79,59 @@ pub const Parser = struct {
 
 fn core_parseTypeAnnotation(self: *Parser) anyerror!ParsedType {
     if (self.match(.colon)) {
-        var name: []const u8 = undefined;
-        if (self.match(.l_bracket)) {
-            try self.consume(.identifier, "Expected element type name.");
-            const inner = self.previous.lexeme;
-            try self.consume(.r_bracket, "Expected ']' after array type.");
-            name = try std.fmt.allocPrint(self.allocator, "[{s}]", .{inner});
-        } else {
-            try self.consume(.identifier, "Expected type name.");
-            name = self.previous.lexeme;
-        }
-        var is_nullable = false;
-        
-        if (self.match(.question)) {
-            is_nullable = true;
-        } else if (self.match(.pipe)) {
-            try self.consume(.kw_null, "Expected 'null' after '|'.");
-            is_nullable = true;
-        }
-        return ParsedType{ .name = name, .is_nullable = is_nullable };
+        return try core_parseType(self);
     }
     return ParsedType{ .name = null, .is_nullable = false };
+}
+
+fn core_parseType(self: *Parser) anyerror!ParsedType {
+    var name: []const u8 = undefined;
+    if (self.match(.l_bracket)) {
+        const inner = try core_parseType(self);
+        try self.consume(.r_bracket, "Expected ']' after array type.");
+        
+        var inner_str = inner.name.?;
+        if (inner.is_nullable) {
+            inner_str = try std.fmt.allocPrint(self.allocator, "{s}?", .{inner.name.?});
+        }
+        
+        name = try std.fmt.allocPrint(self.allocator, "[{s}]", .{inner_str});
+    } else {
+        try self.consume(.identifier, "Expected type name.");
+        name = self.previous.lexeme;
+        
+        if (self.match(.less)) {
+            const generic_arg1 = try core_parseType(self);
+            
+            var gen_str = generic_arg1.name.?;
+            if (generic_arg1.is_nullable) {
+                gen_str = try std.fmt.allocPrint(self.allocator, "{s}?", .{generic_arg1.name.?});
+            }
+            
+            if (self.match(.comma)) {
+                const generic_arg2 = try core_parseType(self);
+                var gen_str2 = generic_arg2.name.?;
+                if (generic_arg2.is_nullable) {
+                    gen_str2 = try std.fmt.allocPrint(self.allocator, "{s}?", .{generic_arg2.name.?});
+                }
+                
+                try self.consume(.greater, "Expected '>' after generic type arguments.");
+                name = try std.fmt.allocPrint(self.allocator, "{s}<{s}, {s}>", .{name, gen_str, gen_str2});
+            } else {
+                try self.consume(.greater, "Expected '>' after generic type argument.");
+                name = try std.fmt.allocPrint(self.allocator, "{s}<{s}>", .{name, gen_str});
+            }
+        }
+    }
+    
+    var is_nullable = false;
+    if (self.match(.question)) {
+        is_nullable = true;
+    } else if (self.match(.pipe)) {
+        try self.consume(.kw_null, "Expected 'null' after '|'.");
+        is_nullable = true;
+    }
+    return ParsedType{ .name = name, .is_nullable = is_nullable };
 }
 
 fn core_createNode(self: *Parser, data: ASTNodeType) !*ASTNode {

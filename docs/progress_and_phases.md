@@ -96,3 +96,17 @@ Transformamos Aether em uma linguagem autossuficiente e tipicamente forte por re
 - **C Transpiler `.if_expr`**: Fix do Transpiler para emitir statements de `if/else` ao invés de ternários C (`?:`) quando em modo Statement. Isso impede erros críticos quando lidando com blocos complexos (ex: `return`) que eram flagrados como `UnsupportedExpression`.
 - **Runtime Stream**: CLI `aether run` agora exibe as linhas de `stdout` diretamente e sem buffer em tempo real usando `child.spawn()` com streams via herança (`.Inherit`). Permite a execução de loops eternos de monitoramento sem travar o TTY.
 - **Method Resolution Name Mangling**: Correção genial do TypeChecker e C Transpiler onde as primitivas (`Int`, `Bool`, etc) não podiam ter seus métodos chamados pois o sistema de herança tentava buscar a classe simples `Int` no `classes_ast` quando, na verdade, estava salva via *Name Mangling* como `system_Int`.
+
+### Phase 27: Generic Collections (`std.collections`)
+
+A implementação completa de coleções genéricas reutilizáveis, com suporte nativo do compilador para açúcar sintático.
+
+- **`List<T>` e `MutableList<T>`:** Sequências ordenadas imutáveis e mutáveis. Literais via `[1, 2, 3]`. Acesso via `list[i]`, tamanho via `.size()`, inserção via `.add()`, remoção via `.remove()` e mutação via `.set()`.
+- **`Map<K, V>` e `MutableMap<K, V>`:** Tabelas hash associativas. Literais imutáveis via `["chave" of "valor"]` (infixo `of`). Leitura e escrita via `map["chave"] = valor`. Verificação via `.containsKey()`. Capacidade calculada dinamicamente por `bucketList.size()`.
+- **`Set<T>` e `MutableSet<T>`:** Coleções sem duplicatas baseadas em `Map<T, Bool>`. Operações via `.add()`, `.contains()`.
+- **Inferência de Tipos Profunda:** O TypeChecker foi estendido com três novos padrões de inferência de genéricos:
+  1. `List<T>` → infere `T` do nome manglado (`List_Int` → `Int`).
+  2. `List<Node<K, V>?>` → infere `K` e `V` do nome manglado via split binário validado.
+  3. `MutableMap<T, Bool>` / `Map<T, Bool>` → infere `T` diretamente do nome manglado da instância.
+- **Construtores Limpos:** Removidos os parâmetros fictícios `dummyK`, `dummyV` e `dummyT`. Nenhum programador Aether precisa conhecer os detalhes internos das coleções.
+- **Correção de Escopo de Monomorfização:** O `monomorphizeClass` preserva e restaura aliases genéricos (`old_aliases`) para evitar vazamento de contexto entre instâncias aninhadas (ex: `List<Node<K, V>?>` dentro de `MutableMap<K, V>`).

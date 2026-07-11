@@ -1,0 +1,19 @@
+import { assert } from "std.core"
+import { List, MutableList, Map, MutableMap, Set, MutableSet, Node } from "std.collections"
+
+test "List.mut() should return MutableList" {
+    val list = [10, 20]
+    val mlist = list.mut()
+    mlist.add(30)
+    assert(mlist.size() == 3)
+    assert(mlist[2] == 30)
+}
+
+test "MutableList.freeze() should return List" {
+    val list = [1, 2, 3]
+    val mlist = list.mut()
+    mlist.add(4)
+    val frozen = mlist.freeze()
+    assert(frozen.size() == 4)
+    assert(frozen[3] == 4)
+}

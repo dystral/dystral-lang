@@ -1,5 +1,6 @@
 const std = @import("std");
 const core = @import("core.zig");
+const ts = @import("../../core/type_system.zig");
 
 const ASTNode = core.ASTNode;
 const CTranspiler = core.CTranspiler;
@@ -19,28 +20,67 @@ pub fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
     }
 
     if (primitive_type == null) {
+        // Pre-emit any array structs needed for properties
+        for (class_decl.primary_constructor) |prop| {
+            if (prop.resolved_type) |rt| {
+                if (ts.extractBaseType(rt).* == .Array) try self.emitArrayStruct(ts.extractBaseType(rt).Array);
+            }
+        }
+
+        // Pre-emit any Custom struct dependencies (e.g. MutableList depends on List)
+        if (self.classes_ast) |ca| {
+            for (class_decl.primary_constructor) |prop| {
+                if (prop.resolved_type) |rt| {
+                    const base = ts.extractBaseType(rt);
+                    if (base.* == .Custom) {
+                        if (ca.get(base.Custom)) |dep_node| {
+                            if (dep_node.data == .class_decl and dep_node.data.class_decl.generic_params.len == 0) {
+                                try self.emitClassDecl(dep_node);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Emit Struct
         try self.header_writer.writer().print("typedef struct {s} {s};\n", .{actual_name, actual_name});
         try self.header_writer.writer().print("struct {s} {{\n", .{actual_name});
         for (class_decl.primary_constructor) |prop| {
-            const t_str = if (std.mem.eql(u8, prop.type_name, "Int")) "int" 
-                          else if (std.mem.eql(u8, prop.type_name, "Bool")) "bool"
-                          else if (std.mem.eql(u8, prop.type_name, "Pointer")) "void*"
-                          else if (std.mem.eql(u8, prop.type_name, "String")) "core_String*" 
-                          else "void*";
+            var t_str: []const u8 = "void*";
+            if (prop.resolved_type) |rt| {
+                t_str = try core.getCTypeStr(self.allocator, rt);
+            }
             try self.header_writer.writer().print("    {s} {s};\n", .{t_str, prop.name});
         }
         try self.header_writer.writer().print("}};\n\n", .{});
 
-        // Emit Allocator/Constructor
+        // Emit Allocator/Constructor Declaration
+        try self.header_writer.writer().print("{s}* {s}_new(", .{actual_name, actual_name});
+        for (class_decl.primary_constructor, 0..) |prop, i| {
+            if (i > 0) try self.header_writer.appendSlice(", ");
+            var t_str: []const u8 = "void*";
+            if (prop.resolved_type) |rt| {
+                t_str = try core.getCTypeStr(self.allocator, rt);
+            }
+            try self.header_writer.writer().print("{s} {s}", .{t_str, prop.name});
+        }
+        try self.header_writer.appendSlice(");\n");
+        if (primitive_type) |pt| {
+            try self.header_writer.writer().print("{s} {s}_constructor({s} this);\n", .{actual_name, actual_name, pt});
+        } else {
+            try self.header_writer.writer().print("{s}* {s}_constructor({s}* this);\n", .{actual_name, actual_name, actual_name});
+        }
+
+        // Emit Allocator/Constructor Implementation
         try self.writer.writer().print("{s}* {s}_new(", .{actual_name, actual_name});
         for (class_decl.primary_constructor, 0..) |prop, i| {
             if (i > 0) try self.writer.appendSlice(", ");
-            const t_str = if (std.mem.eql(u8, prop.type_name, "Int")) "int" 
-                          else if (std.mem.eql(u8, prop.type_name, "Bool")) "bool"
-                          else if (std.mem.eql(u8, prop.type_name, "Pointer")) "void*"
-                          else if (std.mem.eql(u8, prop.type_name, "String")) "core_String*" 
-                          else "void*";
+            var t_str: []const u8 = "void*";
+            if (prop.resolved_type) |rt| {
+                t_str = try core.getCTypeStr(self.allocator, rt);
+                if (ts.extractBaseType(rt).* == .Array) try self.emitArrayStruct(ts.extractBaseType(rt).Array);
+            }
             try self.writer.writer().print("{s} {s}", .{t_str, prop.name});
         }
         try self.writer.writer().print(") {{\n", .{});
@@ -59,10 +99,41 @@ pub fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
 pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode, primitive_type: ?[]const u8) !void {
     const decl = node.data.fun_decl;
     
+    // 1. Emit the signature to header_writer
+    if (node.resolved_type) |rt| {
+        const fun_type = rt.Function;
+        const ret_base = ts.extractBaseType(fun_type.return_type);
+        // Forward-declare Custom return types that may not be defined yet
+        if (ret_base.* == .Custom and !self.classes.contains(ret_base.Custom)) {
+            try self.forward_writer.writer().print("typedef struct {s} {s};\n", .{ret_base.Custom, ret_base.Custom});
+        }
+        const ret_str = try core.getCTypeStr(self.allocator, fun_type.return_type);
+        try self.header_writer.writer().print("{s} ", .{ret_str});
+    } else {
+        try self.header_writer.appendSlice("void ");
+    }
+    
+    if (primitive_type) |pt| {
+        try self.header_writer.writer().print("{s}_{s}({s} this", .{class_name, decl.name, pt});
+    } else {
+        try self.header_writer.writer().print("{s}_{s}({s}* this", .{class_name, decl.name, class_name});
+    }
+    
+    if (node.resolved_type) |rt| {
+        const fun_type = rt.Function;
+        for (decl.params, 0..) |p, i| {
+            try self.header_writer.appendSlice(", ");
+            const param_t_str = try core.getCTypeStr(self.allocator, fun_type.params[i]);
+            try self.header_writer.writer().print("{s} {s}", .{param_t_str, p.name});
+        }
+    }
+    try self.header_writer.appendSlice(");\n");
+
+    // 2. Emit the implementation to writer
     if (node.resolved_type) |rt| {
         const fun_type = rt.Function;
         const ret_str = try core.getCTypeStr(self.allocator, fun_type.return_type);
-        if (fun_type.return_type.* == .Array) try self.emitArrayStruct(fun_type.return_type.Array);
+        if (ts.extractBaseType(fun_type.return_type).* == .Array) try self.emitArrayStruct(ts.extractBaseType(fun_type.return_type).Array);
         try self.writer.writer().print("{s} ", .{ret_str});
     } else {
         try self.writer.appendSlice("void ");
@@ -79,7 +150,7 @@ pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode
         for (decl.params, 0..) |p, i| {
             try self.writer.appendSlice(", ");
             const param_t_str = try core.getCTypeStr(self.allocator, fun_type.params[i]);
-            if (fun_type.params[i].* == .Array) try self.emitArrayStruct(fun_type.params[i].Array);
+            if (ts.extractBaseType(fun_type.params[i]).* == .Array) try self.emitArrayStruct(ts.extractBaseType(fun_type.params[i]).Array);
             try self.writer.writer().print("{s} {s}", .{param_t_str, p.name});
         }
     }
@@ -122,7 +193,7 @@ pub fn emitFunDecl(self: *CTranspiler, node: *ASTNode) !void {
     } else if (node.resolved_type) |rt| {
         const fun_type = rt.Function;
         const ret_str = try core.getCTypeStr(self.allocator, fun_type.return_type);
-        if (fun_type.return_type.* == .Array) try self.emitArrayStruct(fun_type.return_type.Array);
+        if (ts.extractBaseType(fun_type.return_type).* == .Array) try self.emitArrayStruct(ts.extractBaseType(fun_type.return_type).Array);
         try sig.writer().print("{s} ", .{ret_str});
     } else {
         try sig.writer().print("void ", .{});
@@ -136,7 +207,7 @@ pub fn emitFunDecl(self: *CTranspiler, node: *ASTNode) !void {
         for (decl.params, 0..) |p, i| {
             if (i > 0) try sig.writer().print(", ", .{});
             const param_t_str = try core.getCTypeStr(self.allocator, fun_type.params[i]);
-            if (fun_type.params[i].* == .Array) try self.emitArrayStruct(fun_type.params[i].Array);
+            if (ts.extractBaseType(fun_type.params[i]).* == .Array) try self.emitArrayStruct(ts.extractBaseType(fun_type.params[i]).Array);
             try sig.writer().print("{s} {s}", .{param_t_str, p.name});
         }
     }

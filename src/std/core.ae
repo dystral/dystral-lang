@@ -4,6 +4,7 @@ lib Standard {
     fun sprintf(buffer: Pointer, format: Pointer, value: Int): Int
     fun puts(str: Pointer): Int
     fun GC_MALLOC(size: Int): Pointer
+    fun GC_REALLOC(ptr: Pointer, new_size: Int): Pointer
     fun exit(code: Int): Void
 }
 
@@ -14,6 +15,7 @@ lib NativeString {
     fun strcpy(dest: Pointer, src: Pointer): Pointer
     fun strncpy(dest: Pointer, src: Pointer, n: Int): Pointer
     fun strlen(s: Pointer): Int
+    fun aether_char_at(s: Pointer, index: Int): Int
 }
 
 @Header("<unistd.h>")
@@ -73,7 +75,19 @@ class String(val ptr: Pointer, val length: Int) {
             }
         }
         
+        
         return String(res, newLen)
+    }
+
+    fun hashCode(): Int {
+        var hash = 5381
+        var i = 0
+        while (i < this.length) {
+            val c = NativeString.aether_char_at(this.ptr, i)
+            hash = hash * 33 + c
+            i = i + 1
+        }
+        return hash
     }
 }
 
@@ -83,6 +97,10 @@ class Int {
         val buf = Standard.GC_MALLOC(32)
         Standard.sprintf(buf, "%d".ptr, this)
         return String(buf, NativeString.strlen(buf))
+    }
+
+    fun hashCode(): Int {
+        return this
     }
 }
 

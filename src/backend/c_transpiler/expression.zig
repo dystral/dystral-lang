@@ -1,5 +1,6 @@
 const std = @import("std");
 const core = @import("core.zig");
+const ts = @import("../../core/type_system.zig");
 
 const ASTNode = core.ASTNode;
 const CTranspiler = core.CTranspiler;
@@ -14,7 +15,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             else try self.writer.appendSlice("0");
         },
         .null_literal => {
-            try self.writer.appendSlice("NULL");
+            try self.writer.appendSlice("0");
         },
         .string_literal => |val| {
             try self.writer.writer().print("\"{s}\"", .{val});
@@ -43,15 +44,15 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
         },
         .array_literal => |a| {
             if (node.resolved_type) |rt| {
-                if (rt.* == .Array) {
-                    try self.emitArrayStruct(rt.Array);
+                if (ts.extractBaseType(rt).* == .Array) {
+                    try self.emitArrayStruct(ts.extractBaseType(rt).Array);
                     
-                    const inner_c_type = try core.getCTypeStr(self.allocator, rt.Array);
+                    const inner_c_type = try core.getCTypeStr(self.allocator, ts.extractBaseType(rt).Array);
                     var safe_inner = std.ArrayList(u8).init(self.allocator);
-                    for (inner_c_type) |c| {
-                        if (c == '*') continue;
-                        if (c == ' ') continue;
-                        try safe_inner.append(c);
+                    for (inner_c_type) |ch| {
+                        if (ch == '*') continue;
+                        if (ch == ' ') continue;
+                        try safe_inner.append(ch);
                     }
                     const struct_name = try std.fmt.allocPrint(self.allocator, "AetherArray_{s}", .{safe_inner.items});
                     
@@ -63,6 +64,88 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                         try self.writer.appendSlice("); ");
                     }
                     try self.writer.appendSlice("_tmp_arr; })");
+                } else if (rt.* == .Custom) {
+                    const struct_name = rt.Custom;
+                    try self.writer.writer().print("{s}_new(({{ ", .{struct_name});
+                    
+                    var safe_inner_name = std.ArrayList(u8).init(self.allocator);
+                    if (a.elements.len > 0) {
+                        const inner_c_type = try core.getCTypeStr(self.allocator, a.elements[0].resolved_type.?);
+                        for (inner_c_type) |ch| {
+                            if (ch == '*') continue;
+                            if (ch == ' ') continue;
+                            try safe_inner_name.append(ch);
+                        }
+                    } else {
+                        try safe_inner_name.appendSlice("Void");
+                    }
+                    const safe_inner = safe_inner_name.items;
+                    
+                    const array_struct_name = try std.fmt.allocPrint(self.allocator, "AetherArray_{s}", .{safe_inner});
+                    try self.writer.writer().print("{s}* _tmp_arr = {s}_new(); ", .{array_struct_name, array_struct_name});
+                    for (a.elements) |elem| {
+                        try self.writer.writer().print("{s}_push(_tmp_arr, ", .{array_struct_name});
+                        try self.emitExpression(elem);
+                        try self.writer.appendSlice("); ");
+                    }
+                    try self.writer.appendSlice("_tmp_arr; }))");
+                }
+            }
+        },
+        .map_literal => |m| {
+            if (node.resolved_type) |rt| {
+                if (rt.* == .Custom) {
+                    const custom_name = rt.Custom; // Map_core_String_core_String
+                    
+                    var safe_inner_name = std.ArrayList(u8).init(self.allocator);
+                    if (m.elements.len > 0) {
+                        const call = m.elements[0].data.call_expr;
+                        const first_k_type = try core.getCTypeStr(self.allocator, call.arguments[0].resolved_type.?);
+                        for (first_k_type) |ch| {
+                            if (ch == '*' or ch == ' ') continue;
+                            try safe_inner_name.append(ch);
+                        }
+                        try safe_inner_name.appendSlice("_");
+                        const first_v_type = try core.getCTypeStr(self.allocator, call.arguments[1].resolved_type.?);
+                        for (first_v_type) |ch| {
+                            if (ch == '*' or ch == ' ') continue;
+                            try safe_inner_name.append(ch);
+                        }
+                    } else {
+                        try safe_inner_name.appendSlice("Void_Void");
+                    }
+                    const safe_inner = safe_inner_name.items;
+                    
+                    const node_name = try std.fmt.allocPrint(self.allocator, "collections_Node_{s}", .{ safe_inner });
+                    const custom_t = try self.allocator.create(ts.AetherType);
+                    custom_t.* = .{ .Custom = node_name };
+                    const null_t = try self.allocator.create(ts.AetherType);
+                    null_t.* = .Null;
+                    const union_t = try self.allocator.create(ts.AetherType);
+                    union_t.* = .{ .Union = .{ .left = custom_t, .right = null_t } };
+                    
+                    try self.emitArrayStruct(union_t);
+                    
+                    const array_name = try std.fmt.allocPrint(self.allocator, "AetherArray_{s}", .{node_name});
+                    const list_name = try std.fmt.allocPrint(self.allocator, "collections_List_collections_Node_{s}Opt", .{safe_inner});
+                    const mmap_name = try std.fmt.allocPrint(self.allocator, "collections_MutableMap_{s}", .{safe_inner});
+                    
+                    try self.writer.writer().print("{s}_new(({{ ", .{custom_name});
+                    try self.writer.writer().print("{s}* _buckets = {s}_new(); ", .{array_name, array_name});
+                    try self.writer.writer().print("for (int _i = 0; _i < 16; _i++) {{ {s}_push(_buckets, 0); }} ", .{array_name});
+                    try self.writer.writer().print("{s}* _list = {s}_new(_buckets); ", .{list_name, list_name});
+                    try self.writer.writer().print("{s}* _mmap = {s}_new(_list); ", .{mmap_name, mmap_name});
+                    
+                    for (m.elements) |elem| {
+                        const call = elem.data.call_expr;
+                        try self.writer.writer().print("{s}_put(_mmap, ", .{mmap_name});
+                        try self.emitExpression(call.arguments[0]);
+                        try self.writer.appendSlice(", ");
+                        try self.emitExpression(call.arguments[1]);
+                        try self.writer.appendSlice("); ");
+                    }
+                    
+                    try self.writer.appendSlice("_list; }))");
                 }
             }
         },
@@ -71,6 +154,13 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             try self.writer.appendSlice("->data[");
             try self.emitExpression(idx.index);
             try self.writer.appendSlice("]");
+        },
+        .index_set_expr => |s| {
+            try self.emitExpression(s.object);
+            try self.writer.appendSlice("->data[");
+            try self.emitExpression(s.index);
+            try self.writer.appendSlice("] = ");
+            try self.emitExpression(s.value);
         },
 
         .assignment => |a| {
@@ -81,7 +171,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             if (g.is_safe) {
                 try self.writer.appendSlice("((");
                 try self.emitExpression(g.object);
-                try self.writer.appendSlice(") == NULL ? NULL : (");
+                try self.writer.appendSlice(") == 0 ? 0 : (");
                 try self.emitExpression(g.object);
                 try self.writer.writer().print(")->{s})", .{g.name});
             } else {
@@ -97,7 +187,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
         .call_expr => |c| {
             if (c.callee.data == .identifier) {
                 const c_name = c.callee.data.identifier.resolved_c_name orelse c.callee.data.identifier.name;
-                if (self.classes.contains(c_name)) {
+                if (self.classes.contains(c_name) or self.known_constructors.contains(c_name)) {
                     try self.writer.writer().print("{s}_new", .{c_name});
                     try self.writer.appendSlice("(");
                     for (c.arguments, 0..) |arg, i| {
@@ -137,6 +227,15 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     class_name = "core_Bool";
                 } else if (rt.* == .Custom) {
                     class_name = rt.Custom;
+                } else if (rt.* == .Array) {
+                    const inner_c_type = try core.getCTypeStr(self.allocator, rt.Array);
+                    var safe_inner = std.ArrayList(u8).init(self.allocator);
+                    for (inner_c_type) |ch| {
+                        if (ch == '*') continue;
+                        if (ch == ' ') continue;
+                        try safe_inner.append(ch);
+                    }
+                    class_name = try std.fmt.allocPrint(self.allocator, "AetherArray_{s}", .{safe_inner.items});
                 } else if (rt.* == .Union) {
                     if (rt.Union.left.* == .String) {
                         class_name = "core_String";
@@ -148,7 +247,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                 if (g.is_safe) {
                     try self.writer.appendSlice("((");
                     try self.emitExpression(g.object);
-                    try self.writer.appendSlice(") == NULL ? NULL : ");
+                    try self.writer.appendSlice(") == 0 ? 0 : ");
                     try self.writer.writer().print("{s}_{s}(", .{class_name, g.name});
                     try self.emitExpression(g.object);
                     for (c.arguments) |arg| {
@@ -203,7 +302,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             if (b.op == .elvis) {
                 try self.writer.appendSlice("((");
                 try self.emitExpression(b.left);
-                try self.writer.appendSlice(") != NULL ? (");
+                try self.writer.appendSlice(") != 0 ? (");
                 try self.emitExpression(b.left);
                 try self.writer.appendSlice(") : (");
                 try self.emitExpression(b.right);
@@ -214,14 +313,27 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                 if (b.left.resolved_type) |rt| {
                     if (rt.* == .String or rt.* == .Custom) {
                         if (b.op == .bang_eq) {
-                            try self.writer.appendSlice("!");
+                            try self.writer.appendSlice("!(");
+                        } else {
+                            try self.writer.appendSlice("(");
                         }
+                        
+                        try self.writer.appendSlice("(");
+                        try self.emitExpression(b.left);
+                        try self.writer.appendSlice(") == (");
+                        try self.emitExpression(b.right);
+                        try self.writer.appendSlice(") || ((");
+                        try self.emitExpression(b.left);
+                        try self.writer.appendSlice(") != 0 && (");
+                        try self.emitExpression(b.right);
+                        try self.writer.appendSlice(") != 0 && ");
+                        
                         const class_name = if (rt.* == .String) "core_String" else rt.Custom;
                         try self.writer.writer().print("{s}_equals(", .{class_name});
                         try self.emitExpression(b.left);
                         try self.writer.appendSlice(", ");
                         try self.emitExpression(b.right);
-                        try self.writer.appendSlice(")");
+                        try self.writer.appendSlice(")))");
                         return;
                     }
                 }

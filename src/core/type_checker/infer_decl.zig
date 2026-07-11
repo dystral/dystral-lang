@@ -13,6 +13,7 @@ const std_modules = std.StaticStringMap([]const u8).initComptime(.{
     .{ "core.ae", @embedFile("../../std/core.ae") },
     .{ "time.ae", @embedFile("../../std/time.ae") },
     .{ "math.ae", @embedFile("../../std/math.ae") },
+    .{ "collections.ae", @embedFile("../../std/collections.ae") },
 });
 
 pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
@@ -117,6 +118,20 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
         while (class_ast_it.next()) |entry| {
             try self.classes_ast.put(entry.key_ptr.*, entry.value_ptr.*);
         }
+        // Also register generic template symbols so that method bodies referencing
+        // sibling classes (e.g. List.mut() returns MutableList) can resolve them.
+        var alias_it2 = tc.alias_map.iterator();
+        while (alias_it2.next()) |entry| {
+            if (!self.alias_map.contains(entry.key_ptr.*)) {
+                try self.alias_map.put(entry.key_ptr.*, entry.value_ptr.*);
+            }
+        }
+        var sym_it = tc.global_scope.symbols.iterator();
+        while (sym_it.next()) |entry| {
+            if (!self.global_scope.symbols.contains(entry.key_ptr.*)) {
+                try self.global_scope.symbols.put(entry.key_ptr.*, entry.value_ptr.*);
+            }
+        }
     }
     
     tc.deinit();
@@ -126,13 +141,15 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
 
 pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     var c = &node.data.class_decl;
-    if (self.module_prefix) |prefix| {
-        c.resolved_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ prefix, c.name });
-        if (!std.mem.eql(u8, c.name, "Int") and !std.mem.eql(u8, c.name, "Bool") and !std.mem.eql(u8, c.name, "Pointer")) {
-            try self.alias_map.put(c.name, c.resolved_c_name.?);
+    if (c.resolved_c_name == null) {
+        if (self.module_prefix) |prefix| {
+            c.resolved_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ prefix, c.name });
+            if (!std.mem.eql(u8, c.name, "Int") and !std.mem.eql(u8, c.name, "Bool") and !std.mem.eql(u8, c.name, "Pointer")) {
+                try self.alias_map.put(c.name, c.resolved_c_name.?);
+            }
+        } else {
+            c.resolved_c_name = c.name;
         }
-    } else {
-        c.resolved_c_name = c.name;
     }
     const actual_c_name = c.resolved_c_name.?;
     const class_type = try self.allocator.create(AetherType);
@@ -153,6 +170,13 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
     }
     
     try self.classes_ast.put(actual_c_name, node);
+    
+    // Generic Templates are not deeply inferred nor compiled directly.
+    // They wait to be monomorphized when instantiated.
+    if (c.generic_params.len > 0) {
+        t.* = .Void;
+        return;
+    }
 
     var class_scope = Scope.init(self.allocator, scope);
     defer class_scope.deinit();
@@ -171,32 +195,35 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
         try class_props.put(prop.name, {});
         
         const param_type = try self.resolveTypeName(prop.type_name, false);
+        prop.resolved_type = param_type;
         try class_scope.define(prop.name, param_type);
     }
 
     // Methods
-    for (c.methods) |method| {
-        if (method.data == .fun_decl) {
-            const m_name = method.data.fun_decl.name;
-            const is_operator = std.mem.eql(u8, m_name, "plus") or
-                std.mem.eql(u8, m_name, "minus") or
-                std.mem.eql(u8, m_name, "star") or
-                std.mem.eql(u8, m_name, "slash");
-            if (is_operator) {
-                var has_operator_mod = false;
-                for (method.data.fun_decl.modifiers) |mod| {
-                    if (mod == .kw_operator) {
-                        has_operator_mod = true;
-                        break;
+    if (c.generic_params.len == 0) {
+        for (c.methods) |method| {
+            if (method.data == .fun_decl) {
+                const m_name = method.data.fun_decl.name;
+                const is_operator = std.mem.eql(u8, m_name, "plus") or
+                    std.mem.eql(u8, m_name, "minus") or
+                    std.mem.eql(u8, m_name, "star") or
+                    std.mem.eql(u8, m_name, "slash");
+                if (is_operator) {
+                    var has_operator_mod = false;
+                    for (method.data.fun_decl.modifiers) |mod| {
+                        if (mod == .kw_operator) {
+                            has_operator_mod = true;
+                            break;
+                        }
+                    }
+                    if (!has_operator_mod) {
+                        self.reportError(method.line, method.column, "TypeError: Method '{s}' must be marked with the 'operator' modifier.", .{m_name});
+                        return error.TypeError;
                     }
                 }
-                if (!has_operator_mod) {
-                    self.reportError(method.line, method.column, "TypeError: Method '{s}' must be marked with the 'operator' modifier.", .{m_name});
-                    return error.TypeError;
-                }
             }
+            _ = try self.inferNode(method, &class_scope);
         }
-        _ = try self.inferNode(method, &class_scope);
     }
     t.* = .Void;
 }
@@ -210,6 +237,7 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     } else {
         try mangled_name.appendSlice(f.name);
     }
+
     var fun_scope = Scope.init(self.allocator, scope);
     defer fun_scope.deinit();
 
@@ -228,6 +256,10 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
                     try sanitized_name.appendSlice("Array_");
                 } else if (c == ']') {
                     // ignore
+                } else if (c == '<' or c == '>' or c == ',') {
+                    try sanitized_name.appendSlice("_");
+                } else if (c == ' ' or c == '?') {
+                    // ignore spaces in type args and question marks
                 } else {
                     try sanitized_name.append(c);
                 }

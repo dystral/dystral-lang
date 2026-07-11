@@ -18,7 +18,7 @@ Instead of running inside a heavy JVM or relying on interpreted bytecode, Aether
 - 🛡️ **Compile-Time Null Safety:** Null is treated as a strict Union Type (`.String | .Null`). The compiler strictly forbids unsafe access, forcing the use of `?.`, `?:`, and `!!`.
 - 📦 **File-Based Modules & Standard Library:** A modern module system with destructured imports (`import { fun1 } from "file.ae"`). Features an ever-growing Standard Library built natively (`std.core`, `std.math`, `std.time`).
 - 🕒 **Epoch-First Time API:** Time handling done right, inspired by Go. Zero-overhead Time and Duration mathematics leveraging the language's native Operator Overloading.
-- 🔁 **Native Arrays and Loops:** First-class support for native typed arrays (`[1, 2, 3]`), combined with ergonomic `for (item in array)` and `while` loops.
+- 🔁 **Native Collections:** First-class support for typed `List<T>`, `Map<K,V>`, and `Set<T>` literals — and their mutable counterparts. Write `[1, 2, 3]` for a list and `["key" of "value"]` for a map. Read and write with the familiar `collection[key]` bracket syntax.
 - ⚙️ **Operator Overloading:** Overload math operators in classes with explicit contracts via the `operator` modifier (e.g., `operator fun plus()`).
 - 🧪 **Native Test System:** First-class testing support. Write `test "name" {}` blocks directly and run `aether test` for an isolated and fast native testing suite.
 - 🗑️ **Memory Safe:** Native integration with a conservative Garbage Collector (Boehm GC) eliminates memory leaks without the overhead of reference counting or pausing VMs.
@@ -29,11 +29,12 @@ Instead of running inside a heavy JVM or relying on interpreted bytecode, Aether
 
 Aether code looks familiar and clean. If you want to deeply understand how Aether differs from Kotlin (Union Types, Modifiers, and File-based Imports), **[read the full Language Tour](docs/language_tour.md)**.
 
-Here's a quick look at top-level statements, operator overloading, the native Time API, and arrays:
+Here's a quick look at top-level statements, operator overloading, the native Time API, collections, and arrays:
 
 ```kotlin
 // script.ae
 import { date, hours, now, Time, Duration } from "std.time"
+import { MutableList, MutableMap } from "std.collections"
 
 class Flight(val destination: String, val departure: Time) {
     fun isDelayed() = now() > departure
@@ -45,6 +46,14 @@ class Flight(val destination: String, val departure: Time) {
 }
 
 // Top-Level execution (no `fun main()` required)
+
+// Map literal using the 'of' infix syntax
+val airports = [
+    "GRU" of "São Paulo",
+    "CDG" of "Paris",
+    "NRT" of "Tokyo"
+]
+
 val flights = [
     Flight("Tokyo", date(2026, 12, 10)),
     Flight("Paris", now() + hours(2))
@@ -134,6 +143,7 @@ Aether's compiler is fully documented. If you are curious about how we process A
 - 🏛️ **[Architecture Overview](docs/architecture.md)**: How the Lexer, Parser, TypeChecker, and C Transpiler pipeline work.
 - ⚖️ **[Architectural Decisions (ADRs)](docs/decisions.md)**: Why we enforce operator modifiers and how we handle Null Safety.
 - 📈 **[Progress & Roadmap](docs/progress_and_phases.md)**: The historic evolution of the compiler and what's next.
+- 📖 **[Language Tour](docs/language_tour.md)**: Null Safety, Operator Overloading, Modules, Collections, and more.
 
 ---
 

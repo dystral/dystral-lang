@@ -1,0 +1,146 @@
+// std.collections
+// Powered by True Generics and Native Arrays!
+
+class MutableList<T>(val list: List<T>) {
+    fun add(element: T): Void {
+        this.list.items.push(element)
+    }
+
+    fun get(index: Int): T {
+        return this.list.items[index]
+    }
+
+    fun set(index: Int, element: T): Void {
+        this.list.items[index] = element
+    }
+
+    fun remove(index: Int): Void {
+        // Shifting elements left
+        var i = index
+        while (i < this.list.items.length - 1) {
+            this.list.items[i] = this.list.items[i + 1]
+            i = i + 1
+        }
+    }
+
+    fun size(): Int {
+        return this.list.items.length
+    }
+
+    fun freeze(): List<T> {
+        return this.list
+    }
+}
+
+class List<T>(val items: NativeArray<T>) {
+    fun get(index: Int): T {
+        return this.items[index]
+    }
+
+    fun size(): Int {
+        return this.items.length
+    }
+
+    fun mut(): MutableList<T> {
+        return MutableList(this)
+    }
+}
+
+class Node<K, V>(val key: K, var value: V, var next: Node<K, V>?)
+
+class MutableMap<K, V>(val bucketList: List<Node<K, V>?>) {
+    fun put(key: K, value: V): Void {
+        var hash = key.hashCode()
+        var capacity = this.bucketList.size()
+        var index = hash - (hash / capacity) * capacity
+        if (index < 0) {
+            index = index + capacity
+        }
+
+        var curr = this.bucketList.items[index]
+        while (curr != null) {
+            if (curr!!.key == key) {
+                curr!!.value = value
+                return
+            }
+            curr = curr!!.next
+        }
+        
+        val new_node = Node(key, value, this.bucketList.items[index])
+        this.bucketList.items[index] = new_node
+    }
+
+    fun get(key: K): V? {
+        var hash = key.hashCode()
+        var capacity = this.bucketList.size()
+        var index = hash - (hash / capacity) * capacity
+        if (index < 0) index = index + capacity
+        
+        var curr = this.bucketList.items[index]
+        while (curr != null) {
+            if (curr!!.key == key) {
+                return curr!!.value
+            }
+            curr = curr!!.next
+        }
+        return null
+    }
+
+    fun containsKey(key: K): Bool {
+        return this.get(key) != null
+    }
+
+    fun freeze(): Map<K, V> {
+        return Map(this.bucketList)
+    }
+}
+
+class Map<K, V>(val bucketList: List<Node<K, V>?>) {
+    fun get(key: K): V? {
+        var hash = key.hashCode()
+        var capacity = this.bucketList.size()
+        var index = hash - (hash / capacity) * capacity
+        if (index < 0) index = index + capacity
+        
+        var curr = this.bucketList.items[index]
+        while (curr != null) {
+            if (curr!!.key == key) {
+                return curr!!.value
+            }
+            curr = curr!!.next
+        }
+        return null
+    }
+
+    fun containsKey(key: K): Bool {
+        return this.get(key) != null
+    }
+
+    fun mut(): MutableMap<K, V> {
+        return MutableMap(this.bucketList)
+    }
+}
+
+class MutableSet<T>(val map: MutableMap<T, Bool>) {
+    fun add(element: T): Void {
+        this.map.put(element, true)
+    }
+
+    fun contains(element: T): Bool {
+        return this.map.containsKey(element)
+    }
+
+    fun freeze(): Set<T> {
+        return Set(this.map.freeze())
+    }
+}
+
+class Set<T>(val map: Map<T, Bool>) {
+    fun contains(element: T): Bool {
+        return this.map.containsKey(element)
+    }
+
+    fun mut(): MutableSet<T> {
+        return MutableSet(this.map.mut())
+    }
+}

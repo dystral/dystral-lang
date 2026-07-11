@@ -242,6 +242,18 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*
     try self.consume(.identifier, "Expected class name.");
     const name = self.previous.lexeme;
     
+    var generic_params = std.ArrayList([]const u8).init(self.allocator);
+    if (self.match(.less)) {
+        if (!self.check(.greater)) {
+            while (true) {
+                try self.consume(.identifier, "Expected generic parameter name.");
+                try generic_params.append(self.previous.lexeme);
+                if (!self.match(.comma)) break;
+            }
+        }
+        try self.consume(.greater, "Expected '>' after generic parameters.");
+    }
+    
     var props = std.ArrayList(ast.ClassProp).init(self.allocator);
     if (self.match(.l_paren)) {
         if (!self.check(.r_paren)) {
@@ -294,6 +306,7 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*
     return try self.createNodeAt(.{ .class_decl = .{
         .annotations = annotations,
         .name = name,
+        .generic_params = try generic_params.toOwnedSlice(),
         .primary_constructor = try props.toOwnedSlice(),
         .methods = try methods.toOwnedSlice(),
         .resolved_c_name = null,

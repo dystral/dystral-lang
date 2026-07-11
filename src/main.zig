@@ -84,12 +84,12 @@ pub fn main() !void {
     type_checker.is_test_mode = is_test;
     defer type_checker.deinit();
     type_checker.validate(ast_root) catch {
-        std.debug.print("Compilation aborted due to semantic errors.\n", .{});
-        return;
+        std.process.exit(1);
     };
 
     var transpiler = c_transpiler.CTranspiler.init(allocator);
     transpiler.is_test_mode = is_test;
+    transpiler.classes_ast = &type_checker.classes_ast;
     defer transpiler.deinit();
 
     const c_code = try transpiler.transpile(ast_root);
@@ -109,7 +109,7 @@ pub fn main() !void {
 
     const result = try std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &[_][]const u8{ actual_zig, "cc", "-O0", out_c_filename, "-lgc", "-o", final_bin },
+        .argv = &[_][]const u8{ actual_zig, "cc", "-O0", "-fwrapv", "-fno-sanitize=undefined", out_c_filename, "-lgc", "-o", final_bin },
     });
     defer {
         allocator.free(result.stdout);
@@ -119,7 +119,7 @@ pub fn main() !void {
     if (result.term != .Exited or result.term.Exited != 0) {
         std.debug.print("C compilation error:\n{s}\n", .{result.stderr});
         if (!is_build) {
-            std.fs.cwd().deleteFile(final_bin) catch {};
+            // std.fs.cwd().deleteFile(final_bin) catch {};
         }
         return;
     }
@@ -138,10 +138,13 @@ pub fn main() !void {
         const term = try child.wait();
         
         // Clean up binary after running
-        std.fs.cwd().deleteFile(final_bin) catch {};
+        // std.fs.cwd().deleteFile(final_bin) catch {};
 
         if (term == .Exited and term.Exited != 0) {
             std.process.exit(term.Exited);
+        } else if (term == .Signal) {
+            std.debug.print("Error: Test runner crashed with signal {d}\n", .{term.Signal});
+            std.process.exit(1);
         }
     } else {
         std.debug.print("Successfully built {s}\n", .{final_bin});

@@ -1,4 +1,6 @@
-fun sumArray(arr: [Int]): Int {
+import { List } from "std.collections"
+
+fun sumArray(arr: List<Int>): Int {
     var sum = 0
     for (item in arr) {
         sum = sum + item
@@ -6,7 +8,7 @@ fun sumArray(arr: [Int]): Int {
     return sum
 }
 
-fun getFirstElement(arr: [String]) = arr[0]
+fun getFirstElement(arr: List<String>) = arr[0]
 
 fun main() {
     val arr = [10, 20, 30]

@@ -174,21 +174,19 @@ System.exit(0)
 
 ## 8. Arrays and Loops
 
-Aether features a native type system for dynamic arrays, similar to `List` em Kotlin, along with ergonomic `for` and `while` loops.
+Aether features a native type system for dynamic arrays and full-featured generic **collections**, along with ergonomic `for` and `while` loops.
 
-**IMPORTANT:** The `[Type]` syntax is purely syntactic sugar for a **strictly immutable** `List<Type>`. You cannot push new elements, pop them, or reassign indices (e.g., `arr[0] = 5`). If you need mutability, you will need to use a mutable collection explicitly (like `MutableList<Type>`, which will be introduced in future phases).
-
-Arrays are declared with `[Type]`, and literals use the `[1, 2, 3]` syntax.
+The `[Type]` syntax is syntactic sugar for an immutable **`List<T>`**. Read elements with `[index]` or `.get(index)`, check size with `.size()`. For mutation, wrap with `MutableList<T>` (see [Section 10](#10-collections-list-map-set)).
 
 ```kotlin
 fun main() {
-    // Array declaration and initialization
+    // Immutable list literal
     val numbers = [1, 2, 3, 4, 5]
     
-    // Arrays can be accessed by index
+    // Index access
     val first = numbers[0]
     
-    // For-loops iterate seamlessly over arrays
+    // For-loops iterate seamlessly over lists
     var sum = 0
     for (item in numbers) {
         sum = sum + item
@@ -235,3 +233,112 @@ fun main() {
 ```
 
 Because time math is just adding integers (`epoch + seconds`), it avoids the historic timezone bugs that plague other languages when dealing with daylight savings and calendar math. The `std.time` package makes all duration math explicit (e.g., `hours(2)`) and heavily leverages Operator Overloading for ergonomics.
+
+---
+
+## 10. Collections (List, Map, Set)
+
+Aether comes with a rich, generic standard library of collection types in `std.collections`. Collections fall into two categories: **immutable** (safe, read-only snapshots) and **mutable** (full read-write).
+
+Import what you need:
+
+```kotlin
+import { List, MutableList, Map, MutableMap, Set, MutableSet } from "std.collections"
+```
+
+---
+
+### 10.1 List & MutableList
+
+`List<T>` is a **read-only** ordered sequence. Create one with a bracket literal — the same syntax as a native array:
+
+```kotlin
+val nums: List<Int> = [10, 20, 30]
+
+// Index access with brackets
+val first = nums[0]       // 10
+
+// Size
+val n = nums.size()       // 3
+
+// Read by position
+val second = nums.get(1)  // 20
+```
+
+`MutableList<T>` wraps a `List<T>` and allows mutation:
+
+```kotlin
+val items: List<Int> = [5]
+val list: MutableList<Int> = MutableList(items)
+
+list.add(10)
+list.add(20)
+list.set(0, 99)   // overwrite position 0
+list.remove(1)    // remove by index
+
+assert(list.size() == 2)
+assert(list.get(0) == 99)
+```
+
+**Type inference** works out-of-the-box. The compiler resolves the element type from the literal:
+
+```kotlin
+val list = MutableList([42])  // inferred: MutableList<Int>
+list.add(100)
+```
+
+---
+
+### 10.2 Map & MutableMap
+
+Maps are associative containers. The cleanest way to create one is with the **`of` infix literal syntax** inside brackets:
+
+```kotlin
+// Immutable literal map (Map<String, String>)
+val capitals = [
+    "Brazil" of "Brasília",
+    "France" of "Paris",
+    "Japan"  of "Tokyo"
+]
+
+// Read by key using brackets (returns the value or null)
+val capital = capitals["Brazil"]  // "Brasília"
+val missing  = capitals["India"]  // null
+```
+
+The `of` keyword is a reserved **infix pair constructor**. Each `key of value` expression creates one entry. The compiler deduces `K` and `V` from the first pair.
+
+`Map<K, V>` (immutable) exposes only `.get(key)` and `.containsKey(key)`.
+
+---
+
+### 10.3 Set & MutableSet
+
+A `Set<T>` is an unordered collection of **unique** values backed by a `Map<T, Bool>`.
+
+```kotlin
+val tags = MutableSet(items)   // inferred: MutableSet<String>
+
+tags.add("Aether")
+tags.add("Zig")
+tags.add("Aether")  // duplicate is silently ignored
+
+assert(tags.contains("Aether") == true)
+assert(tags.contains("Rust")   == false)
+```
+
+`Set<T>` (immutable) wraps a `Map<T, Bool>` and only exposes `.contains(element)`.
+
+---
+
+### 10.4 Literal Sugar Reference
+
+| Syntax | Meaning |
+|---|---|
+| `[1, 2, 3]` | `List<Int>` literal |
+| `["a", "b"]` | `List<String>` literal |
+| `["k" of "v", ...]` | `Map<String, String>` literal (immutable) |
+| `map["key"]` | read from `Map` or `MutableMap` |
+| `map["key"] = val` | write to `MutableMap` |
+
+> **Note:** The bracket literal `[x of y, ...]` always produces an **immutable** `Map`. For a mutable map you must use `MutableMap(...)` explicitly.

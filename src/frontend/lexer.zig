@@ -93,6 +93,7 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, text, "from")) return .kw_from;
         if (std.mem.eql(u8, text, "test")) return .kw_test;
         if (std.mem.eql(u8, text, "lib")) return .kw_lib;
+        if (std.mem.eql(u8, text, "of")) return .kw_of;
         if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return .bool_literal;
         return .identifier;
     }

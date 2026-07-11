@@ -24,11 +24,14 @@ pub const TypeChecker = struct {
     is_test_mode: bool = false,
     current_class_props: ?*std.StringHashMap(void) = null,
     classes_ast: std.StringHashMap(*ASTNode),
+    monomorphized_nodes: std.ArrayList(*ASTNode),
 
 
     pub const inferNode = core_inferNode;
     pub const reportError = core_reportError;
     pub const resolveTypeName = core_resolveTypeName;
+    pub const monomorphizeClass = core_monomorphizeClass;
+    pub const cloneNode = core_cloneNode;
     pub const validate = core_validate;
     pub const checkBlock = infer_stmt_mod.checkBlock;
 
@@ -43,6 +46,7 @@ pub const TypeChecker = struct {
             .is_test_mode = false,
             .current_class_props = null,
             .classes_ast = std.StringHashMap(*ASTNode).init(allocator),
+            .monomorphized_nodes = std.ArrayList(*ASTNode).init(allocator),
         };
 
         return checker;
@@ -52,6 +56,7 @@ pub const TypeChecker = struct {
         self.global_scope.deinit();
         self.alias_map.deinit();
         self.classes_ast.deinit();
+        self.monomorphized_nodes.deinit();
     }
 };
 
@@ -84,31 +89,122 @@ fn core_reportError(self: *TypeChecker, line: usize, column: usize, comptime mes
     std.debug.print("\x1b[0m\n\n", .{});
 }
 
-fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool) !*AetherType {
+fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool) anyerror!*AetherType {
     var base_type: AetherType = .Void;
     
+    var actual_name = name;
+    var actual_is_nullable = is_nullable;
+    
+    // Se o nome completo já existe nas classes registradas, NÃO devemos tentar remover sufixos Opt ou ?
+    if (!self.classes_ast.contains(name)) {
+        if (std.mem.endsWith(u8, actual_name, "?")) {
+            actual_is_nullable = true;
+            actual_name = actual_name[0 .. actual_name.len - 1];
+        } else if (std.mem.endsWith(u8, actual_name, "Opt")) {
+            actual_is_nullable = true;
+            actual_name = actual_name[0 .. actual_name.len - 3];
+        }
+    }
+    
     // Check primitives first
-    if (std.mem.eql(u8, name, "Int")) {
+    if (std.mem.eql(u8, actual_name, "Int")) {
         base_type = .Int;
-    } else if (std.mem.eql(u8, name, "Bool")) {
+    } else if (std.mem.eql(u8, actual_name, "Bool")) {
         base_type = .Bool;
     } else if (std.mem.eql(u8, name, "Void")) {
         base_type = .Void;
     } else if (std.mem.eql(u8, name, "Pointer")) {
         base_type = .Pointer;
     } else {
-        const actual_name = self.alias_map.get(name) orelse name;
-        if (std.mem.startsWith(u8, actual_name, "[") and std.mem.endsWith(u8, actual_name, "]")) {
-            const inner_name = actual_name[1 .. actual_name.len - 1];
-            const inner_type = try self.resolveTypeName(inner_name, false);
-            base_type = .{ .Array = inner_type };
+        const alias = self.alias_map.get(actual_name) orelse actual_name;
+        if (std.mem.startsWith(u8, alias, "[") and std.mem.endsWith(u8, alias, "]")) {
+            const inner_name = alias[1 .. alias.len - 1];
+            const list_type_name = try std.fmt.allocPrint(self.allocator, "List<{s}>", .{inner_name});
+            return try self.resolveTypeName(list_type_name, is_nullable);
+        } else if (std.mem.indexOf(u8, alias, "<") != null) {
+            const less_idx = std.mem.indexOf(u8, alias, "<").?;
+            const greater_idx = std.mem.lastIndexOf(u8, alias, ">").?;
+            const base = alias[0..less_idx];
+            const actual_base = self.alias_map.get(base) orelse base;
+            const args_str = alias[less_idx + 1 .. greater_idx];
+            var args_list = std.ArrayList(*const AetherType).init(self.allocator);
+            var idx: usize = 0;
+            var start: usize = 0;
+            var depth: usize = 0;
+            while (idx < args_str.len) : (idx += 1) {
+                if (args_str[idx] == '<') depth += 1;
+                if (args_str[idx] == '>') depth -= 1;
+                if (args_str[idx] == ',' and depth == 0) {
+                    const clean_arg = std.mem.trim(u8, args_str[start..idx], " ");
+                    const arg_type = try self.resolveTypeName(clean_arg, false);
+                    try args_list.append(arg_type);
+                    start = idx + 1;
+                }
+            }
+            if (start < args_str.len) {
+                const clean_arg = std.mem.trim(u8, args_str[start..], " ");
+                const arg_type = try self.resolveTypeName(clean_arg, false);
+                try args_list.append(arg_type);
+            }
+            const type_args = try args_list.toOwnedSlice();
+            
+            if (std.mem.eql(u8, actual_base, "NativeArray")) {
+                if (type_args.len != 1) return error.TypeError;
+                base_type = .{ .Array = type_args[0] };
+            } else {
+                base_type = .{ .GenericInstance = .{ .base_name = actual_base, .type_args = type_args } };
+                
+                var mangled = std.ArrayList(u8).init(self.allocator);
+                try mangled.appendSlice(actual_base);
+                try mangled.appendSlice("_");
+                for (type_args, 0..) |t_arg, i| {
+                    if (i > 0) try mangled.appendSlice("_");
+                    try t_arg.formatSafe(mangled.writer());
+                }
+                const mangled_name = try mangled.toOwnedSlice();
+                
+                try self.monomorphizeClass(actual_base, type_args, mangled_name);
+                
+                const actual_mangled = self.alias_map.get(mangled_name) orelse mangled_name;
+                base_type = .{ .Custom = actual_mangled };
+            }
         } else {
-            base_type = .{ .Custom = actual_name };
+            var final_alias = alias;
+            var is_opt = false;
+            // Mesmo check: se o final_alias é uma classe registrada, ele NÃO é um tipo opcional, é o nome real da classe.
+            if (!self.classes_ast.contains(final_alias)) {
+                if (std.mem.endsWith(u8, final_alias, "Opt")) {
+                    is_opt = true;
+                    final_alias = final_alias[0 .. final_alias.len - 3];
+                }
+            }
+            
+            // Normalize primitive aliases (e.g. alias T→"Int" should yield .Int not .Custom("Int"))
+            if (std.mem.eql(u8, final_alias, "Int")) {
+                base_type = .Int;
+            } else if (std.mem.eql(u8, final_alias, "Bool")) {
+                base_type = .Bool;
+            } else if (std.mem.eql(u8, final_alias, "Void")) {
+                base_type = .Void;
+            } else if (std.mem.eql(u8, final_alias, "Pointer")) {
+                base_type = .Pointer;
+            } else {
+                const custom_t = try self.allocator.create(AetherType);
+                custom_t.* = .{ .Custom = final_alias };
+                
+                if (is_opt) {
+                    const null_t = try self.allocator.create(AetherType);
+                    null_t.* = .Null;
+                    base_type = .{ .Union = .{ .left = custom_t, .right = null_t } };
+                } else {
+                    base_type = .{ .Custom = final_alias };
+                }
+            }
         }
     }
 
     const t = try self.allocator.create(AetherType);
-    if (is_nullable) {
+    if (actual_is_nullable) {
         t.* = .{ .Union = .{
             .left = try self.allocator.create(AetherType),
             .right = try self.allocator.create(AetherType),
@@ -147,6 +243,18 @@ fn core_validate(self: *TypeChecker, node: *ASTNode) anyerror!void {
         }
     }
     _ = try self.inferNode(node, &self.global_scope);
+    
+    // Append any dynamically monomorphized classes to the AST
+    if (node.data == .program and self.monomorphized_nodes.items.len > 0) {
+        var final_stmts = try self.allocator.alloc(*ASTNode, node.data.program.statements.len + self.monomorphized_nodes.items.len);
+        for (node.data.program.statements, 0..) |stmt, i| {
+            final_stmts[i] = stmt;
+        }
+        for (self.monomorphized_nodes.items, 0..) |stmt, i| {
+            final_stmts[node.data.program.statements.len + i] = stmt;
+        }
+        node.data.program.statements = final_stmts;
+    }
 }
 
 fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*const AetherType {
@@ -234,10 +342,245 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
         .bool_literal => t.* = .Bool,
         .null_literal => t.* = .Null,
         .array_literal => try infer_expr_mod.inferArrayLiteral(self, node, scope, t),
+        .map_literal => try infer_expr_mod.inferMapLiteral(self, node, scope, t),
         .index_expr => try infer_expr_mod.inferIndexExpr(self, node, scope, t),
+        .index_set_expr => try infer_expr_mod.inferIndexSetExpr(self, node, scope, t),
     }
     if (node.resolved_type == null) {
         node.resolved_type = t;
     }
     return t;
+}
+
+fn core_monomorphizeClass(self: *TypeChecker, base_name: []const u8, type_args: []*const AetherType, mangled_name: []const u8) !void {
+    if (self.classes_ast.get(mangled_name) != null) return;
+    
+    const actual_base_name = self.alias_map.get(base_name) orelse base_name;
+    const base_node = self.classes_ast.get(actual_base_name);
+    if (base_node == null) {
+        self.reportError(0, 0, "TypeError: Generic class '{s}' not found.", .{base_name});
+        return error.TypeError;
+    }
+    
+    const new_node = try self.allocator.create(ASTNode);
+    new_node.* = base_node.?.*;
+    
+    // Insere temporariamente para evitar recursão infinita (ex: Node<K, V> possuindo next: Node<K, V>)
+    try self.classes_ast.put(mangled_name, new_node);
+    
+    const class_decl = base_node.?.data.class_decl;
+    if (class_decl.generic_params.len != type_args.len) {
+        self.reportError(0, 0, "TypeError: Expected {} generic arguments for '{s}', got {}.", .{class_decl.generic_params.len, base_name, type_args.len});
+        return error.TypeError;
+    }
+    
+    // Create the generic map mapping (e.g. "T" -> .String)
+    var generic_map = std.StringHashMap(*const AetherType).init(self.allocator);
+    defer generic_map.deinit();
+    for (class_decl.generic_params, 0..) |param_name, i| {
+        try generic_map.put(param_name, type_args[i]);
+    }
+    
+    // For now, we simulate Monomorphization by re-defining the class directly
+    // and using `alias_map` to map the generic parameter to the concrete type!
+    // Wait! A much smarter way: Re-run `inferClassDecl` dynamically with a hooked alias_map!
+    // Since we need to typecheck its methods, we can just inject "T" -> "String" in alias_map
+    // and run inferClassDecl on the same node again!
+    // BUT we must avoid modifying the original node if it's shared. 
+    // Actually, we can clone just the `class_decl` properties and methods.
+    
+    // Setup alias_map early so resolveTypeName can use it!
+    var old_aliases = std.StringHashMap([]const u8).init(self.allocator);
+    defer old_aliases.deinit();
+
+    for (class_decl.generic_params, 0..) |param_name, i| {
+        const conc_name = try std.fmt.allocPrint(self.allocator, "{}", .{type_args[i].*});
+        if (self.alias_map.get(param_name)) |old_val| {
+            try old_aliases.put(param_name, old_val);
+        }
+        try self.alias_map.put(param_name, conc_name);
+    }
+
+    var new_props = try self.allocator.alloc(ast.ClassProp, class_decl.primary_constructor.len);
+    for (class_decl.primary_constructor, 0..) |prop, i| {
+        new_props[i] = prop;
+        if (self.resolveTypeName(prop.type_name, false) catch null) |resolved| {
+            new_props[i].type_name = try std.fmt.allocPrint(self.allocator, "{}", .{resolved.*});
+        }
+    }
+    
+    var new_methods = try self.allocator.alloc(*ASTNode, class_decl.methods.len);
+    for (class_decl.methods, 0..) |method, i| {
+        const new_method = try self.allocator.create(ASTNode);
+        new_method.* = method.*;
+        if (method.data == .fun_decl) {
+            var m_decl = method.data.fun_decl;
+            if (m_decl.type_name) |tn| {
+                if (self.resolveTypeName(tn, false) catch null) |resolved| {
+                    m_decl.type_name = try std.fmt.allocPrint(self.allocator, "{}", .{resolved.*});
+                }
+            }
+            if (m_decl.params.len > 0) {
+                var new_params = try self.allocator.alloc(ast.Param, m_decl.params.len);
+                for (m_decl.params, 0..) |p, j| {
+                    new_params[j] = p;
+                    if (p.type_name) |ptn| {
+                        if (self.resolveTypeName(ptn, false) catch null) |resolved| {
+                            new_params[j].type_name = try std.fmt.allocPrint(self.allocator, "{}", .{resolved.*});
+                            // std.debug.print("\n[DEBUG] monomorphizeClass rewrote param {s} from {s} to {s}\n", .{p.name, ptn, new_params[j].type_name.?});
+                        } else {
+                            // std.debug.print("\n[DEBUG] monomorphizeClass failed to resolve param {s} (type {s})\n", .{p.name, ptn});
+                        }
+                    }
+                }
+                m_decl.params = new_params;
+            }
+            m_decl.body = try self.cloneNode(m_decl.body);
+            new_method.data = .{ .fun_decl = m_decl };
+        }
+        new_methods[i] = new_method;
+    }
+    var new_class_decl = class_decl;
+    new_class_decl.primary_constructor = new_props;
+    new_class_decl.methods = new_methods;
+    new_class_decl.name = mangled_name;
+    new_class_decl.resolved_c_name = mangled_name;
+    new_class_decl.generic_params = &.{};
+    new_node.data = .{ .class_decl = new_class_decl };
+    
+    // Registra e dispara a inferência profunda na classe monomorfizada!
+    const class_type = try self.allocator.create(AetherType);
+    try infer_decl_mod.inferClassDecl(self, new_node, &self.global_scope, class_type);
+    
+    for (class_decl.generic_params) |param_name| {
+        if (old_aliases.get(param_name)) |old_val| {
+            try self.alias_map.put(param_name, old_val);
+        } else {
+            _ = self.alias_map.remove(param_name);
+        }
+    }
+
+    try self.monomorphized_nodes.append(new_node);
+}
+
+fn core_cloneNode(self: *TypeChecker, node: *ASTNode) anyerror!*ASTNode {
+    const new_node = try self.allocator.create(ASTNode);
+    new_node.* = node.*;
+    new_node.resolved_type = null;
+    
+    switch (node.data) {
+        .block => |b| {
+            var new_stmts = try self.allocator.alloc(*ASTNode, b.statements.len);
+            for (b.statements, 0..) |stmt, i| {
+                new_stmts[i] = try self.cloneNode(stmt);
+            }
+            new_node.data = .{ .block = .{ .statements = new_stmts } };
+        },
+        .binary_expr => |b| {
+            new_node.data = .{ .binary_expr = .{
+                .left = try self.cloneNode(b.left),
+                .op = b.op,
+                .right = try self.cloneNode(b.right),
+            }};
+        },
+        .call_expr => |c| {
+            var new_args = try self.allocator.alloc(*ASTNode, c.arguments.len);
+            for (c.arguments, 0..) |arg, i| {
+                new_args[i] = try self.cloneNode(arg);
+            }
+            new_node.data = .{ .call_expr = .{
+                .callee = try self.cloneNode(c.callee),
+                .arguments = new_args,
+            }};
+        },
+        .get_expr => |g| {
+            new_node.data = .{ .get_expr = .{
+                .object = try self.cloneNode(g.object),
+                .name = g.name,
+                .is_safe = g.is_safe,
+            }};
+        },
+        .return_stmt => |r| {
+            var val: ?*ASTNode = null;
+            if (r.value) |v| val = try self.cloneNode(v);
+            new_node.data = .{ .return_stmt = .{ .value = val } };
+        },
+        .var_decl => |v| {
+            var val: ?*ASTNode = null;
+            if (v.initializer) |init| val = try self.cloneNode(init);
+            new_node.data = .{ .var_decl = .{
+                .is_mut = v.is_mut,
+                .name = v.name,
+                .type_name = v.type_name,
+                .type_is_nullable = v.type_is_nullable,
+                .initializer = val,
+            }};
+        },
+        .set_expr => |s| {
+            new_node.data = .{ .set_expr = .{
+                .object = try self.cloneNode(s.object),
+                .name = s.name,
+                .value = try self.cloneNode(s.value),
+                .is_safe = s.is_safe,
+            }};
+        },
+        .if_expr => |i| {
+            var el: ?*ASTNode = null;
+            if (i.else_branch) |e| el = try self.cloneNode(e);
+            new_node.data = .{ .if_expr = .{
+                .condition = try self.cloneNode(i.condition),
+                .then_branch = try self.cloneNode(i.then_branch),
+                .else_branch = el,
+            }};
+        },
+        .while_stmt => |w| {
+            new_node.data = .{ .while_stmt = .{
+                .condition = try self.cloneNode(w.condition),
+                .body = try self.cloneNode(w.body),
+            }};
+        },
+        .array_literal => |a| {
+            var new_elems = try self.allocator.alloc(*ASTNode, a.elements.len);
+            for (a.elements, 0..) |el, i| {
+                new_elems[i] = try self.cloneNode(el);
+            }
+            new_node.data = .{ .array_literal = .{ .elements = new_elems } };
+        },
+
+        .unary_expr => |u| {
+            new_node.data = .{ .unary_expr = .{
+                .operator = u.operator,
+                .operand = try self.cloneNode(u.operand),
+            }};
+        },
+        .assignment => |a| {
+            new_node.data = .{ .assignment = .{
+                .name = a.name,
+                .value = try self.cloneNode(a.value),
+            }};
+        },
+        .index_expr => |i| {
+            new_node.data = .{ .index_expr = .{
+                .object = try self.cloneNode(i.object),
+                .index = try self.cloneNode(i.index),
+            }};
+        },
+        .index_set_expr => |i| {
+            new_node.data = .{ .index_set_expr = .{
+                .object = try self.cloneNode(i.object),
+                .index = try self.cloneNode(i.index),
+                .value = try self.cloneNode(i.value),
+            }};
+        },
+        .for_stmt => |f| {
+            new_node.data = .{ .for_stmt = .{
+                .item_name = f.item_name,
+                .iterable = try self.cloneNode(f.iterable),
+                .body = try self.cloneNode(f.body),
+            }};
+        },
+        else => {}, // For identifiers and literals, shallow copy is fine as long as we cleared resolved_type
+    }
+    
+    return new_node;
 }

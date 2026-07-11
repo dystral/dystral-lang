@@ -172,6 +172,19 @@ Aether is a compiled programming language focused on systems performance, concis
 - **Task 27.3:** O `TypeChecker` deve inferir corretamente o tipo baseado na expressão unária (ex: `!` requer e retorna `Bool`, `-` requer `Int` ou `Float` e retorna o mesmo tipo).
 - **Task 27.4:** Implementar a geração de código correspondente no C Transpiler.
 
+### Phase 28: Native File I/O (`std.fs`) (LATER)
+- **Task 28.1:** Projetar o pacote `std.fs` contendo abstrações modernas e estritas para leitura e escrita (ex: `File`, `Path`).
+- **Task 28.2:** Implementar bindings no C Transpiler via `lib NativeFS` encapsulando as funções padrão do POSIX/C (`fopen`, `fread`, `fwrite`, `fclose`).
+- **Task 28.3:** Garantir gerenciamento automático de recursos ou exigir o fechamento explícito do arquivo sem vazar *file descriptors*.
+- **Task 28.4:** Implementar utilitários de conveniência (ex: `fs.readFile("caminho.txt") -> String`) abstraindo buffers para o usuário.
+
+### Phase 29: True Generics & Collections (`std.collections`) (IN PROGRESS)
+- **Task 29.1:** Adicionar suporte a Generics no Parser e TypeChecker (Monomorfização) para a criação de classes de contêineres tipados sem casting mágico (Concluído).
+- **Task 29.2:** Atualizar a geração de código (C Transpiler) para emitir instâncias monomorfizadas limpas (ex: `Box_Int`, `Box_String`) sem gerar vazamentos de compilação C (Concluído).
+- **Task 29.3:** Projetar o pacote `std.collections` introduzindo os contêineres padrões: `List<T>`, `MutableList<T>`, `Set<T>`, `MutableSet<T>`, `Map<K, V>`, e `MutableMap<K, V>`.
+- **Task 29.4:** Adicionar suporte em runtime nativo (`lib Standard`) para realocações otimizadas de memória (`GC_REALLOC`) usadas por Arrays Dinâmicos (MutableList).
+- **Task 29.5:** Implementar hashes (`hashCode()`) nativos na String e Int do `core.ae` para possibilitar funcionamento dos Hash Maps (Map/Set).
+
 ## ✅ Definition of Done (Per Phase)
 - [x] Security/Lint: No memory leaks using `std.testing.allocator` across all modules.
 - [x] Build: `zig build test` and `zig build run` execute successfully.

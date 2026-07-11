@@ -19,6 +19,11 @@ pub const AetherType = union(enum) {
         left: *const AetherType,
         right: *const AetherType,
     },
+    GenericParam: []const u8,
+    GenericInstance: struct {
+        base_name: []const u8,
+        type_args: []const *const AetherType,
+    },
 
     pub fn format(self: AetherType, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
@@ -31,9 +36,9 @@ pub const AetherType = union(enum) {
             .Null => try writer.writeAll("null"),
             .Unknown => try writer.writeAll("Unknown"),
             .Array => |elem| {
-                try writer.writeAll("[");
+                try writer.writeAll("NativeArray<");
                 try elem.format("", options, writer);
-                try writer.writeAll("]");
+                try writer.writeAll(">");
             },
             .Custom => |name| try writer.writeAll(name),
             .Function => |f| {
@@ -46,9 +51,80 @@ pub const AetherType = union(enum) {
                 try f.return_type.format("", options, writer);
             },
             .Union => |u| {
-                try u.left.format("", options, writer);
-                try writer.writeAll(" | ");
-                try u.right.format("", options, writer);
+                if (u.right.* == .Null) {
+                    try u.left.format("", options, writer);
+                    try writer.writeAll("?");
+                } else {
+                    try u.left.format("", options, writer);
+                    try writer.writeAll(" | ");
+                    try u.right.format("", options, writer);
+                }
+            },
+            .GenericParam => |name| try writer.writeAll(name),
+            .GenericInstance => |g| {
+                try writer.writeAll(g.base_name);
+                try writer.writeAll("<");
+                for (g.type_args, 0..) |arg, i| {
+                    if (i > 0) try writer.writeAll(", ");
+                    try arg.format("", options, writer);
+                }
+                try writer.writeAll(">");
+            },
+        }
+    }
+
+    pub fn formatSafe(self: AetherType, writer: anytype) !void {
+        switch (self) {
+            .Int => try writer.writeAll("Int"),
+            .String => try writer.writeAll("String"),
+            .Bool => try writer.writeAll("Bool"),
+            .Pointer => try writer.writeAll("Pointer"),
+            .Void => try writer.writeAll("Void"),
+            .Null => try writer.writeAll("Null"),
+            .Unknown => try writer.writeAll("Unknown"),
+            .Array => |elem| {
+                try writer.writeAll("Array_");
+                try elem.formatSafe(writer);
+            },
+            .Custom => |name| {
+                for (name) |c| {
+                    if (c == '<' or c == '>' or c == ',') {
+                        try writer.writeAll("_");
+                    } else if (c == ' ' or c == '?') {
+                        // skip
+                    } else {
+                        var buf: [1]u8 = .{c};
+                        try writer.writeAll(&buf);
+                    }
+                }
+            },
+            .Function => |f| {
+                try writer.writeAll("fun_");
+                for (f.params, 0..) |p, i| {
+                    if (i > 0) try writer.writeAll("_");
+                    try p.formatSafe(writer);
+                }
+                try writer.writeAll("_ret_");
+                try f.return_type.formatSafe(writer);
+            },
+            .Union => |u| {
+                if (u.right.* == .Null) {
+                    try u.left.formatSafe(writer);
+                    try writer.writeAll("Opt");
+                } else {
+                    try u.left.formatSafe(writer);
+                    try writer.writeAll("_or_");
+                    try u.right.formatSafe(writer);
+                }
+            },
+            .GenericParam => |name| try writer.writeAll(name),
+            .GenericInstance => |g| {
+                try writer.writeAll(g.base_name);
+                try writer.writeAll("_");
+                for (g.type_args, 0..) |arg, i| {
+                    if (i > 0) try writer.writeAll("_");
+                    try arg.formatSafe(writer);
+                }
             },
         }
     }

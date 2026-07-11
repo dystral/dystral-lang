@@ -1,0 +1,13 @@
+import { assert } from "std.core"
+
+class Box<T>(val item: T) {
+    fun get(): T = item
+}
+
+test "should create generic classes" {
+    val boxInt: Box<Int> = Box(10)
+    assert(boxInt.get() == 10)
+    
+    val boxString = Box("Aether")
+    assert(boxString.get() == "Aether")
+}

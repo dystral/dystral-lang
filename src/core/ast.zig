@@ -21,6 +21,7 @@ pub const TokenType = enum {
     kw_lib,
     kw_in,
     kw_for,
+    kw_of,
 
     // Symbols and Operators
     eq,         // =
@@ -87,6 +88,7 @@ pub const ClassProp = struct {
     name: []const u8,
     type_name: []const u8,
     type_is_nullable: bool,
+    resolved_type: ?*const type_system.AetherType = null,
 };
 
 pub const ASTNode = struct {
@@ -126,6 +128,7 @@ pub const ASTNodeType = union(enum) {
     class_decl: struct {
         annotations: []const Annotation,
         name: []const u8,
+        generic_params: []const []const u8,
         primary_constructor: []ClassProp,
         methods: []const *ASTNode,
         resolved_c_name: ?[]const u8,
@@ -145,6 +148,9 @@ pub const ASTNodeType = union(enum) {
     string_literal: []const u8,
     bool_literal: bool,
     array_literal: struct {
+        elements: []const *ASTNode,
+    },
+    map_literal: struct {
         elements: []const *ASTNode,
     },
     null_literal: void,
@@ -178,6 +184,11 @@ pub const ASTNodeType = union(enum) {
     index_expr: struct {
         object: *ASTNode,
         index: *ASTNode,
+    },
+    index_set_expr: struct {
+        object: *ASTNode,
+        index: *ASTNode,
+        value: *ASTNode,
     },
     assignment: struct {
         name: []const u8,
