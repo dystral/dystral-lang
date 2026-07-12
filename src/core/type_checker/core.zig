@@ -95,7 +95,7 @@ fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool)
     var actual_name = name;
     var actual_is_nullable = is_nullable;
     
-    // Se o nome completo já existe nas classes registradas, NÃO devemos tentar remover sufixos Opt ou ?
+    // If the full name already exists in registered classes, do NOT try to strip Opt/? suffixes
     if (!self.classes_ast.contains(name)) {
         if (std.mem.endsWith(u8, actual_name, "?")) {
             actual_is_nullable = true;
@@ -171,7 +171,7 @@ fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool)
         } else {
             var final_alias = alias;
             var is_opt = false;
-            // Mesmo check: se o final_alias é uma classe registrada, ele NÃO é um tipo opcional, é o nome real da classe.
+            // Same check: if final_alias is a registered class name, it is NOT an optional type — it's the real class name.
             if (!self.classes_ast.contains(final_alias)) {
                 if (std.mem.endsWith(u8, final_alias, "Opt")) {
                     is_opt = true;
@@ -365,7 +365,7 @@ fn core_monomorphizeClass(self: *TypeChecker, base_name: []const u8, type_args: 
     const new_node = try self.allocator.create(ASTNode);
     new_node.* = base_node.?.*;
     
-    // Insere temporariamente para evitar recursão infinita (ex: Node<K, V> possuindo next: Node<K, V>)
+    // Temporarily insert to avoid infinite recursion (e.g. Node<K, V> having next: Node<K, V>)
     try self.classes_ast.put(mangled_name, new_node);
     
     const class_decl = base_node.?.data.class_decl;
@@ -448,7 +448,7 @@ fn core_monomorphizeClass(self: *TypeChecker, base_name: []const u8, type_args: 
     new_class_decl.generic_params = &.{};
     new_node.data = .{ .class_decl = new_class_decl };
     
-    // Registra e dispara a inferência profunda na classe monomorfizada!
+    // Register and trigger deep inference on the monomorphized class!
     const class_type = try self.allocator.create(AetherType);
     try infer_decl_mod.inferClassDecl(self, new_node, &self.global_scope, class_type);
     

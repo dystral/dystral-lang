@@ -156,6 +156,9 @@ pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode
     }
     try self.writer.appendSlice(") {\n");
 
+    // Emit #line directive so clang reports errors with the original .ae source location
+    try self.writer.writer().print("#line {d} \"{s}\"\n", .{node.line, self.source_file});
+
     if (decl.is_expr_body) {
         try self.writer.appendSlice("    return ");
         try self.emitExpression(decl.body);
@@ -215,6 +218,9 @@ pub fn emitFunDecl(self: *CTranspiler, node: *ASTNode) !void {
 
     try self.header_writer.writer().print("{s};\n", .{sig.items});
     try self.writer.writer().print("{s} {{\n", .{sig.items});
+
+    // Emit #line directive so clang reports errors with the original .ae source location
+    try self.writer.writer().print("#line {d} \"{s}\"\n", .{node.line, self.source_file});
 
     if (decl.is_expr_body) {
         try self.writer.appendSlice("    return ");

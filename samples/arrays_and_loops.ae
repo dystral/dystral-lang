@@ -1,4 +1,5 @@
 import { List } from "std.collections"
+import { Person } from "person"
 
 fun sumArray(arr: List<Int>): Int {
     var sum = 0
@@ -18,6 +19,15 @@ fun main() {
     val strings = ["Hello", "World"]
     val first = getFirstElement(strings)
     assert(first == "Hello")
+    
+    val person1 = Person("Leo", 25)
+    val person2 = Person("Ana", 22)
+    val people = [person1, person2]
+
+    for (person in people) {
+        print(person.name)
+        print(person.age)
+    }
     
     print("Array and loop tests passed!")
 }

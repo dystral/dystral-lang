@@ -56,6 +56,7 @@ pub const CTranspiler = struct {
     test_names: std.ArrayList([]const u8),
     test_count: usize = 0,
     classes_ast: ?*std.StringHashMap(*ASTNode) = null,
+    source_file: []const u8 = "<unknown>", // path to the .ae source file being transpiled
 
     pub const emitClassDecl = decl_mod.emitClassDecl;
     pub const emitMethodDecl = decl_mod.emitMethodDecl;

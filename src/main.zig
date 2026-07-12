@@ -90,6 +90,7 @@ pub fn main() !void {
     var transpiler = c_transpiler.CTranspiler.init(allocator);
     transpiler.is_test_mode = is_test;
     transpiler.classes_ast = &type_checker.classes_ast;
+    transpiler.source_file = filename; // used for #line directives in C output
     defer transpiler.deinit();
 
     const c_code = try transpiler.transpile(ast_root);
@@ -117,11 +118,61 @@ pub fn main() !void {
     }
     
     if (result.term != .Exited or result.term.Exited != 0) {
-        std.debug.print("C compilation error:\n{s}\n", .{result.stderr});
-        if (!is_build) {
-            // std.fs.cwd().deleteFile(final_bin) catch {};
+        // Filter C stderr: show only semantic errors, hide internal C details.
+        // With #line directives in the generated C, clang now reports errors as:
+        //   person.ae:2:172: error: ...
+        // instead of temp_out.c:NNN:COL: error: ...
+        var found_error = false;
+        var lines = std.mem.splitScalar(u8, result.stderr, '\n');
+        while (lines.next()) |line| {
+            // Only process lines that contain 'error:'
+            if (std.mem.indexOf(u8, line, "error:") == null) continue;
+            if (std.mem.indexOf(u8, line, "too many errors") != null) continue;
+
+            if (std.mem.indexOf(u8, line, "temp_out.c:")) |_| {
+                // Fallback: error on a C-internal line (outside #line'd regions)
+                if (std.mem.indexOf(u8, line, "error: ")) |err_pos| {
+                    const raw_msg = line[err_pos + 7..];
+                    const msg = translateCError(raw_msg);
+                    if (!found_error) {
+                        std.debug.print("\nCompilation error:\n", .{});
+                        found_error = true;
+                    }
+                    std.debug.print("  → {s}\n", .{msg});
+                }
+            } else if (std.mem.indexOf(u8, line, ".ae:")) |ae_pos| {
+                // Error mapped back to an Aether source file via #line directive
+                // Format: path/to/file.ae:LINE:COL: error: MESSAGE
+                const location_part = line[0..ae_pos + 3]; // e.g. "../../samples/person.ae"
+                // Extract just the basename for cleaner output
+                const ae_basename = std.fs.path.basename(location_part);
+                // Find line number after the .ae:
+                const after_ae = line[ae_pos + 4..];
+                var col_it = std.mem.splitScalar(u8, after_ae, ':');
+                const line_num = col_it.next() orelse "?";
+                // Find the error message
+                if (std.mem.indexOf(u8, line, "error: ")) |err_pos| {
+                    const raw_msg = line[err_pos + 7..];
+                    const msg = translateCError(raw_msg);
+                    if (!found_error) {
+                        std.debug.print("\nCompilation error:\n", .{});
+                        found_error = true;
+                    }
+                    std.debug.print("  → {s}:{s}: {s}\n", .{ae_basename, line_num, msg});
+                }
+            } else {
+                // Non-file error (e.g. linker errors)
+                if (!found_error) {
+                    std.debug.print("\nCompilation error:\n", .{});
+                    found_error = true;
+                }
+                std.debug.print("  → {s}\n", .{line});
+            }
         }
-        return;
+        if (!found_error) {
+            std.debug.print("\nCompilation error (internal):\n{s}\n", .{result.stderr});
+        }
+        std.process.exit(1);
     }
 
     if (!is_build) {
@@ -156,4 +207,35 @@ test "imports" {
     _ = @import("frontend/lexer.zig");
     _ = @import("frontend/parser/core.zig");
     _ = @import("backend/c_transpiler/core.zig");
+}
+
+/// Translate low-level C compiler error messages into user-friendly Aether errors.
+/// Hides internal details like mangled names and C-specific type nomenclature.
+fn translateCError(msg: []const u8) []const u8 {
+    // Int passed where String is expected (e.g. string concatenation without .toString())
+    if (std.mem.indexOf(u8, msg, "incompatible integer to pointer") != null and
+        std.mem.indexOf(u8, msg, "core_String") != null)
+    {
+        return "Type error: cannot use an Int value where a String is expected. Did you forget .toString()?";
+    }
+    // Null dereference / incomplete type
+    if (std.mem.indexOf(u8, msg, "incomplete definition of type") != null) {
+        return "Type error: attempted to use an undefined type. Check your imports.";
+    }
+    // Undeclared identifier
+    if (std.mem.indexOf(u8, msg, "use of undeclared identifier") != null) {
+        return "Name error: reference to an undeclared symbol. Check your imports and variable names.";
+    }
+    // Generic incompatible pointer (type mismatch between structs)
+    if (std.mem.indexOf(u8, msg, "incompatible pointer types") != null) {
+        return "Type error: incompatible types in assignment or function call.";
+    }
+    // Linker errors
+    if (std.mem.indexOf(u8, msg, "undefined reference") != null or
+        std.mem.indexOf(u8, msg, "undefined symbol") != null)
+    {
+        return "Linker error: symbol not found. Ensure all required modules are imported.";
+    }
+    // Fallback: return the raw message (still better than the full C trace)
+    return msg;
 }

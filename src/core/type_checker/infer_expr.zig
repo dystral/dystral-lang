@@ -477,7 +477,7 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
             int_t.* = .Int;
             prop_type = int_t;
         } else if (std.mem.eql(u8, g.name, "push")) {
-            // Retorna a representação de uma função que recebe T e retorna Void
+            // Returns a function type that takes T and returns Void
             const fun_t = try self.allocator.create(AetherType);
             var params = try self.allocator.alloc(*const AetherType, 1);
             params[0] = base_type.Array;
@@ -488,7 +488,7 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
             fun_t.* = .{ .Function = .{
                 .params = params,
                 .return_type = void_t,
-                .c_name = "", // Será resolvido no C Transpiler
+                .c_name = "", // Will be resolved in the C Transpiler
             }};
             prop_type = fun_t;
         } else if (std.mem.eql(u8, g.name, "set")) {
@@ -555,7 +555,7 @@ pub fn inferArrayLiteral(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *
     const array_type = try self.allocator.create(AetherType);
     array_type.* = .{ .Array = first_type };
     
-    // Simula a instanciação de List<T>
+    // Simulate List<T> instantiation
     const list_c_name = self.alias_map.get("List") orelse "List";
     const class_node = self.classes_ast.get(list_c_name);
     if (class_node == null) {
