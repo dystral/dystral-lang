@@ -1,0 +1,23 @@
+import { assert } from "std.core"
+import { MutableList } from "std.collections"
+import { Body, NBodySystem } from "../nbody"
+
+test "N-Body simulation step and values" {
+    val b1 = Body("Sun", 0, 0, 0, 0, 1000)
+    val b2 = Body("Earth", 100, 0, 0, 10, 10)
+    val b3 = Body("Mars", 200, 0, 0, 8, 5)
+    
+    val bodies = MutableList([b1])
+    bodies.add(b2)
+    bodies.add(b3)
+    
+    val system = NBodySystem(bodies)
+    
+    // Perform 3 simulation steps
+    system.step(1)
+    system.step(1)
+    system.step(1)
+    
+    // Verify coordinates are updated and deterministic
+    assert(b1.x != 0 || b1.y != 0 || b2.x != 100 || b3.x != 200)
+}

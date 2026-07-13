@@ -4,7 +4,7 @@ lib Standard {
     fun sprintf(buffer: OpaquePointer, format: OpaquePointer, value: Int): Int
     fun puts(str: OpaquePointer): Int
     fun GC_MALLOC(size: Int): OpaquePointer
-    fun GC_REALLOC(ptr: OpaquePointer, new_size: Int): OpaquePointer
+    fun GC_REALLOC(ptr: OpaquePointer, newSize: Int): OpaquePointer
     fun exit(code: Int): Void
 }
 
@@ -23,6 +23,7 @@ lib NativeString {
 @Header("<unistd.h>")
 lib Posix {
     fun sleep(seconds: Int): Int
+    fun usleep(useconds: Int): Int
 }
 
 @Primitive("pointer")
@@ -36,10 +37,10 @@ class String(val ptr: OpaquePointer, val length: Int) {
         return NativeString.strcmp(this.ptr, other.ptr) == 0
     }
     operator fun plus(other: String): String {
-        val total_len = this.length + other.length
-        val buf = Standard.GC_MALLOC(total_len + 1)
+        val totalLen = this.length + other.length
+        val buf = Standard.GC_MALLOC(totalLen + 1)
         Standard.sprintf(buf, "%s%s".ptr, this.ptr, other.ptr)
-        return String(buf, total_len)
+        return String(buf, totalLen)
     }
 
     fun replace(old: String, newStr: String): String {
@@ -139,3 +140,4 @@ fun assert(condition: Bool): Void {
 }
 
 fun sleep(seconds: Int) = Posix.sleep(seconds)
+fun sleepMs(ms: Int) = Posix.usleep(ms * 1000)

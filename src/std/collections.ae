@@ -66,8 +66,8 @@ class MutableMap<K, V>(val bucketList: List<Node<K, V>?>) {
             curr = curr!!.next
         }
         
-        val new_node = Node(key, value, this.bucketList.items[index])
-        this.bucketList.items[index] = new_node
+        val newNode = Node(key, value, this.bucketList.items[index])
+        this.bucketList.items[index] = newNode
     }
 
     fun get(key: K): V? {

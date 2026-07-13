@@ -1,0 +1,59 @@
+import { MutableList } from "std.collections"
+
+class Body(
+    var name: String,
+    var x: Int,
+    var y: Int,
+    var vx: Int,
+    var vy: Int,
+    var mass: Int
+) {
+    fun updatePosition(dt: Int): Void {
+        this.x = this.x + this.vx * dt
+        this.y = this.y + this.vy * dt
+    }
+
+    fun applyForce(fx: Int, fy: Int, dt: Int): Void {
+        if (this.mass > 0) {
+            this.vx = this.vx + (fx / this.mass) * dt
+            this.vy = this.vy + (fy / this.mass) * dt
+        }
+    }
+}
+
+class NBodySystem(val bodies: MutableList<Body>) {
+    fun step(dt: Int): Void {
+        var i = 0
+        while (i < this.bodies.size()) {
+            val b1 = this.bodies.get(i)
+            var fx = 0
+            var fy = 0
+            
+            var j = 0
+            while (j < this.bodies.size()) {
+                if (i != j) {
+                    val b2 = this.bodies.get(j)
+                    val dx = b2.x - b1.x
+                    val dy = b2.y - b1.y
+                    
+                    val dist_sq = dx * dx + dy * dy + 1
+                    
+                    val forceMagnitude = (100 * b1.mass * b2.mass) / dist_sq
+                    
+                    fx = fx + forceMagnitude * dx / 10
+                    fy = fy + forceMagnitude * dy / 10
+                }
+                j = j + 1
+            }
+            
+            b1.applyForce(fx, fy, dt)
+            i = i + 1
+        }
+        
+        var k = 0
+        while (k < this.bodies.size()) {
+            this.bodies.get(k).updatePosition(dt)
+            k = k + 1
+        }
+    }
+}
