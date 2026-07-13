@@ -1,23 +1,23 @@
 @Header("<stdlib.h>", "<stdio.h>")
 lib Standard {
-    fun printf(format: Pointer, value: Int): Void
-    fun sprintf(buffer: Pointer, format: Pointer, value: Int): Int
-    fun puts(str: Pointer): Int
-    fun GC_MALLOC(size: Int): Pointer
-    fun GC_REALLOC(ptr: Pointer, new_size: Int): Pointer
+    fun printf(format: OpaquePointer, value: Int): Void
+    fun sprintf(buffer: OpaquePointer, format: OpaquePointer, value: Int): Int
+    fun puts(str: OpaquePointer): Int
+    fun GC_MALLOC(size: Int): OpaquePointer
+    fun GC_REALLOC(ptr: OpaquePointer, new_size: Int): OpaquePointer
     fun exit(code: Int): Void
 }
 
 @Header("<string.h>")
 lib NativeString {
-    fun strcmp(s1: Pointer, s2: Pointer): Int
-    fun strstr(haystack: Pointer, needle: Pointer): Pointer
-    fun strcpy(dest: Pointer, src: Pointer): Pointer
-    fun strncpy(dest: Pointer, src: Pointer, n: Int): Pointer
-    fun strlen(s: Pointer): Int
+    fun strcmp(s1: OpaquePointer, s2: OpaquePointer): Int
+    fun strstr(haystack: OpaquePointer, needle: OpaquePointer): OpaquePointer
+    fun strcpy(dest: OpaquePointer, src: OpaquePointer): OpaquePointer
+    fun strncpy(dest: OpaquePointer, src: OpaquePointer, n: Int): OpaquePointer
+    fun strlen(s: OpaquePointer): Int
     //TODO: Remove this, they are only for internal usage
-    fun aether_char_at(s: Pointer, index: Int): Int
-    fun aether_terminate(s: Pointer, index: Int): Void
+    fun aether_char_at(s: OpaquePointer, index: Int): Int
+    fun aether_terminate(s: OpaquePointer, index: Int): Void
 }
 
 @Header("<unistd.h>")
@@ -25,7 +25,13 @@ lib Posix {
     fun sleep(seconds: Int): Int
 }
 
-class String(val ptr: Pointer, val length: Int) {
+@Primitive("pointer")
+class OpaquePointer {}
+
+@Primitive("pointer")
+class Pointer<T> {}
+
+class String(val ptr: OpaquePointer, val length: Int) {
     operator fun equals(other: String): Bool {
         return NativeString.strcmp(this.ptr, other.ptr) == 0
     }

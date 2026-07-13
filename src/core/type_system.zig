@@ -4,7 +4,7 @@ pub const AetherType = union(enum) {
     Int,
     String,
     Bool,
-    Pointer,
+    Pointer: *const AetherType,
     Void,
     Null,
     Unknown,
@@ -31,7 +31,15 @@ pub const AetherType = union(enum) {
             .Int => try writer.writeAll("Int"),
             .String => try writer.writeAll("String"),
             .Bool => try writer.writeAll("Bool"),
-            .Pointer => try writer.writeAll("Pointer"),
+            .Pointer => |elem| {
+                if (elem.* == .Void) {
+                    try writer.writeAll("OpaquePointer");
+                } else {
+                    try writer.writeAll("Pointer<");
+                    try elem.format("", options, writer);
+                    try writer.writeAll(">");
+                }
+            },
             .Void => try writer.writeAll("Void"),
             .Null => try writer.writeAll("null"),
             .Unknown => try writer.writeAll("Unknown"),
@@ -78,7 +86,14 @@ pub const AetherType = union(enum) {
             .Int => try writer.writeAll("Int"),
             .String => try writer.writeAll("String"),
             .Bool => try writer.writeAll("Bool"),
-            .Pointer => try writer.writeAll("Pointer"),
+            .Pointer => |elem| {
+                if (elem.* == .Void) {
+                    try writer.writeAll("OpaquePointer");
+                } else {
+                    try writer.writeAll("Pointer_");
+                    try elem.formatSafe(writer);
+                }
+            },
             .Void => try writer.writeAll("Void"),
             .Null => try writer.writeAll("Null"),
             .Unknown => try writer.writeAll("Unknown"),
@@ -215,7 +230,7 @@ pub const Scope = struct {
 pub fn isNullable(t: *const AetherType) bool {
     return switch (t.*) {
         .Null => true,
-        .Pointer => true,
+        .Pointer => |_| true,
         .Union => |u| isNullable(u.left) or isNullable(u.right),
         else => false,
     };
@@ -258,6 +273,13 @@ pub fn isCompatible(expected: *const AetherType, actual: *const AetherType) bool
             .Array => |elem| {
                 if (act_base.* == .Array) {
                     return isCompatible(elem, act_base.Array);
+                }
+                return false;
+            },
+            .Pointer => |elem| {
+                if (std.meta.activeTag(act_base.*) == .Pointer) {
+                    if (elem.* == .Void or act_base.Pointer.* == .Void) return true;
+                    return isCompatible(elem, act_base.Pointer);
                 }
                 return false;
             },

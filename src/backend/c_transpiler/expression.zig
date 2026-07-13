@@ -212,7 +212,19 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     try self.writer.writer().print("{s}(", .{g.name});
                     for (c.arguments, 0..) |arg, i| {
                         if (i > 0) try self.writer.appendSlice(", ");
-                        try self.emitExpression(arg);
+                        const arg_t = ts.extractBaseType(arg.resolved_type.?);
+                        const is_string = switch (arg_t.*) {
+                            .String => true,
+                            .Custom => |name| std.mem.eql(u8, name, "core_String") or std.mem.eql(u8, name, "String"),
+                            else => false,
+                        };
+                        if (is_string) {
+                            try self.writer.appendSlice("(");
+                            try self.emitExpression(arg);
+                            try self.writer.appendSlice(")->ptr");
+                        } else {
+                            try self.emitExpression(arg);
+                        }
                     }
                     try self.writer.appendSlice(")");
                     return;
@@ -390,18 +402,20 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     return;
                 }
             }
-            if (b.op == .plus and b.left.resolved_type.?.* == .Pointer) {
-                try self.writer.appendSlice("(((char*)(");
+            if (b.op == .plus and std.meta.activeTag(b.left.resolved_type.?.*) == .Pointer) {
+                const c_type = try core.getCTypeStr(self.allocator, b.left.resolved_type.?);
+                try self.writer.writer().print("((({s})(", .{c_type});
                 try self.emitExpression(b.left);
                 try self.writer.appendSlice(")) + ");
                 try self.emitExpression(b.right);
                 try self.writer.appendSlice(")");
                 return;
             }
-            if (b.op == .minus and b.left.resolved_type.?.* == .Pointer and b.right.resolved_type.?.* == .Pointer) {
-                try self.writer.appendSlice("(((char*)(");
+            if (b.op == .minus and std.meta.activeTag(b.left.resolved_type.?.*) == .Pointer and std.meta.activeTag(b.right.resolved_type.?.*) == .Pointer) {
+                const c_type = try core.getCTypeStr(self.allocator, b.left.resolved_type.?);
+                try self.writer.writer().print("((({s})(", .{c_type});
                 try self.emitExpression(b.left);
-                try self.writer.appendSlice(")) - ((char*)(");
+                try self.writer.writer().print(")) - (({s})(", .{c_type});
                 try self.emitExpression(b.right);
                 try self.writer.appendSlice(")))");
                 return;

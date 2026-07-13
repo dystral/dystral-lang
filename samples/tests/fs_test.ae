@@ -1,27 +1,19 @@
-import { NativeFS } from "std.fs"
+import { removeFile, readFile, writeFile } from "std.fs"
 
-fun readFile(path: String): String {
-    val file = NativeFS.fopen(path, "rb")
+test "fs.ae: should write and read file correctly" {
+    val path = "temp_test.txt"
+    val content = "Hello, Aether Filesystem!"
+    assert(writeFile(path, content))
 
-    if (file == null) {
-        print("Error opening file")
-        return ""
-    }
+    val result = readFile(path)
+    assert(result == content)
 
-    NativeFS.fseek(file, 0, 2)
-    val size = NativeFS.ftell(file)
-
-    NativeFS.fseek(file, 0, 0)
-    val buffer = Standard.GC_MALLOC(size + 1)
-    val read = NativeFS.fread(buffer, 1, size, file)
-
-    NativeFS.fclose(file)
-    return String(buffer, size)
+    removeFile(path)
 }
 
-
-test "fs.ae: should read file correctly" {
-    val result = readFile("/home/leodouglas/Projects/aether/samples/tests/fs_test.ae")
-    print(result)
-    // assert(result == "/home/leodouglas/Projects/aether/samples/tests/fs_test.ae")
+test "fs.ae: should support generic pointer types" {
+    val int_ptr: Pointer<Int> = Standard.GC_MALLOC(4)
+    val void_ptr: OpaquePointer = int_ptr
+    val int_ptr2: Pointer<Int> = void_ptr
+    assert(int_ptr == int_ptr2)
 }

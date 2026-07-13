@@ -13,7 +13,8 @@ const isNullable = core.isNullable;
 
 fn isValidType(self: *TypeChecker, t: *const AetherType) bool {
     switch (t.*) {
-        .Int, .Bool, .String, .Void, .Pointer, .Null => return true,
+        .Int, .Bool, .String, .Void, .Null => return true,
+        .Pointer => |elem| return isValidType(self, elem),
         .Array => |elem| return isValidType(self, elem),
         .Custom => |name| {
             var actual_name = name;
@@ -90,8 +91,8 @@ pub fn inferBinaryExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
         .plus => {
             if (left_type.* == .Int and right_type.* == .Int) {
                 t.* = .Int;
-            } else if (left_type.* == .Pointer and right_type.* == .Int) {
-                t.* = .Pointer;
+            } else if (std.meta.activeTag(left_type.*) == .Pointer and right_type.* == .Int) {
+                t.* = left_type.*;
             } else {
                 const get_expr_node = try self.allocator.create(ASTNode);
                 get_expr_node.* = .{
@@ -111,7 +112,7 @@ pub fn inferBinaryExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
         .minus => {
             if (left_type.* == .Int and right_type.* == .Int) {
                 t.* = .Int;
-            } else if (left_type.* == .Pointer and right_type.* == .Pointer) {
+            } else if (std.meta.activeTag(left_type.*) == .Pointer and std.meta.activeTag(right_type.*) == .Pointer) {
                 t.* = .Int;
             } else {
                 const get_expr_node = try self.allocator.create(ASTNode);

@@ -145,7 +145,7 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
     if (c.resolved_c_name == null) {
         if (self.module_prefix) |prefix| {
             c.resolved_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ prefix, c.name });
-            if (!std.mem.eql(u8, c.name, "Int") and !std.mem.eql(u8, c.name, "Bool") and !std.mem.eql(u8, c.name, "Pointer")) {
+            if (!std.mem.eql(u8, c.name, "Int") and !std.mem.eql(u8, c.name, "Bool") and !std.mem.eql(u8, c.name, "Pointer") and !std.mem.eql(u8, c.name, "OpaquePointer")) {
                 try self.alias_map.put(c.name, c.resolved_c_name.?);
             }
         } else {
@@ -160,8 +160,9 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
         class_type.* = .Bool;
     } else if (std.mem.eql(u8, c.name, "String")) {
         class_type.* = .{ .Custom = actual_c_name };
-    } else if (std.mem.eql(u8, c.name, "Pointer")) {
-        class_type.* = .Pointer;
+    } else if (std.mem.eql(u8, c.name, "OpaquePointer") or std.mem.eql(u8, c.name, "Pointer")) {
+        class_type.* = .{ .Pointer = try self.allocator.create(AetherType) };
+        @constCast(class_type.Pointer).* = .Void;
     } else {
         class_type.* = .{ .Custom = actual_c_name };
     }

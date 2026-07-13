@@ -1,8 +1,43 @@
 @Header("<stdio.h>")
 lib NativeFS {
-    fun fopen(path: String, mode: String): Pointer
-    fun fread(buffer: Pointer, size: Int, count: Int, stream: Pointer): Int
-    fun fclose(stream: Pointer): Int
-    fun fseek(stream: Pointer, offset: Int, origin: Int): Int
-    fun ftell(stream: Pointer): Int
+    fun fopen(path: String, mode: String): OpaquePointer
+    fun fread(buffer: OpaquePointer, size: Int, count: Int, stream: OpaquePointer): Int
+    fun fwrite(buffer: OpaquePointer, size: Int, count: Int, stream: OpaquePointer): Int
+    fun fclose(stream: OpaquePointer): Int
+    fun fseek(stream: OpaquePointer, offset: Int, origin: Int): Int
+    fun ftell(stream: OpaquePointer): Int
+    fun remove(path: String): Int
 }
+
+fun readFile(path: String): String {
+    val file = NativeFS.fopen(path, "rb")
+
+    if (file == null) {
+        print("Error opening file")
+        return ""
+    }
+
+    NativeFS.fseek(file, 0, 2)
+    val size = NativeFS.ftell(file)
+
+    NativeFS.fseek(file, 0, 0)
+    val buffer = Standard.GC_MALLOC(size + 1)
+    val read = NativeFS.fread(buffer, 1, size, file)
+
+    NativeFS.fclose(file)
+    return String(buffer, size)
+}
+
+fun writeFile(path: String, content: String): Bool {
+    val file = NativeFS.fopen(path, "wb")
+
+    if (file == null) {
+        return false
+    }
+
+    val written = NativeFS.fwrite(content.ptr, 1, content.length, file)
+    NativeFS.fclose(file)
+    return written == content.length
+}
+
+fun removeFile(path: String) = NativeFS.remove(path) == 0

@@ -113,8 +113,9 @@ fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool)
         base_type = .Bool;
     } else if (std.mem.eql(u8, actual_name, "Void")) {
         base_type = .Void;
-    } else if (std.mem.eql(u8, actual_name, "Pointer")) {
-        base_type = .Pointer;
+    } else if (std.mem.eql(u8, actual_name, "OpaquePointer")) {
+        base_type = .{ .Pointer = try self.allocator.create(AetherType) };
+        @constCast(base_type.Pointer).* = .Void;
     } else if (std.mem.eql(u8, actual_name, "Null")) {
         base_type = .Null;
     } else {
@@ -153,6 +154,9 @@ fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool)
             if (std.mem.eql(u8, actual_base, "NativeArray")) {
                 if (type_args.len != 1) return error.TypeError;
                 base_type = .{ .Array = type_args[0] };
+            } else if (std.mem.eql(u8, actual_base, "Pointer")) {
+                if (type_args.len != 1) return error.TypeError;
+                base_type = .{ .Pointer = type_args[0] };
             } else {
                 base_type = .{ .GenericInstance = .{ .base_name = actual_base, .type_args = type_args } };
                 
@@ -188,8 +192,9 @@ fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool)
                 base_type = .Bool;
             } else if (std.mem.eql(u8, final_alias, "Void")) {
                 base_type = .Void;
-            } else if (std.mem.eql(u8, final_alias, "Pointer")) {
-                base_type = .Pointer;
+            } else if (std.mem.eql(u8, final_alias, "OpaquePointer")) {
+                base_type = .{ .Pointer = try self.allocator.create(AetherType) };
+                @constCast(base_type.Pointer).* = .Void;
             } else {
                 const custom_t = try self.allocator.create(AetherType);
                 custom_t.* = .{ .Custom = final_alias };
@@ -306,7 +311,8 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
                 .data = .{ .string_literal = literal_str },
             };
             const ptr_type = try self.allocator.create(AetherType);
-            ptr_type.* = .Pointer;
+            ptr_type.* = .{ .Pointer = try self.allocator.create(AetherType) };
+            @constCast(ptr_type.Pointer).* = .Void;
             ptr_node.resolved_type = ptr_type;
             
             const len_node = try self.allocator.create(ASTNode);

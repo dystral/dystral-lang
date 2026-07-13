@@ -135,11 +135,11 @@ This document tracks the historical progress, current status, and future roadmap
 - [x] **Task 27.3:** Infer unary types in the TypeChecker (`!` requires/returns `Bool`, `-` requires/returns numeric).
 - [x] **Task 27.4:** Emit unary expressions in the C Transpiler.
 
-### Phase 28: Native File I/O (`std.fs`) (PENDING / LATER)
-- [ ] **Task 28.1:** Design the `std.fs` package containing modern abstractions for reading and writing files (e.g. `File`, `Path`).
-- [ ] **Task 28.2:** Implement bindings via `lib NativeFS` encapsulating standard POSIX/C library calls (`fopen`, `fread`, `fwrite`, `fclose`).
-- [ ] **Task 28.3:** Ensure resource clean-up and prevent file descriptor leaks.
-- [ ] **Task 28.4:** Implement convenience methods (e.g. `fs.readFile(path: String) -> String`).
+### Phase 28: Native File I/O (`std.fs`) (COMPLETED)
+- [x] **Task 28.1:** Design the `std.fs` package containing modern abstractions for reading and writing files (e.g. `File`, `Path`).
+- [x] **Task 28.2:** Implement bindings via `lib NativeFS` encapsulating standard POSIX/C library calls (`fopen`, `fread`, `fwrite`, `fclose`).
+- [x] **Task 28.3:** Ensure resource clean-up and prevent file descriptor leaks.
+- [x] **Task 28.4:** Implement convenience methods (e.g. `fs.readFile(path: String) -> String`).
 
 ### Phase 29: True Generics & Collections (`std.collections`) (COMPLETED)
 - [x] **Task 29.1:** Add support for Generics in the Parser and TypeChecker (via Monomorphization) to allow container classes without casting.

@@ -14,7 +14,11 @@ pub fn getCTypeStr(allocator: std.mem.Allocator, t: *const type_system.AetherTyp
     switch (t.*) {
         .Int => return "int",
         .Bool => return "bool",
-        .Pointer => return "char*",
+        .Pointer => |elem| {
+            if (elem.* == .Void) return "char*";
+            const inner = try getCTypeStr(allocator, elem);
+            return try std.fmt.allocPrint(allocator, "{s}*", .{inner});
+        },
         .String => return "core_String*",
         .Void => return "void",
         .Custom => |name| {
