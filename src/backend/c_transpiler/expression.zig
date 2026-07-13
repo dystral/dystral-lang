@@ -310,32 +310,84 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                 return;
             }
             if (b.op == .eq_eq or b.op == .bang_eq) {
-                if (b.left.resolved_type) |rt| {
-                    if (rt.* == .String or rt.* == .Custom) {
-                        if (b.op == .bang_eq) {
-                            try self.writer.appendSlice("!(");
-                        } else {
-                            try self.writer.appendSlice("(");
+                const left_is_null = (b.left.data == .null_literal);
+                const right_is_null = (b.right.data == .null_literal);
+
+                if (left_is_null or right_is_null) {
+                    const non_null_side = if (left_is_null) b.right else b.left;
+                    if (non_null_side.resolved_type) |rt| {
+                        if (!ts.isNullable(rt)) {
+                            if (b.op == .eq_eq) {
+                                try self.writer.appendSlice("0");
+                            } else {
+                                try self.writer.appendSlice("1");
+                            }
+                            return;
                         }
-                        
-                        try self.writer.appendSlice("(");
-                        try self.emitExpression(b.left);
-                        try self.writer.appendSlice(") == (");
-                        try self.emitExpression(b.right);
-                        try self.writer.appendSlice(") || ((");
-                        try self.emitExpression(b.left);
-                        try self.writer.appendSlice(") != 0 && (");
-                        try self.emitExpression(b.right);
-                        try self.writer.appendSlice(") != 0 && ");
-                        
-                        const class_name = if (rt.* == .String) "core_String" else rt.Custom;
-                        try self.writer.writer().print("{s}_equals(", .{class_name});
-                        try self.emitExpression(b.left);
-                        try self.writer.appendSlice(", ");
-                        try self.emitExpression(b.right);
-                        try self.writer.appendSlice(")))");
-                        return;
                     }
+                }
+
+                var string_or_custom_type: ?*const ts.AetherType = null;
+                if (b.left.resolved_type) |rt| {
+                    const base = ts.extractBaseType(rt);
+                    if (base.* == .String or base.* == .Custom) {
+                        string_or_custom_type = base;
+                    }
+                }
+                if (string_or_custom_type == null) {
+                    if (b.right.resolved_type) |rt| {
+                        const base = ts.extractBaseType(rt);
+                        if (base.* == .String or base.* == .Custom) {
+                            string_or_custom_type = base;
+                        }
+                    }
+                }
+
+                var has_equals = false;
+                var class_name: []const u8 = "";
+                if (string_or_custom_type) |base| {
+                    if (base.* == .String) {
+                        has_equals = true;
+                        class_name = "core_String";
+                    } else if (base.* == .Custom) {
+                        class_name = base.Custom;
+                        if (self.classes_ast) |ca| {
+                            if (ca.get(class_name)) |class_node| {
+                                const cd = class_node.data.class_decl;
+                                for (cd.methods) |method| {
+                                    if (method.data == .fun_decl and std.mem.eql(u8, method.data.fun_decl.name, "equals")) {
+                                        has_equals = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (has_equals) {
+                    if (b.op == .bang_eq) {
+                        try self.writer.appendSlice("!(");
+                    } else {
+                        try self.writer.appendSlice("(");
+                    }
+                    
+                    try self.writer.appendSlice("(");
+                    try self.emitExpression(b.left);
+                    try self.writer.appendSlice(") == (");
+                    try self.emitExpression(b.right);
+                    try self.writer.appendSlice(") || ((");
+                    try self.emitExpression(b.left);
+                    try self.writer.appendSlice(") != 0 && (");
+                    try self.emitExpression(b.right);
+                    try self.writer.appendSlice(") != 0 && ");
+                    
+                    try self.writer.writer().print("{s}_equals(", .{class_name});
+                    try self.emitExpression(b.left);
+                    try self.writer.appendSlice(", ");
+                    try self.emitExpression(b.right);
+                    try self.writer.appendSlice(")))");
+                    return;
                 }
             }
             if (b.op == .plus and b.left.resolved_type.?.* == .Pointer) {

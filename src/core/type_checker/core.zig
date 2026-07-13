@@ -111,10 +111,12 @@ fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool)
         base_type = .Int;
     } else if (std.mem.eql(u8, actual_name, "Bool")) {
         base_type = .Bool;
-    } else if (std.mem.eql(u8, name, "Void")) {
+    } else if (std.mem.eql(u8, actual_name, "Void")) {
         base_type = .Void;
-    } else if (std.mem.eql(u8, name, "Pointer")) {
+    } else if (std.mem.eql(u8, actual_name, "Pointer")) {
         base_type = .Pointer;
+    } else if (std.mem.eql(u8, actual_name, "Null")) {
+        base_type = .Null;
     } else {
         const alias = self.alias_map.get(actual_name) orelse actual_name;
         if (std.mem.startsWith(u8, alias, "[") and std.mem.endsWith(u8, alias, "]")) {

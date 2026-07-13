@@ -69,7 +69,7 @@ pub fn inferForStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     var for_scope = Scope.init(self.allocator, scope);
     defer for_scope.deinit();
     
-    try for_scope.define(f.item_name, iter_type.Array);
+    try for_scope.define(f.item_name, iter_type.Array, false);
     
     _ = try self.inferNode(f.body, &for_scope);
     t.* = .Void;

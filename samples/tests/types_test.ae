@@ -1,0 +1,58 @@
+test "types_test.ae: should validate types correctly" {
+    val a: Int = 10
+    val a2 = 10
+    val a3: Int? = 10
+    val a4: Int | Null = 10
+    val b: String = "hello"
+    val b2 = "hello"
+    val b3: String? = "hello"
+
+    val c: Bool = true
+    val c2 = true
+    val c3: Bool? = true
+
+    assert(a == 10)
+    assert(a2 == 10)
+    assert(a3 == 10)
+    assert(b == "hello")
+    assert(b2 == "hello")
+    assert(b3 == "hello")
+    assert(c == true)
+    assert(c2 == true)
+    assert(c3 == true)
+
+    assert(a2 == a)
+    assert(a3 == a)
+    assert(b2 == b)
+    assert(b3 == b)
+    assert(c2 == c)
+    assert(c3 == c)
+}
+
+test "types_test.ae: should validate var type inference" {
+    var x = 10
+    x = 20
+    assert(x == 20)
+
+    var z: Null = null
+    z = null
+    assert(z == null)
+
+    var z2: Int | Null = null
+    z2 = null
+    assert(z2 == null)
+    z2 = 10
+    assert(z2 == 10)
+
+    val y: Int = 10
+    // y = 20 // Should fail, it is a constant
+    assert(y == 10)
+
+    val w = 0
+    assert(w == 0)
+    assert(w != null)
+
+    val v = "Hello"
+    assert(v == "Hello")
+    assert(v != null)
+}

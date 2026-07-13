@@ -1,0 +1,8 @@
+@Header("<stdio.h>")
+lib NativeFS {
+    fun fopen(path: String, mode: String): Pointer
+    fun fread(buffer: Pointer, size: Int, count: Int, stream: Pointer): Int
+    fun fclose(stream: Pointer): Int
+    fun fseek(stream: Pointer, offset: Int, origin: Int): Int
+    fun ftell(stream: Pointer): Int
+}

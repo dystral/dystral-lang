@@ -128,8 +128,19 @@ fn core_parseType(self: *Parser) anyerror!ParsedType {
     if (self.match(.question)) {
         is_nullable = true;
     } else if (self.match(.pipe)) {
-        try self.consume(.kw_null, "Expected 'null' after '|'.");
-        is_nullable = true;
+        if (self.match(.kw_null)) {
+            is_nullable = true;
+        } else if (self.match(.identifier)) {
+            if (std.mem.eql(u8, self.previous.lexeme, "Null")) {
+                is_nullable = true;
+            } else {
+                self.errorAtCurrent("Expected 'null' or 'Null' after '|'.");
+                return error.ParseError;
+            }
+        } else {
+            self.errorAtCurrent("Expected 'null' or 'Null' after '|'.");
+            return error.ParseError;
+        }
     }
     return ParsedType{ .name = name, .is_nullable = is_nullable };
 }

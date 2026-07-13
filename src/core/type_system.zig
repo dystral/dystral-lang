@@ -130,8 +130,13 @@ pub const AetherType = union(enum) {
     }
 };
 
+pub const VariableSymbol = struct {
+    aether_type: *const AetherType,
+    is_mut: bool,
+};
+
 pub const Symbol = union(enum) {
-    Variable: *const AetherType,
+    Variable: VariableSymbol,
     Overloads: std.ArrayList(*const AetherType),
 };
 
@@ -152,7 +157,7 @@ pub const Scope = struct {
         self.symbols.deinit();
     }
 
-    pub fn define(self: *Scope, name: []const u8, t: *const AetherType) !void {
+    pub fn define(self: *Scope, name: []const u8, t: *const AetherType, is_mut: bool) !void {
         if (self.symbols.get(name)) |existing| {
             if (t.* == .Function) {
                 if (existing.* == .Overloads) {
@@ -174,17 +179,24 @@ pub const Scope = struct {
             try list.append(t);
             sym.* = .{ .Overloads = list };
         } else {
-            sym.* = .{ .Variable = t };
+            sym.* = .{ .Variable = .{ .aether_type = t, .is_mut = is_mut } };
         }
         try self.symbols.put(name, sym);
     }
 
-    pub fn lookupVariable(self: *Scope, name: []const u8) ?*const AetherType {
+    pub fn lookupVariableSymbol(self: *Scope, name: []const u8) ?*const VariableSymbol {
         if (self.symbols.get(name)) |sym| {
-            if (sym.* == .Variable) return sym.Variable;
+            if (sym.* == .Variable) return &sym.Variable;
         }
         if (self.parent) |p| {
-            return p.lookupVariable(name);
+            return p.lookupVariableSymbol(name);
+        }
+        return null;
+    }
+
+    pub fn lookupVariable(self: *Scope, name: []const u8) ?*const AetherType {
+        if (self.lookupVariableSymbol(name)) |vs| {
+            return vs.aether_type;
         }
         return null;
     }
@@ -203,6 +215,7 @@ pub const Scope = struct {
 pub fn isNullable(t: *const AetherType) bool {
     return switch (t.*) {
         .Null => true,
+        .Pointer => true,
         .Union => |u| isNullable(u.left) or isNullable(u.right),
         else => false,
     };

@@ -15,7 +15,9 @@ lib NativeString {
     fun strcpy(dest: Pointer, src: Pointer): Pointer
     fun strncpy(dest: Pointer, src: Pointer, n: Int): Pointer
     fun strlen(s: Pointer): Int
+    //TODO: Remove this, they are only for internal usage
     fun aether_char_at(s: Pointer, index: Int): Int
+    fun aether_terminate(s: Pointer, index: Int): Void
 }
 
 @Header("<unistd.h>")
@@ -117,6 +119,10 @@ fun print(value: Int): Void {
 
 fun print(value: String): Void {
     Standard.puts(value.ptr)
+}
+
+fun print(value: Bool): Void {
+    print(value.toString())
 }
 
 fun assert(condition: Bool): Void {

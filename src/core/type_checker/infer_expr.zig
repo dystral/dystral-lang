@@ -30,7 +30,12 @@ fn isValidType(self: *TypeChecker, t: *const AetherType) bool {
 pub fn inferAssignment(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const a = node.data.assignment;
     const assigned_type = try self.inferNode(a.value, scope);
-    if (scope.lookupVariable(a.name)) |expected| {
+    if (scope.lookupVariableSymbol(a.name)) |vs| {
+        if (!vs.is_mut) {
+            self.reportError(node.line, node.column, "TypeError: Cannot reassign constant variable '{s}'.", .{a.name});
+            return error.TypeError;
+        }
+        const expected = vs.aether_type;
         if (!isCompatible(expected, assigned_type)) {
             self.reportError(node.line, node.column, "TypeError: Expected {} but found {} when reassigning variable '{s}'.", .{ expected.*, assigned_type.*, a.name });
             return error.TypeError;
@@ -443,7 +448,7 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
             for (c.primary_constructor) |prop| {
                 if (std.mem.eql(u8, prop.name, g.name)) {
                     const actual_type = self.alias_map.get(prop.type_name) orelse prop.type_name;
-                    prop_type = try self.resolveTypeName(actual_type, false);
+                    prop_type = try self.resolveTypeName(actual_type, prop.type_is_nullable);
                     break;
                 }
             }
@@ -452,7 +457,7 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
                     if (std.mem.eql(u8, method.data.fun_decl.name, g.name)) {
                         if (method.data.fun_decl.type_name) |tn| {
                             const actual_type = self.alias_map.get(tn) orelse tn;
-                            prop_type = try self.resolveTypeName(actual_type, false);
+                            prop_type = try self.resolveTypeName(actual_type, method.data.fun_decl.type_is_nullable);
                         } else if (method.data.fun_decl.is_expr_body) {
                             if (method.data.fun_decl.body.resolved_type) |rt| {
                                 prop_type = rt;
@@ -532,8 +537,42 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
 
 pub fn inferSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const s = node.data.set_expr;
-    _ = try self.inferNode(s.object, scope);
+    const obj_type = try self.inferNode(s.object, scope);
     const assigned_type = try self.inferNode(s.value, scope);
+
+    const base_type = core.extractBaseType(obj_type);
+    var lookup_name: ?[]const u8 = null;
+    switch (base_type.*) {
+        .Custom => |n| lookup_name = self.alias_map.get(n) orelse n,
+        else => {},
+    }
+
+    if (lookup_name) |name| {
+        if (self.classes_ast.get(name)) |class_node| {
+            const c = class_node.data.class_decl;
+            var found_prop = false;
+            for (c.primary_constructor) |prop| {
+                if (std.mem.eql(u8, prop.name, s.name)) {
+                    found_prop = true;
+                    if (!prop.is_mut) {
+                        self.reportError(node.line, node.column, "TypeError: Cannot assign to constant property '{s}' of type {}.", .{ s.name, base_type.* });
+                        return error.TypeError;
+                    }
+                    const prop_type = try self.resolveTypeName(self.alias_map.get(prop.type_name) orelse prop.type_name, prop.type_is_nullable);
+                    if (!isCompatible(prop_type, assigned_type)) {
+                        self.reportError(node.line, node.column, "TypeError: Expected {} but found {} when setting property '{s}'.", .{ prop_type.*, assigned_type.*, s.name });
+                        return error.TypeError;
+                    }
+                    break;
+                }
+            }
+            if (!found_prop) {
+                self.reportError(node.line, node.column, "TypeError: Unresolved property '{s}' on type {}.", .{ s.name, base_type.* });
+                return error.TypeError;
+            }
+        }
+    }
+
     t.* = assigned_type.*;
 }
 

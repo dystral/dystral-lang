@@ -13,6 +13,7 @@ const std_modules = std.StaticStringMap([]const u8).initComptime(.{
     .{ "core.ae", @embedFile("../../std/core.ae") },
     .{ "time.ae", @embedFile("../../std/time.ae") },
     .{ "math.ae", @embedFile("../../std/math.ae") },
+    .{ "fs.ae", @embedFile("../../std/fs.ae") },
     .{ "collections.ae", @embedFile("../../std/collections.ae") },
 });
 
@@ -84,11 +85,11 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
             
             if (tc.global_scope.lookupFunctions(sym)) |overloads| {
                 for (overloads) |overload| {
-                    try self.global_scope.define(sym, overload);
+                    try self.global_scope.define(sym, overload, false);
                 }
                 found = true;
             } else if (tc.global_scope.lookupVariable(sym)) |variable| {
-                try self.global_scope.define(sym, variable);
+                try self.global_scope.define(sym, variable, false);
                 found = true;
             }
             
@@ -164,9 +165,9 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
     } else {
         class_type.* = .{ .Custom = actual_c_name };
     }
-    try scope.define(c.name, class_type);
+    try scope.define(c.name, class_type, false);
     if (!std.mem.eql(u8, c.name, actual_c_name)) {
-        try scope.define(actual_c_name, class_type);
+        try scope.define(actual_c_name, class_type, false);
     }
     
     try self.classes_ast.put(actual_c_name, node);
@@ -180,7 +181,7 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
 
     var class_scope = Scope.init(self.allocator, scope);
     defer class_scope.deinit();
-    try class_scope.define("this", class_type);
+    try class_scope.define("this", class_type, false);
 
     var class_props = std.StringHashMap(void).init(self.allocator);
     defer class_props.deinit();
@@ -196,7 +197,7 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
         
         const param_type = try self.resolveTypeName(prop.type_name, false);
         prop.resolved_type = param_type;
-        try class_scope.define(prop.name, param_type);
+        try class_scope.define(prop.name, param_type, prop.is_mut);
     }
 
     // Methods
@@ -270,7 +271,7 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
             param_type.* = .Void;
             try mangled_name.appendSlice("_Void");
         }
-        try fun_scope.define(p.name, param_type);
+        try fun_scope.define(p.name, param_type, false);
         try param_types.append(param_type);
     }
     
@@ -302,7 +303,7 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         .c_name = f.resolved_c_name.?,
     } };
     
-    try scope.define(f.name, fn_type);
+    try scope.define(f.name, fn_type, false);
 
     if (!body_inferred) {
         _ = try self.inferNode(f.body, &fun_scope);
@@ -344,7 +345,7 @@ pub fn inferVarDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         void_t.* = .Void;
         break :blk void_t;
     });
-    try scope.define(v.name, final_type);
+    try scope.define(v.name, final_type, v.is_mut);
     node.resolved_type = final_type;
     t.* = .Void;
 }
@@ -353,7 +354,7 @@ pub fn inferLibDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     const l = &node.data.lib_decl;
     const lib_type = try self.allocator.create(AetherType);
     lib_type.* = .{ .Custom = l.name };
-    try scope.define(l.name, lib_type);
+    try scope.define(l.name, lib_type, false);
 
     for (l.functions) |func| {
         const f = &func.data.fun_decl;
@@ -367,7 +368,7 @@ pub fn inferLibDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
             ret_type.* = .Void;
         }
         
-        try scope.define(full_name, ret_type);
+        try scope.define(full_name, ret_type, false);
         try self.alias_map.put(full_name, f.name); // So CTranspiler knows the native name
     }
     t.* = .Void;

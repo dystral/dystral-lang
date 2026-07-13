@@ -141,8 +141,9 @@ This generates the `aether` binary inside `./zig-out/bin/`. *(For a more detaile
 Aether's compiler is fully documented. If you are curious about how we process ASTs or why we chose certain architectural paths, check out the `docs/` folder:
 
 - 🏛️ **[Architecture Overview](docs/architecture.md)**: How the Lexer, Parser, TypeChecker, and C Transpiler pipeline work.
+- 🤖 **[AI Agent Guide](agents.md)**: Standard build commands, codebase mappings, and rules for LLM agents.
 - ⚖️ **[Architectural Decisions (ADRs)](docs/decisions.md)**: Why we enforce operator modifiers and how we handle Null Safety.
-- 📈 **[Progress & Roadmap](docs/progress_and_phases.md)**: The historic evolution of the compiler and what's next.
+- 📈 **[Roadmap & Progress](docs/roadmap.md)**: The historic evolution of the compiler, completed phases, and future checklists.
 - 📖 **[Language Tour](docs/language_tour.md)**: Null Safety, Operator Overloading, Modules, Collections, and more.
 
 ---
@@ -156,4 +157,4 @@ We are currently finishing the stabilization of **v0.1.x** (Phase 27). The immed
 - **Phase 31:** Network Sockets / HTTP Foundation.
 - **Phase 32:** LLVM IR Native Release Backend for maximum optimization (Production build transition).
 
-*(See [aether-compiler.md](aether-compiler.md) for the full granular roadmap and historic evolution).*
+*(See [docs/roadmap.md](docs/roadmap.md) for the full granular roadmap and historic evolution).*
