@@ -191,12 +191,9 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
     defer self.current_class_props = old_props;
 
     for (c.primary_constructor) |*prop| {
-        if (self.alias_map.get(prop.type_name)) |aliased| {
-            prop.type_name = aliased;
-        }
         try class_props.put(prop.name, {});
         
-        const param_type = try self.resolveTypeName(prop.type_name, false);
+        const param_type = try self.resolveTypeRef(prop.type_ref);
         prop.resolved_type = param_type;
         try class_scope.define(prop.name, param_type, prop.is_mut);
     }
@@ -245,28 +242,11 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
 
     for (f.params) |*p| {
         var param_type: *AetherType = undefined;
-        if (p.type_name) |tn| {
-            if (self.alias_map.get(tn)) |aliased| {
-                p.type_name = aliased;
-            }
-            param_type = try self.resolveTypeName(p.type_name.?, p.type_is_nullable);
+        if (p.type_ref) |tr| {
+            param_type = try self.resolveTypeRef(tr);
             
-            // Sanitize type name for mangling
-            var sanitized_name = std.ArrayList(u8).init(self.allocator);
-            for (p.type_name.?) |c| {
-                if (c == '[') {
-                    try sanitized_name.appendSlice("Array_");
-                } else if (c == ']') {
-                    // ignore
-                } else if (c == '<' or c == '>' or c == ',') {
-                    try sanitized_name.appendSlice("_");
-                } else if (c == ' ' or c == '?') {
-                    // ignore spaces in type args and question marks
-                } else {
-                    try sanitized_name.append(c);
-                }
-            }
-            try mangled_name.writer().print("_{s}", .{sanitized_name.items});
+            try mangled_name.appendSlice("_");
+            try param_type.formatSafe(mangled_name.writer());
         } else {
             param_type = try self.allocator.create(AetherType);
             param_type.* = .Void;
@@ -285,8 +265,8 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     var return_type: *const AetherType = undefined;
     var body_inferred = false;
     
-    if (f.type_name) |tn| {
-        return_type = try self.resolveTypeName(tn, f.type_is_nullable);
+    if (f.type_ref) |tr| {
+        return_type = try self.resolveTypeRef(tr);
     } else if (f.is_expr_body) {
         _ = try self.inferNode(f.body, &fun_scope);
         body_inferred = true;
@@ -320,18 +300,15 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
 }
 
 pub fn inferVarDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
-    var v = &node.data.var_decl;
+    const v = &node.data.var_decl;
     var inferred: ?*const AetherType = null;
     if (v.initializer) |init_node| {
         inferred = try self.inferNode(init_node, scope);
     }
 
     var declared: ?*const AetherType = null;
-    if (v.type_name) |tn| {
-        if (self.alias_map.get(tn)) |aliased| {
-            v.type_name = aliased;
-        }
-        declared = try self.resolveTypeName(v.type_name.?, v.type_is_nullable);
+    if (v.type_ref) |tr| {
+        declared = try self.resolveTypeRef(tr);
     }
 
     if (declared != null and inferred != null) {
@@ -362,8 +339,8 @@ pub fn inferLibDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         const full_name = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ l.name, f.name });
         
         var ret_type: *AetherType = undefined;
-        if (f.type_name) |tn| {
-            ret_type = try self.resolveTypeName(tn, f.type_is_nullable);
+        if (f.type_ref) |tr| {
+            ret_type = try self.resolveTypeRef(tr);
         } else {
             ret_type = try self.allocator.create(AetherType);
             ret_type.* = .Void;

@@ -57,11 +57,11 @@ pub const Lexer = struct {
             '!' => self.makeToken(if (self.match('=')) .bang_eq else if (self.match('!')) .bang_bang else .bang),
             '<' => self.makeToken(if (self.match('=')) .less_eq else .less),
             '>' => self.makeToken(if (self.match('=')) .greater_eq else .greater),
-            '&' => self.makeToken(if (self.match('&')) .and_and else .eof),
+            '&' => self.makeToken(if (self.match('&')) .and_and else .invalid),
             '|' => self.makeToken(if (self.match('|')) .or_or else .pipe),
             '?' => self.makeToken(if (self.match('.')) .question_dot else if (self.match(':')) .elvis else .question),
             '"' => self.string(),
-            else => self.makeToken(.eof), // Simple error, in practice we should have an error token
+            else => self.makeToken(.invalid),
         };
     }
 

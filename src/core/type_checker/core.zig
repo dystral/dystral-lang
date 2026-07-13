@@ -29,6 +29,8 @@ pub const TypeChecker = struct {
 
     pub const inferNode = core_inferNode;
     pub const reportError = core_reportError;
+    pub const resolveTypeRef = core_resolveTypeRef;
+    pub const cloneTypeRef = core_cloneTypeRef;
     pub const resolveTypeName = core_resolveTypeName;
     pub const monomorphizeClass = core_monomorphizeClass;
     pub const cloneNode = core_cloneNode;
@@ -89,124 +91,86 @@ fn core_reportError(self: *TypeChecker, line: usize, column: usize, comptime mes
     std.debug.print("\x1b[0m\n\n", .{});
 }
 
-fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool) anyerror!*AetherType {
+fn core_resolveTypeRef(self: *TypeChecker, ref: *const ast.ASTTypeRef) anyerror!*AetherType {
     var base_type: AetherType = .Void;
-    
-    var actual_name = name;
-    var actual_is_nullable = is_nullable;
-    
-    // If the full name already exists in registered classes, do NOT try to strip Opt/? suffixes
-    if (!self.classes_ast.contains(name)) {
-        if (std.mem.endsWith(u8, actual_name, "?")) {
-            actual_is_nullable = true;
-            actual_name = actual_name[0 .. actual_name.len - 1];
-        } else if (std.mem.endsWith(u8, actual_name, "Opt")) {
-            actual_is_nullable = true;
-            actual_name = actual_name[0 .. actual_name.len - 3];
-        }
-    }
-    
-    // Check primitives first
-    if (std.mem.eql(u8, actual_name, "Int")) {
-        base_type = .Int;
-    } else if (std.mem.eql(u8, actual_name, "Bool")) {
-        base_type = .Bool;
-    } else if (std.mem.eql(u8, actual_name, "Void")) {
-        base_type = .Void;
-    } else if (std.mem.eql(u8, actual_name, "OpaquePointer")) {
-        base_type = .{ .Pointer = try self.allocator.create(AetherType) };
-        @constCast(base_type.Pointer).* = .Void;
-    } else if (std.mem.eql(u8, actual_name, "Null")) {
-        base_type = .Null;
+    var actual_is_nullable = ref.is_nullable;
+
+    if (ref.is_array) {
+        if (ref.generic_args.len != 1) return error.TypeError;
+        const inner_type = try self.resolveTypeRef(ref.generic_args[0]);
+
+        const list_base = "List";
+        const type_args = try self.allocator.alloc(*const AetherType, 1);
+        type_args[0] = inner_type;
+
+        var mangled = std.ArrayList(u8).init(self.allocator);
+        const resolved_base = self.alias_map.get(list_base) orelse list_base;
+        try mangled.appendSlice(resolved_base);
+        try mangled.appendSlice("_");
+        try inner_type.formatSafe(mangled.writer());
+        const mangled_name = try mangled.toOwnedSlice();
+
+        try self.monomorphizeClass(resolved_base, type_args, mangled_name);
+
+        const actual_mangled = self.alias_map.get(mangled_name) orelse mangled_name;
+        base_type = .{ .Custom = actual_mangled };
     } else {
-        const alias = self.alias_map.get(actual_name) orelse actual_name;
-        if (std.mem.startsWith(u8, alias, "[") and std.mem.endsWith(u8, alias, "]")) {
-            const inner_name = alias[1 .. alias.len - 1];
-            const list_type_name = try std.fmt.allocPrint(self.allocator, "List<{s}>", .{inner_name});
-            return try self.resolveTypeName(list_type_name, is_nullable);
-        } else if (std.mem.indexOf(u8, alias, "<") != null) {
-            const less_idx = std.mem.indexOf(u8, alias, "<").?;
-            const greater_idx = std.mem.lastIndexOf(u8, alias, ">").?;
-            const base = alias[0..less_idx];
-            const actual_base = self.alias_map.get(base) orelse base;
-            const args_str = alias[less_idx + 1 .. greater_idx];
-            var args_list = std.ArrayList(*const AetherType).init(self.allocator);
-            var idx: usize = 0;
-            var start: usize = 0;
-            var depth: usize = 0;
-            while (idx < args_str.len) : (idx += 1) {
-                if (args_str[idx] == '<') depth += 1;
-                if (args_str[idx] == '>') depth -= 1;
-                if (args_str[idx] == ',' and depth == 0) {
-                    const clean_arg = std.mem.trim(u8, args_str[start..idx], " ");
-                    const arg_type = try self.resolveTypeName(clean_arg, false);
-                    try args_list.append(arg_type);
-                    start = idx + 1;
-                }
+        var alias = self.alias_map.get(ref.name) orelse ref.name;
+        if (!self.classes_ast.contains(alias)) {
+            if (std.mem.endsWith(u8, alias, "?")) {
+                actual_is_nullable = true;
+                alias = alias[0 .. alias.len - 1];
+            } else if (std.mem.endsWith(u8, alias, "Opt")) {
+                actual_is_nullable = true;
+                alias = alias[0 .. alias.len - 3];
             }
-            if (start < args_str.len) {
-                const clean_arg = std.mem.trim(u8, args_str[start..], " ");
-                const arg_type = try self.resolveTypeName(clean_arg, false);
+        }
+
+        // Check primitives first
+        if (std.mem.eql(u8, alias, "Int")) {
+            base_type = .Int;
+        } else if (std.mem.eql(u8, alias, "Bool")) {
+            base_type = .Bool;
+        } else if (std.mem.eql(u8, alias, "Void")) {
+            base_type = .Void;
+        } else if (std.mem.eql(u8, alias, "OpaquePointer")) {
+            base_type = .{ .Pointer = try self.allocator.create(AetherType) };
+            @constCast(base_type.Pointer).* = .Void;
+        } else if (std.mem.eql(u8, alias, "Null")) {
+            base_type = .Null;
+        } else if (ref.generic_args.len > 0) {
+            var args_list = std.ArrayList(*const AetherType).init(self.allocator);
+            for (ref.generic_args) |arg| {
+                const arg_type = try self.resolveTypeRef(arg);
                 try args_list.append(arg_type);
             }
             const type_args = try args_list.toOwnedSlice();
-            
-            if (std.mem.eql(u8, actual_base, "NativeArray")) {
+
+            if (std.mem.eql(u8, alias, "NativeArray")) {
                 if (type_args.len != 1) return error.TypeError;
                 base_type = .{ .Array = type_args[0] };
-            } else if (std.mem.eql(u8, actual_base, "Pointer")) {
+            } else if (std.mem.eql(u8, alias, "Pointer")) {
                 if (type_args.len != 1) return error.TypeError;
                 base_type = .{ .Pointer = type_args[0] };
             } else {
-                base_type = .{ .GenericInstance = .{ .base_name = actual_base, .type_args = type_args } };
-                
+                base_type = .{ .GenericInstance = .{ .base_name = alias, .type_args = type_args } };
+
                 var mangled = std.ArrayList(u8).init(self.allocator);
-                try mangled.appendSlice(actual_base);
+                try mangled.appendSlice(alias);
                 try mangled.appendSlice("_");
                 for (type_args, 0..) |t_arg, i| {
                     if (i > 0) try mangled.appendSlice("_");
                     try t_arg.formatSafe(mangled.writer());
                 }
                 const mangled_name = try mangled.toOwnedSlice();
-                
-                try self.monomorphizeClass(actual_base, type_args, mangled_name);
-                
+
+                try self.monomorphizeClass(alias, type_args, mangled_name);
+
                 const actual_mangled = self.alias_map.get(mangled_name) orelse mangled_name;
                 base_type = .{ .Custom = actual_mangled };
             }
         } else {
-            var final_alias = alias;
-            var is_opt = false;
-            // Same check: if final_alias is a registered class name, it is NOT an optional type — it's the real class name.
-            if (!self.classes_ast.contains(final_alias)) {
-                if (std.mem.endsWith(u8, final_alias, "Opt")) {
-                    is_opt = true;
-                    final_alias = final_alias[0 .. final_alias.len - 3];
-                }
-            }
-            
-            // Normalize primitive aliases (e.g. alias T→"Int" should yield .Int not .Custom("Int"))
-            if (std.mem.eql(u8, final_alias, "Int")) {
-                base_type = .Int;
-            } else if (std.mem.eql(u8, final_alias, "Bool")) {
-                base_type = .Bool;
-            } else if (std.mem.eql(u8, final_alias, "Void")) {
-                base_type = .Void;
-            } else if (std.mem.eql(u8, final_alias, "OpaquePointer")) {
-                base_type = .{ .Pointer = try self.allocator.create(AetherType) };
-                @constCast(base_type.Pointer).* = .Void;
-            } else {
-                const custom_t = try self.allocator.create(AetherType);
-                custom_t.* = .{ .Custom = final_alias };
-                
-                if (is_opt) {
-                    const null_t = try self.allocator.create(AetherType);
-                    null_t.* = .Null;
-                    base_type = .{ .Union = .{ .left = custom_t, .right = null_t } };
-                } else {
-                    base_type = .{ .Custom = final_alias };
-                }
-            }
+            base_type = .{ .Custom = alias };
         }
     }
 
@@ -222,6 +186,36 @@ fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool)
         t.* = base_type;
     }
     return t;
+}
+
+fn core_cloneTypeRef(self: *TypeChecker, ref: *const ast.ASTTypeRef) anyerror!*ast.ASTTypeRef {
+    const new_ref = try self.allocator.create(ast.ASTTypeRef);
+    var name = ref.name;
+    if (self.alias_map.get(ref.name)) |aliased| {
+        name = aliased;
+    }
+    
+    var generic_args = try self.allocator.alloc(*const ast.ASTTypeRef, ref.generic_args.len);
+    for (ref.generic_args, 0..) |arg, i| {
+        generic_args[i] = try self.cloneTypeRef(arg);
+    }
+    
+    new_ref.* = .{
+        .name = name,
+        .generic_args = generic_args,
+        .is_array = ref.is_array,
+        .is_nullable = ref.is_nullable,
+    };
+    return new_ref;
+}
+
+fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool) anyerror!*AetherType {
+    var p = parser_mod.Parser.init(self.allocator, name);
+    const ref = try p.parseType();
+    if (is_nullable) {
+        @constCast(ref).is_nullable = true;
+    }
+    return try self.resolveTypeRef(ref);
 }
 
 fn core_validate(self: *TypeChecker, node: *ASTNode) anyerror!void {
@@ -412,9 +406,7 @@ fn core_monomorphizeClass(self: *TypeChecker, base_name: []const u8, type_args: 
     var new_props = try self.allocator.alloc(ast.ClassProp, class_decl.primary_constructor.len);
     for (class_decl.primary_constructor, 0..) |prop, i| {
         new_props[i] = prop;
-        if (self.resolveTypeName(prop.type_name, false) catch null) |resolved| {
-            new_props[i].type_name = try std.fmt.allocPrint(self.allocator, "{}", .{resolved.*});
-        }
+        new_props[i].type_ref = try self.cloneTypeRef(prop.type_ref);
     }
     
     var new_methods = try self.allocator.alloc(*ASTNode, class_decl.methods.len);
@@ -423,22 +415,15 @@ fn core_monomorphizeClass(self: *TypeChecker, base_name: []const u8, type_args: 
         new_method.* = method.*;
         if (method.data == .fun_decl) {
             var m_decl = method.data.fun_decl;
-            if (m_decl.type_name) |tn| {
-                if (self.resolveTypeName(tn, false) catch null) |resolved| {
-                    m_decl.type_name = try std.fmt.allocPrint(self.allocator, "{}", .{resolved.*});
-                }
+            if (m_decl.type_ref) |tr| {
+                m_decl.type_ref = try self.cloneTypeRef(tr);
             }
             if (m_decl.params.len > 0) {
                 var new_params = try self.allocator.alloc(ast.Param, m_decl.params.len);
                 for (m_decl.params, 0..) |p, j| {
                     new_params[j] = p;
-                    if (p.type_name) |ptn| {
-                        if (self.resolveTypeName(ptn, false) catch null) |resolved| {
-                            new_params[j].type_name = try std.fmt.allocPrint(self.allocator, "{}", .{resolved.*});
-                            // std.debug.print("\n[DEBUG] monomorphizeClass rewrote param {s} from {s} to {s}\n", .{p.name, ptn, new_params[j].type_name.?});
-                        } else {
-                            // std.debug.print("\n[DEBUG] monomorphizeClass failed to resolve param {s} (type {s})\n", .{p.name, ptn});
-                        }
+                    if (p.type_ref) |ptr| {
+                        new_params[j].type_ref = try self.cloneTypeRef(ptr);
                     }
                 }
                 m_decl.params = new_params;
@@ -516,11 +501,11 @@ fn core_cloneNode(self: *TypeChecker, node: *ASTNode) anyerror!*ASTNode {
         .var_decl => |v| {
             var val: ?*ASTNode = null;
             if (v.initializer) |init| val = try self.cloneNode(init);
+            const ref = if (v.type_ref) |tr| try self.cloneTypeRef(tr) else null;
             new_node.data = .{ .var_decl = .{
                 .is_mut = v.is_mut,
                 .name = v.name,
-                .type_name = v.type_name,
-                .type_is_nullable = v.type_is_nullable,
+                .type_ref = ref,
                 .initializer = val,
             }};
         },

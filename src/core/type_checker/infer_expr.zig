@@ -254,24 +254,20 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                         for (class_decl.generic_params, 0..) |g_param, i| {
                             var found_type: ?*const AetherType = null;
                             for (class_decl.primary_constructor, 0..) |prop, prop_i| {
-                                if (std.mem.eql(u8, prop.type_name, g_param)) {
+                                if (std.mem.eql(u8, prop.type_ref.name, g_param) and prop.type_ref.generic_args.len == 0 and !prop.type_ref.is_array) {
                                     found_type = c.arguments[prop_i].resolved_type.?;
                                     break;
                                 } else {
-                                    var array_gparam = std.ArrayList(u8).init(self.allocator);
-                                    try array_gparam.writer().print("NativeArray<{s}>", .{g_param});
-                                    if (std.mem.eql(u8, prop.type_name, array_gparam.items)) {
+                                    if (std.mem.eql(u8, prop.type_ref.name, "NativeArray") and prop.type_ref.generic_args.len == 1 and std.mem.eql(u8, prop.type_ref.generic_args[0].name, g_param)) {
                                         if (c.arguments[prop_i].resolved_type.?.* == .Array) {
                                             found_type = c.arguments[prop_i].resolved_type.?.Array;
                                             break;
                                         }
                                     }
                                     
-                                    var list_gparam = std.ArrayList(u8).init(self.allocator);
-                                    try list_gparam.writer().print("List<{s}>", .{g_param});
-                                    if (std.mem.eql(u8, prop.type_name, list_gparam.items)) {
+                                    const is_list_gparam = (std.mem.eql(u8, prop.type_ref.name, "List") and prop.type_ref.generic_args.len == 1 and std.mem.eql(u8, prop.type_ref.generic_args[0].name, g_param)) or (prop.type_ref.is_array and prop.type_ref.generic_args.len == 1 and std.mem.eql(u8, prop.type_ref.generic_args[0].name, g_param));
+                                    if (is_list_gparam) {
                                         if (c.arguments[prop_i].resolved_type.?.* == .Custom) {
-                                            // Extract from collections_List_Int
                                             const c_name = c.arguments[prop_i].resolved_type.?.Custom;
                                             if (std.mem.indexOf(u8, c_name, "List_") != null) {
                                                 const arg_part = c_name[std.mem.indexOf(u8, c_name, "List_").? + 5 ..];
@@ -281,8 +277,16 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                                         }
                                     }
                                     
-                                    // Match List<Node<K, V>?>
-                                    if (std.mem.startsWith(u8, prop.type_name, "List<Node<") and std.mem.indexOf(u8, prop.type_name, g_param) != null) {
+                                    var is_list_node = false;
+                                    if (std.mem.eql(u8, prop.type_ref.name, "List") and prop.type_ref.generic_args.len == 1) {
+                                        const inner = prop.type_ref.generic_args[0];
+                                        if (std.mem.eql(u8, inner.name, "Node") and inner.generic_args.len == 2) {
+                                            if (std.mem.eql(u8, inner.generic_args[0].name, g_param) or std.mem.eql(u8, inner.generic_args[1].name, g_param)) {
+                                                is_list_node = true;
+                                            }
+                                        }
+                                    }
+                                    if (is_list_node) {
                                         if (c.arguments[prop_i].resolved_type.?.* == .Custom) {
                                             const c_name = c.arguments[prop_i].resolved_type.?.Custom;
                                             if (std.mem.indexOf(u8, c_name, "List_") != null) {
@@ -314,8 +318,16 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                                         }
                                     }
 
-                                    // Match MutableMap<T, Bool> or Map<T, Bool>
-                                    if ((std.mem.startsWith(u8, prop.type_name, "MutableMap<") or std.mem.startsWith(u8, prop.type_name, "Map<")) and std.mem.indexOf(u8, prop.type_name, g_param) != null) {
+                                    var is_map_gparam = false;
+                                    if ((std.mem.eql(u8, prop.type_ref.name, "MutableMap") or std.mem.eql(u8, prop.type_ref.name, "Map")) and prop.type_ref.generic_args.len >= 1) {
+                                        for (prop.type_ref.generic_args) |arg| {
+                                            if (std.mem.eql(u8, arg.name, g_param)) {
+                                                is_map_gparam = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (is_map_gparam) {
                                         if (c.arguments[prop_i].resolved_type.?.* == .Custom) {
                                             const c_name = c.arguments[prop_i].resolved_type.?.Custom;
                                             var base_idx: ?usize = null;
@@ -350,7 +362,7 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                             if (found_type) |ft| {
                                 type_args[i] = ft;
                             } else {
-                                std.debug.print("Failed to infer '{s}' for '{s}'. Prop: {s}. Arg type: {}\n", .{g_param, name, class_decl.primary_constructor[0].type_name, c.arguments[0].resolved_type.?.*});
+                                std.debug.print("Failed to infer '{s}' for '{s}'. Prop: {s}. Arg type: {}\n", .{g_param, name, class_decl.primary_constructor[0].name, c.arguments[0].resolved_type.?.*});
                                 self.reportError(node.line, node.column, "TypeError: Could not infer generic parameter '{s}' for class '{s}'.", .{ g_param, name });
                                 return error.TypeError;
                             }
@@ -448,17 +460,15 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
             const c = class_node.data.class_decl;
             for (c.primary_constructor) |prop| {
                 if (std.mem.eql(u8, prop.name, g.name)) {
-                    const actual_type = self.alias_map.get(prop.type_name) orelse prop.type_name;
-                    prop_type = try self.resolveTypeName(actual_type, prop.type_is_nullable);
+                    prop_type = try self.resolveTypeRef(prop.type_ref);
                     break;
                 }
             }
             if (prop_type == null) {
                 for (c.methods) |method| {
                     if (std.mem.eql(u8, method.data.fun_decl.name, g.name)) {
-                        if (method.data.fun_decl.type_name) |tn| {
-                            const actual_type = self.alias_map.get(tn) orelse tn;
-                            prop_type = try self.resolveTypeName(actual_type, method.data.fun_decl.type_is_nullable);
+                        if (method.data.fun_decl.type_ref) |tr| {
+                            prop_type = try self.resolveTypeRef(tr);
                         } else if (method.data.fun_decl.is_expr_body) {
                             if (method.data.fun_decl.body.resolved_type) |rt| {
                                 prop_type = rt;
@@ -559,7 +569,7 @@ pub fn inferSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
                         self.reportError(node.line, node.column, "TypeError: Cannot assign to constant property '{s}' of type {}.", .{ s.name, base_type.* });
                         return error.TypeError;
                     }
-                    const prop_type = try self.resolveTypeName(self.alias_map.get(prop.type_name) orelse prop.type_name, prop.type_is_nullable);
+                    const prop_type = try self.resolveTypeRef(prop.type_ref);
                     if (!isCompatible(prop_type, assigned_type)) {
                         self.reportError(node.line, node.column, "TypeError: Expected {} but found {} when setting property '{s}'.", .{ prop_type.*, assigned_type.*, s.name });
                         return error.TypeError;

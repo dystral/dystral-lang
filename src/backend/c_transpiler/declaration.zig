@@ -239,7 +239,7 @@ pub fn emitFunDecl(self: *CTranspiler, node: *ASTNode) !void {
     try self.writer.appendSlice("}\n\n");
     
     if (is_main) {
-        try self.writer.appendSlice("int main() {\n    return aether_main();\n}\n\n");
+        try self.writer.appendSlice("int main() {\n    GC_init();\n    return aether_main();\n}\n\n");
     }
 }
 

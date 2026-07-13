@@ -232,14 +232,14 @@ pub const CTranspiler = struct {
                     }
 
                     if (self.is_test_mode) {
-                        try self.writer.appendSlice("int main() {\n");
+                        try self.writer.appendSlice("int main() {\n    GC_init();\n");
                         for (self.test_names.items, 0..) |tname, i| {
                             try self.writer.writer().print("    aether_test_{d}();\n", .{i});
                             try self.writer.writer().print("    printf(\"[PASS] %s\\n\", \"{s}\");\n", .{tname});
                         }
                         try self.writer.appendSlice("    return 0;\n}\n");
                     } else if (!has_main) {
-                        try self.writer.appendSlice("int main(int argc, char** argv) {\n");
+                        try self.writer.appendSlice("int main(int argc, char** argv) {\n    GC_init();\n");
                         try self.writer.appendSlice("    (void)argc;\n");
                         try self.writer.appendSlice("    (void)argv;\n");
                         

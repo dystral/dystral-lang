@@ -60,6 +60,7 @@ pub const TokenType = enum {
     int_literal,
     bool_literal,
 
+    invalid,
     eof,
 };
 
@@ -76,18 +77,23 @@ pub const Annotation = struct {
     arguments: []const []const u8,
 };
 
+pub const ASTTypeRef = struct {
+    name: []const u8,
+    generic_args: []const *const ASTTypeRef,
+    is_array: bool,
+    is_nullable: bool,
+};
+
 /// Auxiliary structures for the AST
 pub const Param = struct {
     name: []const u8,
-    type_name: ?[]const u8,
-    type_is_nullable: bool,
+    type_ref: ?*const ASTTypeRef,
 };
 
 pub const ClassProp = struct {
     is_mut: bool,
     name: []const u8,
-    type_name: []const u8,
-    type_is_nullable: bool,
+    type_ref: *const ASTTypeRef,
     resolved_type: ?*const type_system.AetherType = null,
 };
 
@@ -111,16 +117,14 @@ pub const ASTNodeType = union(enum) {
     var_decl: struct {
         is_mut: bool,
         name: []const u8,
-        type_name: ?[]const u8, // Optional due to inference
-        type_is_nullable: bool,
+        type_ref: ?*const ASTTypeRef, // Optional due to inference
         initializer: ?*ASTNode,
     },
     fun_decl: struct {
         modifiers: []const TokenType,
         name: []const u8,
         params: []Param,
-        type_name: ?[]const u8,
-        type_is_nullable: bool,
+        type_ref: ?*const ASTTypeRef,
         body: *ASTNode,
         is_expr_body: bool, // true for `= a + b`, false for `{ ... }`
         resolved_c_name: ?[]const u8,

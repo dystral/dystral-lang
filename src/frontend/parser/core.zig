@@ -9,10 +9,6 @@ pub const ASTNode = ast.ASTNode;
 pub const ASTNodeType = ast.ASTNodeType;
 pub const Param = ast.Param;
 
-pub const ParsedType = struct {
-    name: ?[]const u8,
-    is_nullable: bool,
-};
 
 pub const Parser = struct {
     allocator: std.mem.Allocator,
@@ -35,6 +31,8 @@ pub const Parser = struct {
     pub const consume = core_consume;
     pub const errorAtCurrent = core_errorAtCurrent;
     pub const parseTypeAnnotation = core_parseTypeAnnotation;
+    pub const parseType = core_parseType;
+    pub const reportLexerError = core_reportLexerError;
 
     pub const expression = expression_mod.expression;
     pub const assignment = expression_mod.assignment;
@@ -77,51 +75,45 @@ pub const Parser = struct {
     }
 };
 
-fn core_parseTypeAnnotation(self: *Parser) anyerror!ParsedType {
+fn core_parseTypeAnnotation(self: *Parser) anyerror!?*const ast.ASTTypeRef {
     if (self.match(.colon)) {
-        return try core_parseType(self);
+        return try self.parseType();
     }
-    return ParsedType{ .name = null, .is_nullable = false };
+    return null;
 }
 
-fn core_parseType(self: *Parser) anyerror!ParsedType {
-    var name: []const u8 = undefined;
+fn core_parseType(self: *Parser) anyerror!*const ast.ASTTypeRef {
+    var ref = try self.allocator.create(ast.ASTTypeRef);
     if (self.match(.l_bracket)) {
-        const inner = try core_parseType(self);
+        const inner = try self.parseType();
         try self.consume(.r_bracket, "Expected ']' after array type.");
         
-        var inner_str = inner.name.?;
-        if (inner.is_nullable) {
-            inner_str = try std.fmt.allocPrint(self.allocator, "{s}?", .{inner.name.?});
-        }
-        
-        name = try std.fmt.allocPrint(self.allocator, "[{s}]", .{inner_str});
+        ref.* = .{
+            .name = "",
+            .generic_args = &.{ inner },
+            .is_array = true,
+            .is_nullable = false,
+        };
     } else {
         try self.consume(.identifier, "Expected type name.");
-        name = self.previous.lexeme;
+        const name = self.previous.lexeme;
+        var generic_args = std.ArrayList(*const ast.ASTTypeRef).init(self.allocator);
         
         if (self.match(.less)) {
-            const generic_arg1 = try core_parseType(self);
-            
-            var gen_str = generic_arg1.name.?;
-            if (generic_arg1.is_nullable) {
-                gen_str = try std.fmt.allocPrint(self.allocator, "{s}?", .{generic_arg1.name.?});
+            while (true) {
+                const arg = try self.parseType();
+                try generic_args.append(arg);
+                if (!self.match(.comma)) break;
             }
-            
-            if (self.match(.comma)) {
-                const generic_arg2 = try core_parseType(self);
-                var gen_str2 = generic_arg2.name.?;
-                if (generic_arg2.is_nullable) {
-                    gen_str2 = try std.fmt.allocPrint(self.allocator, "{s}?", .{generic_arg2.name.?});
-                }
-                
-                try self.consume(.greater, "Expected '>' after generic type arguments.");
-                name = try std.fmt.allocPrint(self.allocator, "{s}<{s}, {s}>", .{name, gen_str, gen_str2});
-            } else {
-                try self.consume(.greater, "Expected '>' after generic type argument.");
-                name = try std.fmt.allocPrint(self.allocator, "{s}<{s}>", .{name, gen_str});
-            }
+            try self.consume(.greater, "Expected '>' after generic type arguments.");
         }
+        
+        ref.* = .{
+            .name = name,
+            .generic_args = try generic_args.toOwnedSlice(),
+            .is_array = false,
+            .is_nullable = false,
+        };
     }
     
     var is_nullable = false;
@@ -142,7 +134,9 @@ fn core_parseType(self: *Parser) anyerror!ParsedType {
             return error.ParseError;
         }
     }
-    return ParsedType{ .name = name, .is_nullable = is_nullable };
+    
+    ref.is_nullable = is_nullable;
+    return ref;
 }
 
 fn core_createNode(self: *Parser, data: ASTNodeType) !*ASTNode {
@@ -181,9 +175,45 @@ fn core_advance(self: *Parser) void {
     self.previous = self.current;
     while (true) {
         self.current = self.lexer.scanToken();
+        if (self.current.token_type == .invalid) {
+            self.reportLexerError(self.current.line, self.current.column, "Syntax Error: Invalid or unrecognized character '{s}'", .{self.current.lexeme});
+            self.current.token_type = .eof; // Force parser to stop parsing
+            break;
+        }
         if (self.current.token_type != .eof) break; 
         break;
     }
+}
+
+fn core_reportLexerError(self: *Parser, line: usize, column: usize, comptime message: []const u8, args: anytype) void {
+    std.debug.print("\n\x1b[31mError\x1b[0m at line {}, column {}:\n", .{ line, column });
+
+    var current_line: usize = 1;
+    var start_idx: usize = 0;
+    var end_idx: usize = 0;
+    const src = self.lexer.source;
+
+    while (end_idx < src.len) : (end_idx += 1) {
+        if (src[end_idx] == '\n') {
+            if (current_line == line) break;
+            current_line += 1;
+            start_idx = end_idx + 1;
+        }
+    }
+    if (end_idx > src.len) end_idx = src.len;
+
+    const line_str = src[start_idx..end_idx];
+    std.debug.print("    {s}\n", .{line_str});
+
+    std.debug.print("    ", .{});
+    var i: usize = 1;
+    while (i < column) : (i += 1) {
+        std.debug.print(" ", .{});
+    }
+    std.debug.print("\x1b[31m^-- ", .{});
+    std.debug.print(message, args);
+    std.debug.print("\x1b[0m\n\n", .{});
+    self.had_error = true;
 }
 
 fn core_match(self: *Parser, token_type: TokenType) bool {

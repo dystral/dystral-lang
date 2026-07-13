@@ -113,8 +113,7 @@ pub fn varDeclaration(self: *Parser, is_mut: bool) anyerror!*ASTNode {
     return try self.createNodeAt(.{ .var_decl = .{
         .is_mut = is_mut,
         .name = name,
-        .type_name = parsed_type.name,
-        .type_is_nullable = parsed_type.is_nullable,
+        .type_ref = parsed_type,
         .initializer = initializer,
     } }, line, col);
 }
@@ -192,8 +191,7 @@ pub fn funDeclaration(self: *Parser, modifiers: []const TokenType, allow_no_body
             
             try params.append(.{ 
                 .name = param_name, 
-                .type_name = parsed_type.name,
-                .type_is_nullable = parsed_type.is_nullable,
+                .type_ref = parsed_type,
             });
             
             if (!self.match(.comma)) break;
@@ -227,8 +225,7 @@ pub fn funDeclaration(self: *Parser, modifiers: []const TokenType, allow_no_body
         .modifiers = modifiers,
         .name = name,
         .params = try params.toOwnedSlice(),
-        .type_name = parsed_ret.name,
-        .type_is_nullable = parsed_ret.is_nullable,
+        .type_ref = parsed_ret,
         .body = body,
         .is_expr_body = is_expr,
         .resolved_c_name = null,
@@ -266,17 +263,15 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*
                 try self.consume(.identifier, "Expected property name.");
                 const prop_name = self.previous.lexeme;
                 
-                const parsed_type = try self.parseTypeAnnotation();
-                if (parsed_type.name == null) {
+                const parsed_type = try self.parseTypeAnnotation() orelse {
                     self.errorAtCurrent("Expected property type.");
                     return error.ParseError;
-                }
+                };
                 
                 try props.append(.{
                     .is_mut = is_mut,
                     .name = prop_name,
-                    .type_name = parsed_type.name.?,
-                    .type_is_nullable = parsed_type.is_nullable,
+                    .type_ref = parsed_type,
                 });
                 
                 if (!self.match(.comma)) break;

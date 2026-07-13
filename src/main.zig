@@ -7,6 +7,12 @@ const c_transpiler = @import("backend/c_transpiler/core.zig");
 /// Orchestrates the pipeline: Source -> Lexer -> Parser -> AST -> C Transpiler -> Binary.
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) {
+            std.debug.print("Memory leak detected in compiler general purpose allocator!\n", .{});
+        }
+    }
     
     var global_arena = std.heap.ArenaAllocator.init(gpa.allocator());
     defer global_arena.deinit();
