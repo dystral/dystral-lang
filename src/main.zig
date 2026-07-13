@@ -96,6 +96,7 @@ pub fn main() !void {
     var transpiler = c_transpiler.CTranspiler.init(allocator);
     transpiler.is_test_mode = is_test;
     transpiler.classes_ast = &type_checker.classes_ast;
+    transpiler.alias_map = &type_checker.alias_map;
     transpiler.source_file = filename; // used for #line directives in C output
     defer transpiler.deinit();
 

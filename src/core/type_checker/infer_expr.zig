@@ -8,7 +8,6 @@ const TypeChecker = core.TypeChecker;
 const Scope = core.Scope;
 const AetherType = core.AetherType;
 const extractBaseType = core.extractBaseType;
-const isCompatible = core.isCompatible;
 const isNullable = core.isNullable;
 
 fn isValidType(self: *TypeChecker, t: *const AetherType) bool {
@@ -37,7 +36,7 @@ pub fn inferAssignment(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
             return error.TypeError;
         }
         const expected = vs.aether_type;
-        if (!isCompatible(expected, assigned_type)) {
+        if (!self.isCompatible(expected, assigned_type)) {
             self.reportError(node.line, node.column, "TypeError: Expected {} but found {} when reassigning variable '{s}'.", .{ expected.*, assigned_type.*, a.name });
             return error.TypeError;
         }
@@ -79,7 +78,7 @@ pub fn inferBinaryExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
 
     if (b.op == .elvis) {
         const l_base = extractBaseType(left_type);
-        if (!isCompatible(l_base, right_type)) {
+        if (!self.isCompatible(l_base, right_type)) {
             self.reportError(node.line, node.column, "TypeError: Elvis right-hand side {} is incompatible with left base type {}.", .{ right_type.*, l_base.* });
             return error.TypeError;
         }
@@ -194,7 +193,7 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                 
                 var all_match = true;
                 for (f.params, 0..) |p, i| {
-                    if (!isCompatible(p, c.arguments[i].resolved_type.?)) {
+                    if (!self.isCompatible(p, c.arguments[i].resolved_type.?)) {
                         all_match = false;
                         break;
                     }
@@ -456,35 +455,43 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     }
     
     if (lookup_name) |name| {
-        if (self.classes_ast.get(name)) |class_node| {
-            const c = class_node.data.class_decl;
-            for (c.primary_constructor) |prop| {
-                if (std.mem.eql(u8, prop.name, g.name)) {
-                    prop_type = try self.resolveTypeRef(prop.type_ref);
-                    break;
+        var current_class_name: ?[]const u8 = name;
+        while (current_class_name) |curr_name| {
+            const actual_class_name = self.alias_map.get(curr_name) orelse curr_name;
+            if (self.classes_ast.get(actual_class_name)) |class_node| {
+                const c = class_node.data.class_decl;
+                for (c.primary_constructor) |prop| {
+                    if (std.mem.eql(u8, prop.name, g.name)) {
+                        prop_type = try self.resolveTypeRef(prop.type_ref);
+                        break;
+                    }
                 }
-            }
-            if (prop_type == null) {
-                for (c.methods) |method| {
-                    if (std.mem.eql(u8, method.data.fun_decl.name, g.name)) {
-                        if (method.data.fun_decl.type_ref) |tr| {
-                            prop_type = try self.resolveTypeRef(tr);
-                        } else if (method.data.fun_decl.is_expr_body) {
-                            if (method.data.fun_decl.body.resolved_type) |rt| {
-                                prop_type = rt;
+                if (prop_type == null) {
+                    for (c.methods) |method| {
+                        if (std.mem.eql(u8, method.data.fun_decl.name, g.name)) {
+                            if (method.data.fun_decl.type_ref) |tr| {
+                                prop_type = try self.resolveTypeRef(tr);
+                            } else if (method.data.fun_decl.is_expr_body) {
+                                if (method.data.fun_decl.body.resolved_type) |rt| {
+                                    prop_type = rt;
+                                } else {
+                                    const void_type = try self.allocator.create(AetherType);
+                                    void_type.* = .Void;
+                                    prop_type = void_type;
+                                }
                             } else {
                                 const void_type = try self.allocator.create(AetherType);
                                 void_type.* = .Void;
                                 prop_type = void_type;
                             }
-                        } else {
-                            const void_type = try self.allocator.create(AetherType);
-                            void_type.* = .Void;
-                            prop_type = void_type;
+                            break;
                         }
-                        break;
                     }
                 }
+                if (prop_type != null) break;
+                current_class_name = c.superclass_name;
+            } else {
+                break;
             }
         }
     } else if (base_type.* == .Array) {
@@ -559,28 +566,36 @@ pub fn inferSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     }
 
     if (lookup_name) |name| {
-        if (self.classes_ast.get(name)) |class_node| {
-            const c = class_node.data.class_decl;
-            var found_prop = false;
-            for (c.primary_constructor) |prop| {
-                if (std.mem.eql(u8, prop.name, s.name)) {
-                    found_prop = true;
-                    if (!prop.is_mut) {
-                        self.reportError(node.line, node.column, "TypeError: Cannot assign to constant property '{s}' of type {}.", .{ s.name, base_type.* });
-                        return error.TypeError;
+        var current_class_name: ?[]const u8 = name;
+        var found_prop = false;
+        while (current_class_name) |curr_name| {
+            const actual_class_name = self.alias_map.get(curr_name) orelse curr_name;
+            if (self.classes_ast.get(actual_class_name)) |class_node| {
+                const c = class_node.data.class_decl;
+                for (c.primary_constructor) |prop| {
+                    if (std.mem.eql(u8, prop.name, s.name)) {
+                        found_prop = true;
+                        if (!prop.is_mut) {
+                            self.reportError(node.line, node.column, "TypeError: Cannot assign to constant property '{s}' of type {}.", .{ s.name, base_type.* });
+                            return error.TypeError;
+                        }
+                        const prop_type = try self.resolveTypeRef(prop.type_ref);
+                        if (!self.isCompatible(prop_type, assigned_type)) {
+                            self.reportError(node.line, node.column, "TypeError: Expected {} but found {} when setting property '{s}'.", .{ prop_type.*, assigned_type.*, s.name });
+                            return error.TypeError;
+                        }
+                        break;
                     }
-                    const prop_type = try self.resolveTypeRef(prop.type_ref);
-                    if (!isCompatible(prop_type, assigned_type)) {
-                        self.reportError(node.line, node.column, "TypeError: Expected {} but found {} when setting property '{s}'.", .{ prop_type.*, assigned_type.*, s.name });
-                        return error.TypeError;
-                    }
-                    break;
                 }
+                if (found_prop) break;
+                current_class_name = c.superclass_name;
+            } else {
+                break;
             }
-            if (!found_prop) {
-                self.reportError(node.line, node.column, "TypeError: Unresolved property '{s}' on type {}.", .{ s.name, base_type.* });
-                return error.TypeError;
-            }
+        }
+        if (!found_prop) {
+            self.reportError(node.line, node.column, "TypeError: Unresolved property '{s}' on type {}.", .{ s.name, base_type.* });
+            return error.TypeError;
         }
     }
 
@@ -597,7 +612,7 @@ pub fn inferArrayLiteral(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *
     const first_type = try self.inferNode(a.elements[0], scope);
     for (a.elements[1..]) |elem| {
         const elem_type = try self.inferNode(elem, scope);
-        if (!isCompatible(first_type, elem_type)) {
+        if (!self.isCompatible(first_type, elem_type)) {
             self.reportError(node.line, node.column, "TypeError: Incompatible types in array literal. Expected {} but found {}.", .{ first_type.*, elem_type.* });
             return error.TypeError;
         }
@@ -655,7 +670,7 @@ pub fn inferMapLiteral(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
             first_key_type = k_type;
             first_value_type = v_type;
         } else {
-            if (!isCompatible(first_key_type, k_type) or !isCompatible(first_value_type, v_type)) {
+            if (!self.isCompatible(first_key_type, k_type) or !self.isCompatible(first_value_type, v_type)) {
                 self.reportError(elem.line, elem.column, "TypeError: Incompatible types in map literal.", .{});
                 return error.TypeError;
             }
@@ -777,11 +792,61 @@ pub fn inferIndexSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *
     }
     
     const value_type = try self.inferNode(i.value, scope);
-    if (!core.isCompatible(target_type.Array, value_type)) {
+    if (!self.isCompatible(target_type.Array, value_type)) {
         std.debug.print("\n[DEBUG] inferIndexSetExpr FAIL: target_type={}, target_type.Array tag={s}, value_type={}, tag={s}\n", .{target_type, @tagName(target_type.Array.*), value_type.*, @tagName(value_type.*)});
         self.reportError(node.line, node.column, "TypeError: Cannot assign {} to array of {}.", .{value_type.*, target_type.Array.*});
         return error.TypeError;
     }
     
     t.* = .Void;
+}
+
+pub fn inferAsExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
+    const a = node.data.as_expr;
+    const val_type = try self.inferNode(a.value, scope);
+    const target_type = try self.resolveTypeRef(a.type_ref);
+
+    const base_val = extractBaseType(val_type);
+    const base_target = extractBaseType(target_type);
+
+    if (base_val.* == .Custom and base_target.* == .Custom) {
+        const is_upcast = self.isSubclassOf(base_val.Custom, base_target.Custom);
+        const is_downcast = self.isSubclassOf(base_target.Custom, base_val.Custom);
+        if (!is_upcast and !is_downcast) {
+            self.reportError(node.line, node.column, "TypeError: Incompatible types for cast: cannot cast {s} to {s}.", .{ base_val.Custom, base_target.Custom });
+            return error.TypeError;
+        }
+    } else {
+        if (!self.isCompatible(target_type, val_type)) {
+            self.reportError(node.line, node.column, "TypeError: Cannot cast {} to {}.", .{ val_type.*, target_type.* });
+            return error.TypeError;
+        }
+    }
+
+    t.* = target_type.*;
+}
+
+pub fn inferIsExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
+    const i = node.data.is_expr;
+    const val_type = try self.inferNode(i.value, scope);
+    const target_type = try self.resolveTypeRef(i.type_ref);
+
+    const base_val = extractBaseType(val_type);
+    const base_target = extractBaseType(target_type);
+
+    if (base_val.* == .Custom and base_target.* == .Custom) {
+        const is_upcast = self.isSubclassOf(base_val.Custom, base_target.Custom);
+        const is_downcast = self.isSubclassOf(base_target.Custom, base_val.Custom);
+        if (!is_upcast and !is_downcast) {
+            self.reportError(node.line, node.column, "TypeError: Incompatible types for type check: {s} is not in the inheritance hierarchy of {s}.", .{ base_val.Custom, base_target.Custom });
+            return error.TypeError;
+        }
+    } else {
+        if (!self.isCompatible(target_type, val_type)) {
+            self.reportError(node.line, node.column, "TypeError: Cannot check if {} is {}.", .{ val_type.*, target_type.* });
+            return error.TypeError;
+        }
+    }
+
+    t.* = .Bool;
 }

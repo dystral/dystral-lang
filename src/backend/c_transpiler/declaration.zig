@@ -29,6 +29,12 @@ pub fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
 
         // Pre-emit any Custom struct dependencies (e.g. MutableList depends on List)
         if (self.classes_ast) |ca| {
+            if (class_decl.superclass_name) |super_name| {
+                const actual_super = if (self.alias_map) |am| (am.get(super_name) orelse super_name) else super_name;
+                if (ca.get(actual_super)) |dep_node| {
+                    try self.emitClassDecl(dep_node);
+                }
+            }
             for (class_decl.primary_constructor) |prop| {
                 if (prop.resolved_type) |rt| {
                     const base = ts.extractBaseType(rt);
@@ -45,8 +51,37 @@ pub fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
 
         // Emit Struct
         try self.header_writer.writer().print("typedef struct {s} {s};\n", .{actual_name, actual_name});
+        try self.header_writer.writer().print("extern const AetherClassDescriptor {s}_descriptor;\n", .{actual_name});
         try self.header_writer.writer().print("struct {s} {{\n", .{actual_name});
+        if (class_decl.superclass_name) |super_name| {
+            const actual_super = if (self.alias_map) |am| (am.get(super_name) orelse super_name) else super_name;
+            try self.header_writer.writer().print("    {s} parent;\n", .{actual_super});
+        } else if (class_decl.is_open) {
+            try self.header_writer.writer().print("    const AetherClassDescriptor* _class_desc;\n", .{});
+        }
+        
+        // Emit function pointers for virtual/open methods
+        for (class_decl.methods) |method| {
+            const m_decl = method.data.fun_decl;
+            if ((class_decl.is_open or class_decl.superclass_name != null) and !self.isOverride(class_decl, m_decl.name)) {
+                var ret_str: []const u8 = "void";
+                if (method.resolved_type) |rt| {
+                    ret_str = try core.getCTypeStr(self.allocator, rt.Function.return_type);
+                }
+                try self.header_writer.writer().print("    {s} (*{s}_ptr)({s}* self", .{ret_str, m_decl.name, actual_name});
+                if (method.resolved_type) |rt| {
+                    const fun_type = rt.Function;
+                    for (m_decl.params, 0..) |p, param_i| {
+                        const param_t_str = try core.getCTypeStr(self.allocator, fun_type.params[param_i]);
+                        try self.header_writer.writer().print(", {s} {s}", .{param_t_str, p.name});
+                    }
+                }
+                try self.header_writer.appendSlice(");\n");
+            }
+        }
+
         for (class_decl.primary_constructor) |prop| {
+            if (!prop.is_property) continue;
             var t_str: []const u8 = "void*";
             if (prop.resolved_type) |rt| {
                 t_str = try core.getCTypeStr(self.allocator, rt);
@@ -72,6 +107,14 @@ pub fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
             try self.header_writer.writer().print("{s}* {s}_constructor({s}* this);\n", .{actual_name, actual_name, actual_name});
         }
 
+        // Emit static descriptor definition
+        var super_desc_ptr_str: []const u8 = "0";
+        if (class_decl.superclass_name) |super_name| {
+            const actual_super_name = if (self.alias_map) |am| (am.get(super_name) orelse super_name) else super_name;
+            super_desc_ptr_str = try std.fmt.allocPrint(self.allocator, "&{s}_descriptor", .{actual_super_name});
+        }
+        try self.writer.writer().print("const AetherClassDescriptor {s}_descriptor = {{ \"{s}\", {s} }};\n\n", .{actual_name, class_decl.name, super_desc_ptr_str});
+
         // Emit Allocator/Constructor Implementation
         try self.writer.writer().print("{s}* {s}_new(", .{actual_name, actual_name});
         for (class_decl.primary_constructor, 0..) |prop, i| {
@@ -85,7 +128,59 @@ pub fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
         }
         try self.writer.writer().print(") {{\n", .{});
         try self.writer.writer().print("    {s}* instance = ({s}*)GC_MALLOC(sizeof({s}));\n", .{actual_name, actual_name, actual_name});
+
+        if (class_decl.is_open or class_decl.superclass_name != null) {
+            try self.writer.writer().print("    *(const AetherClassDescriptor**)instance = &{s}_descriptor;\n", .{actual_name});
+        }
+
+        // Initialize virtual method pointers
+        for (class_decl.methods) |method| {
+            const m_decl = method.data.fun_decl;
+            if (self.getMethodOwner(class_decl, m_decl.name)) |owner| {
+                const super_path = try self.getSuperclassPath(actual_name, owner);
+                
+                var cast_str = std.ArrayList(u8).init(self.allocator);
+                var ret_str: []const u8 = "void";
+                if (method.resolved_type) |rt| {
+                    ret_str = try core.getCTypeStr(self.allocator, rt.Function.return_type);
+                }
+                try cast_str.writer().print("({s}(*)({s}*", .{ret_str, owner});
+                if (method.resolved_type) |rt| {
+                    const fun_type = rt.Function;
+                    for (m_decl.params, 0..) |p, param_i| {
+                        _ = p;
+                        const param_t_str = try core.getCTypeStr(self.allocator, fun_type.params[param_i]);
+                        try cast_str.writer().print(", {s}", .{param_t_str});
+                    }
+                }
+                try cast_str.appendSlice("))");
+                
+                try self.writer.writer().print("    instance->{s}.{s}_ptr = {s}&{s}_{s};\n", .{super_path, m_decl.name, cast_str.items, actual_name, m_decl.name});
+            } else if (class_decl.is_open or class_decl.superclass_name != null) {
+                try self.writer.writer().print("    instance->{s}_ptr = &{s}_{s};\n", .{m_decl.name, actual_name, m_decl.name});
+            }
+        }
+
+        // Initialize parent fields inline
+        if (class_decl.superclass_name) |super_name| {
+            const actual_super_name = if (self.alias_map) |am| (am.get(super_name) orelse super_name) else super_name;
+            const parent_node = self.classes_ast.?.get(actual_super_name).?;
+            const p_decl = parent_node.data.class_decl;
+            for (class_decl.superclass_args, 0..) |arg, i| {
+                const prop_name = p_decl.primary_constructor[i].name;
+                var prop_path: []const u8 = "";
+                if (self.getPropertyOwner(p_decl, prop_name)) |owner| {
+                    const super_path = try self.getSuperclassPath(actual_super_name, owner);
+                    prop_path = try std.fmt.allocPrint(self.allocator, "{s}.", .{super_path});
+                }
+                try self.writer.writer().print("    instance->parent.{s}{s} = ", .{prop_path, prop_name});
+                try self.emitExpression(arg);
+                try self.writer.appendSlice(";\n");
+            }
+        }
+
         for (class_decl.primary_constructor) |prop| {
+            if (!prop.is_property) continue;
             try self.writer.writer().print("    instance->{s} = {s};\n", .{prop.name, prop.name});
         }
         try self.writer.appendSlice("    return instance;\n}\n\n");

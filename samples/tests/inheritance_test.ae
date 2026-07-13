@@ -1,0 +1,79 @@
+// Classe base marcada com 'open'
+open class Animal(val name: String) {
+    fun speak(): String {
+        return "Som de animal genérico"
+    }
+}
+
+// Subclasses herdando de Animal
+class Dog(name: String, val breed: String) : Animal(name) {
+    override fun speak(): String {
+        return "Woof!"
+    }
+}
+
+class Cat(name: String) : Animal(name) {
+    override fun speak(): String {
+        return "Meow!"
+    }
+}
+
+// Hierarquia multinível
+open class Appliance(val brand: String)
+
+open class WashingMachine(brand: String, val capacity: Int) : Appliance(brand)
+
+class SmartWashingMachine(brand: String, capacity: Int, val hasWifi: Bool) : WashingMachine(brand, capacity)
+
+test "heranca: propriedades herdadas e construtor" {
+    val dog = Dog("Rex", "Labrador")
+    assert(dog.name == "Rex")
+    assert(dog.breed == "Labrador")
+}
+
+test "heranca: polimorfismo dinamico e dispatch" {
+    val animal1: Animal = Dog("Rex", "Labrador")
+    val animal2: Animal = Cat("Félix")
+
+    // speak() deve disparar a implementação polimórfica correta através do ponteiro de função
+    assert(animal1.speak() == "Woof!")
+    assert(animal2.speak() == "Meow!")
+}
+
+test "heranca: operador is de checagem de tipo" {
+    val animal: Animal = Dog("Rex", "Labrador")
+    
+    assert(animal is Dog)
+    assert(animal is Animal)
+    assert(animal !is Cat)
+}
+
+test "heranca: operador as de cast de tipo" {
+    val animal: Animal = Dog("Rex", "Labrador")
+    
+    val dog = animal as Dog
+    assert(dog.breed == "Labrador")
+}
+
+test "heranca: smart casting em condicionais if" {
+    val animal: Animal = Dog("Rex", "Labrador")
+    
+    if (animal is Dog) {
+        // animal deve ser tratado automaticamente como Dog dentro deste escopo
+        assert(animal.breed == "Labrador")
+    }
+}
+
+test "heranca: multinivel de 3 niveis" {
+    val machine = SmartWashingMachine("LG", 12, true)
+    
+    assert(machine.brand == "LG")
+    assert(machine.capacity == 12)
+    assert(machine.hasWifi == true)
+    
+    val appliance: Appliance = machine
+    assert(appliance.brand == "LG")
+    assert(appliance is SmartWashingMachine)
+    assert(appliance is WashingMachine)
+    assert(appliance is Appliance)
+}

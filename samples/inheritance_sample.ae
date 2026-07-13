@@ -1,0 +1,40 @@
+open class Vehicle(val model: String) {
+    fun run(): String {
+        return "Veículo genérico rodando"
+    }
+}
+
+class Car(model: String, val wheels: Int) : Vehicle(model) {
+    override fun run(): String {
+        return "Carro " + this.model + " rodando com suas " + this.wheels.toString() + " rodas!"
+    }
+}
+
+class Motorcycle(model: String) : Vehicle(model) {
+    override fun run(): String {
+        return "Moto " + this.model + " acelerando!"
+    }
+}
+
+fun main() {
+    print("--- Testando Herança no Aether ---")
+    
+    val car = Car("Civic", 4)
+    print("Carro criado: " + car.model)
+    print("Rodas do carro: " + car.wheels.toString())
+    
+    // Polimorfismo Dinâmico
+    val v1: Vehicle = car
+    val v2: Vehicle = Motorcycle("Ninja")
+    
+    print("v1.run(): " + v1.run())
+    print("v2.run(): " + v2.run())
+    
+    // Operadores is / as / Smart Casts
+    if (v1 is Car) {
+        print("v1 é um Carro! Rodas: " + v1.wheels.toString()) // Smart cast
+    }
+    
+    val moto = v2 as Motorcycle
+    print("Moto convertida com sucesso: " + moto.model)
+}

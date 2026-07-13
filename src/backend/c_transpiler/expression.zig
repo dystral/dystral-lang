@@ -168,21 +168,73 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             try self.emitExpression(a.value);
         },
         .get_expr => |g| {
-            if (g.is_safe) {
-                try self.writer.appendSlice("((");
-                try self.emitExpression(g.object);
-                try self.writer.appendSlice(") == 0 ? 0 : (");
-                try self.emitExpression(g.object);
-                try self.writer.writer().print(")->{s})", .{g.name});
+            const rt = g.object.resolved_type.?;
+            const base_type = ts.extractBaseType(rt);
+            if (base_type.* == .Custom) {
+                const class_name = base_type.Custom;
+                
+                var prop_path: []const u8 = "";
+                if (self.classes_ast) |ca| {
+                    if (ca.get(class_name)) |class_node| {
+                        const cd = class_node.data.class_decl;
+                        if (self.getPropertyOwner(cd, g.name)) |owner| {
+                            const super_path = try self.getSuperclassPath(class_name, owner);
+                            prop_path = try std.fmt.allocPrint(self.allocator, "{s}.", .{super_path});
+                        }
+                    }
+                }
+                
+                if (g.is_safe) {
+                    try self.writer.appendSlice("((");
+                    try self.emitExpression(g.object);
+                    try self.writer.writer().print(") == 0 ? 0 : ((({s}*)(", .{class_name});
+                    try self.emitExpression(g.object);
+                    try self.writer.writer().print("))->{s}{s}))", .{prop_path, g.name});
+                } else {
+                    try self.writer.writer().print("((({s}*)(", .{class_name});
+                    try self.emitExpression(g.object);
+                    try self.writer.writer().print("))->{s}{s})", .{prop_path, g.name});
+                }
             } else {
-                try self.emitExpression(g.object);
-                try self.writer.writer().print("->{s}", .{g.name});
+                if (g.is_safe) {
+                    try self.writer.appendSlice("((");
+                    try self.emitExpression(g.object);
+                    try self.writer.appendSlice(") == 0 ? 0 : (");
+                    try self.emitExpression(g.object);
+                    try self.writer.writer().print(")->{s})", .{g.name});
+                } else {
+                    try self.emitExpression(g.object);
+                    try self.writer.writer().print("->{s}", .{g.name});
+                }
             }
         },
         .set_expr => |s| {
-            try self.emitExpression(s.object);
-            try self.writer.writer().print("->{s} = ", .{s.name});
-            try self.emitExpression(s.value);
+            const rt = s.object.resolved_type.?;
+            const base_type = ts.extractBaseType(rt);
+            if (base_type.* == .Custom) {
+                const class_name = base_type.Custom;
+                
+                var prop_path: []const u8 = "";
+                if (self.classes_ast) |ca| {
+                    if (ca.get(class_name)) |class_node| {
+                        const cd = class_node.data.class_decl;
+                        if (self.getPropertyOwner(cd, s.name)) |owner| {
+                            const super_path = try self.getSuperclassPath(class_name, owner);
+                            prop_path = try std.fmt.allocPrint(self.allocator, "{s}.", .{super_path});
+                        }
+                    }
+                }
+                
+                try self.writer.writer().print("((({s}*)(", .{class_name});
+                try self.emitExpression(s.object);
+                try self.writer.writer().print("))->{s}{s} = ", .{prop_path, s.name});
+                try self.emitExpression(s.value);
+                try self.writer.appendSlice(")");
+            } else {
+                try self.emitExpression(s.object);
+                try self.writer.writer().print("->{s} = ", .{s.name});
+                try self.emitExpression(s.value);
+            }
         },
         .call_expr => |c| {
             if (c.callee.data == .identifier) {
@@ -256,20 +308,58 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     }
                 }
                 
+                var is_virtual_call = false;
+                var owner_class_c_name: []const u8 = "";
+                if (self.classes_ast) |ca| {
+                    if (ca.get(class_name)) |class_node| {
+                        const cd = class_node.data.class_decl;
+                        if (cd.is_open or cd.superclass_name != null) {
+                            if (self.getMethodOwner(cd, g.name)) |owner| {
+                                is_virtual_call = true;
+                                owner_class_c_name = owner;
+                            } else {
+                                for (cd.methods) |m| {
+                                    if (std.mem.eql(u8, m.data.fun_decl.name, g.name)) {
+                                        is_virtual_call = true;
+                                        owner_class_c_name = class_name;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (g.is_safe) {
                     try self.writer.appendSlice("((");
                     try self.emitExpression(g.object);
                     try self.writer.appendSlice(") == 0 ? 0 : ");
-                    try self.writer.writer().print("{s}_{s}(", .{class_name, g.name});
-                    try self.emitExpression(g.object);
+                    if (is_virtual_call) {
+                        try self.writer.writer().print("(({s}*)(", .{owner_class_c_name});
+                        try self.emitExpression(g.object);
+                        try self.writer.writer().print("))->{s}_ptr(({s}*)(", .{g.name, owner_class_c_name});
+                        try self.emitExpression(g.object);
+                        try self.writer.appendSlice(")");
+                    } else {
+                        try self.writer.writer().print("{s}_{s}(", .{class_name, g.name});
+                        try self.emitExpression(g.object);
+                    }
                     for (c.arguments) |arg| {
                         try self.writer.appendSlice(", ");
                         try self.emitExpression(arg);
                     }
                     try self.writer.appendSlice("))");
                 } else {
-                    try self.writer.writer().print("{s}_{s}(", .{class_name, g.name});
-                    try self.emitExpression(g.object);
+                    if (is_virtual_call) {
+                        try self.writer.writer().print("(({s}*)(", .{owner_class_c_name});
+                        try self.emitExpression(g.object);
+                        try self.writer.writer().print("))->{s}_ptr(({s}*)(", .{g.name, owner_class_c_name});
+                        try self.emitExpression(g.object);
+                        try self.writer.appendSlice(")");
+                    } else {
+                        try self.writer.writer().print("{s}_{s}(", .{class_name, g.name});
+                        try self.emitExpression(g.object);
+                    }
                     for (c.arguments) |arg| {
                         try self.writer.appendSlice(", ");
                         try self.emitExpression(arg);
@@ -441,6 +531,27 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             try self.writer.appendSlice(op_str);
             try self.emitExpression(b.right);
             try self.writer.appendSlice(")");
+        },
+        .as_expr => |a| {
+            const t_str = try core.getCTypeStr(self.allocator, a.type_ref.resolved_type.?);
+            try self.writer.writer().print("(({s})", .{t_str});
+            try self.emitExpression(a.value);
+            try self.writer.appendSlice(")");
+        },
+        .is_expr => |i| {
+            const target_t = i.type_ref.resolved_type.?;
+            const target_c_name = target_t.Custom;
+            if (i.is_not) {
+                try self.writer.appendSlice("!(");
+            }
+            try self.writer.appendSlice("((");
+            try self.emitExpression(i.value);
+            try self.writer.writer().print(") != 0 && aether_is_instance(*(const AetherClassDescriptor**)(", .{});
+            try self.emitExpression(i.value);
+            try self.writer.writer().print("), &{s}_descriptor))", .{target_c_name});
+            if (i.is_not) {
+                try self.writer.appendSlice(")");
+            }
         },
         else => return error.UnsupportedExpression,
     }

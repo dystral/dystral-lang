@@ -9,7 +9,7 @@ pub fn declaration(self: *Parser) anyerror!*ASTNode {
     const annotations = try self.parseAnnotations();
     var modifiers = std.ArrayList(TokenType).init(self.allocator);
     
-    while (self.match(.kw_override) or self.match(.kw_operator)) {
+    while (self.match(.kw_override) or self.match(.kw_operator) or self.match(.kw_open)) {
         try modifiers.append(self.previous.token_type);
     }
     
@@ -23,10 +23,20 @@ pub fn declaration(self: *Parser) anyerror!*ASTNode {
         if (modifiers.items.len > 0) { self.errorAtCurrent("Modifiers not allowed on var"); return error.ParseError; }
         return try self.varDeclaration(true);
     }
-    if (self.match(.kw_fun)) return try self.funDeclaration(try modifiers.toOwnedSlice(), false);
+    if (self.match(.kw_fun)) {
+        return try self.funDeclaration(try modifiers.toOwnedSlice(), false);
+    }
     if (self.match(.kw_class)) {
-        if (modifiers.items.len > 0) { self.errorAtCurrent("Modifiers not allowed on class"); return error.ParseError; }
-        return try self.classDeclaration(annotations);
+        var is_open = false;
+        for (modifiers.items) |mod| {
+            if (mod == .kw_open) {
+                is_open = true;
+            } else {
+                self.errorAtCurrent("Modifier not allowed on class");
+                return error.ParseError;
+            }
+        }
+        return try self.classDeclaration(annotations, is_open);
     }
     
     if (modifiers.items.len > 0) {
@@ -232,7 +242,7 @@ pub fn funDeclaration(self: *Parser, modifiers: []const TokenType, allow_no_body
     }}, line, col);
 }
 
-pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*ASTNode {
+pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation, is_open: bool) anyerror!*ASTNode {
     const line = self.previous.line;
     const col = self.previous.column;
     
@@ -255,16 +265,21 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*
     if (self.match(.l_paren)) {
         if (!self.check(.r_paren)) {
             while (true) {
-                const is_mut = if (self.match(.kw_var)) true else if (self.match(.kw_val)) false else {
-                    self.errorAtCurrent("Expected 'val' or 'var' for class property.");
-                    return error.ParseError;
-                };
+                var is_property = true;
+                var is_mut = false;
+                if (self.match(.kw_var)) {
+                    is_mut = true;
+                } else if (self.match(.kw_val)) {
+                    is_mut = false;
+                } else {
+                    is_property = false;
+                }
                 
-                try self.consume(.identifier, "Expected property name.");
+                try self.consume(.identifier, "Expected parameter or property name.");
                 const prop_name = self.previous.lexeme;
                 
                 const parsed_type = try self.parseTypeAnnotation() orelse {
-                    self.errorAtCurrent("Expected property type.");
+                    self.errorAtCurrent("Expected parameter or property type.");
                     return error.ParseError;
                 };
                 
@@ -272,6 +287,7 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*
                     .is_mut = is_mut,
                     .name = prop_name,
                     .type_ref = parsed_type,
+                    .is_property = is_property,
                 });
                 
                 if (!self.match(.comma)) break;
@@ -280,11 +296,27 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*
         try self.consume(.r_paren, "Expected ')' after class primary constructor.");
     }
     
+    var superclass_name: ?[]const u8 = null;
+    var superclass_args = std.ArrayList(*ASTNode).init(self.allocator);
+    if (self.match(.colon)) {
+        try self.consume(.identifier, "Expected superclass name after ':'.");
+        superclass_name = self.previous.lexeme;
+        
+        try self.consume(.l_paren, "Expected '(' for superclass constructor arguments.");
+        if (!self.check(.r_paren)) {
+            while (true) {
+                try superclass_args.append(try self.expression());
+                if (!self.match(.comma)) break;
+            }
+        }
+        try self.consume(.r_paren, "Expected ')' after superclass arguments.");
+    }
+    
     var methods = std.ArrayList(*ASTNode).init(self.allocator);
     if (self.match(.l_brace)) {
         while (!self.check(.r_brace) and !self.check(.eof)) {
             var modifiers = std.ArrayList(TokenType).init(self.allocator);
-            while (self.match(.kw_override) or self.match(.kw_operator)) {
+            while (self.match(.kw_override) or self.match(.kw_operator) or self.match(.kw_open)) {
                 try modifiers.append(self.previous.token_type);
             }
             
@@ -305,5 +337,8 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*
         .primary_constructor = try props.toOwnedSlice(),
         .methods = try methods.toOwnedSlice(),
         .resolved_c_name = null,
-    }}, line, col);
+        .is_open = is_open,
+        .superclass_name = superclass_name,
+        .superclass_args = try superclass_args.toOwnedSlice(),
+    } }, line, col);
 }

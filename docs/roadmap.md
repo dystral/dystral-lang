@@ -148,6 +148,14 @@ This document tracks the historical progress, current status, and future roadmap
 - [x] **Task 29.4:** Add dynamic memory allocations (`GC_REALLOC`) for growing arrays in the runtime.
 - [x] **Task 29.5:** Implement hash codes (`hashCode()`) for native types (`String`, `Int`) to support hash map bucket placement.
 
+### Phase 30: Class Inheritance & Polymorphism (COMPLETED)
+- [x] **Task 30.1:** Introduce the `open` keyword to the Lexer and Parser.
+- [x] **Task 30.2:** Update class declaration syntax to parse inheritance: `class SubClass : SuperClass(args)`.
+- [x] **Task 30.3:** Support method overrides (`override` keyword check) and resolve member inheritance in the Type Checker.
+- [x] **Task 30.4:** Implement struct embedding in the C Transpiler (first field represents the parent class).
+- [x] **Task 30.5:** Emit function pointers for polymorphic methods in the struct and wire them up in constructors.
+- [x] **Task 30.6:** Implement type compatibility and casting rules (upcasting and downcasting/smart casts) in the Type Checker.
+
 ---
 
 ## ✅ Definition of Done (Per Phase)

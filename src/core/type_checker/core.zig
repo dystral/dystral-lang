@@ -10,7 +10,6 @@ pub const Scope = type_system.Scope;
 const infer_expr_mod = @import("infer_expr.zig");
 const infer_stmt_mod = @import("infer_stmt.zig");
 const infer_decl_mod = @import("infer_decl.zig");
-pub const isCompatible = type_system.isCompatible;
 pub const isNullable = type_system.isNullable;
 pub const extractBaseType = type_system.extractBaseType;
 pub const isBool = type_system.isBool;
@@ -36,6 +35,8 @@ pub const TypeChecker = struct {
     pub const cloneNode = core_cloneNode;
     pub const validate = core_validate;
     pub const checkBlock = infer_stmt_mod.checkBlock;
+    pub const isCompatible = core_isCompatible;
+    pub const isSubclassOf = core_isSubclassOf;
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, filename: []const u8) TypeChecker {
         const checker = TypeChecker{
@@ -185,6 +186,7 @@ fn core_resolveTypeRef(self: *TypeChecker, ref: *const ast.ASTTypeRef) anyerror!
     } else {
         t.* = base_type;
     }
+    @constCast(ref).resolved_type = t;
     return t;
 }
 
@@ -286,6 +288,8 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
         .get_expr => try infer_expr_mod.inferGetExpr(self, node, scope, t),
         .set_expr => try infer_expr_mod.inferSetExpr(self, node, scope, t),
         .call_expr => try infer_expr_mod.inferCallExpr(self, node, scope, t),
+        .as_expr => try infer_expr_mod.inferAsExpr(self, node, scope, t),
+        .is_expr => try infer_expr_mod.inferIsExpr(self, node, scope, t),
         .if_expr => try infer_stmt_mod.inferIfExpr(self, node, scope, t),
         .while_stmt => try infer_stmt_mod.inferWhileStmt(self, node, scope, t),
         .for_stmt => try infer_stmt_mod.inferForStmt(self, node, scope, t),
@@ -572,8 +576,73 @@ fn core_cloneNode(self: *TypeChecker, node: *ASTNode) anyerror!*ASTNode {
                 .body = try self.cloneNode(f.body),
             }};
         },
+        .as_expr => |a| {
+            new_node.data = .{ .as_expr = .{
+                .value = try self.cloneNode(a.value),
+                .type_ref = try self.cloneTypeRef(a.type_ref),
+            }};
+        },
+        .is_expr => |i| {
+            new_node.data = .{ .is_expr = .{
+                .value = try self.cloneNode(i.value),
+                .type_ref = try self.cloneTypeRef(i.type_ref),
+                .is_not = i.is_not,
+            }};
+        },
         else => {}, // For identifiers and literals, shallow copy is fine as long as we cleared resolved_type
     }
     
     return new_node;
 }
+
+fn core_isSubclassOf(self: *TypeChecker, subclass_name: []const u8, superclass_name: []const u8) bool {
+    if (std.mem.eql(u8, subclass_name, superclass_name)) return true;
+    
+    var current_name = subclass_name;
+    while (true) {
+        const class_node = self.classes_ast.get(current_name) orelse return false;
+        const c = class_node.data.class_decl;
+        if (c.superclass_name) |parent| {
+            const parent_actual = self.alias_map.get(parent) orelse parent;
+            if (std.mem.eql(u8, parent_actual, superclass_name)) return true;
+            current_name = parent_actual;
+        } else {
+            break;
+        }
+    }
+    return false;
+}
+
+fn core_isCompatible(self: *TypeChecker, expected: *const AetherType, actual: *const AetherType) bool {
+    if (expected.* == .Unknown or actual.* == .Unknown) return true;
+    if (isNullable(expected) and actual.* == .Null) return true;
+    if (isNullable(actual) and !isNullable(expected)) return false;
+
+    const exp_base = extractBaseType(expected);
+    const act_base = extractBaseType(actual);
+
+    if (exp_base.* == .Custom and act_base.* == .Custom) {
+        return self.isSubclassOf(act_base.Custom, exp_base.Custom);
+    }
+
+    if (std.meta.activeTag(exp_base.*) == std.meta.activeTag(act_base.*)) {
+        switch (exp_base.*) {
+            .Array => |elem| {
+                if (act_base.* == .Array) {
+                    return self.isCompatible(elem, act_base.Array);
+                }
+                return false;
+            },
+            .Pointer => |elem| {
+                if (act_base.* == .Pointer) {
+                    if (elem.* == .Void or act_base.Pointer.* == .Void) return true;
+                    return self.isCompatible(elem, act_base.Pointer);
+                }
+                return false;
+            },
+            else => return true,
+        }
+    }
+    return false;
+}
+

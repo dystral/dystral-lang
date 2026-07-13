@@ -7,7 +7,6 @@ const ASTNode = core.ASTNode;
 const TypeChecker = core.TypeChecker;
 const Scope = core.Scope;
 const AetherType = core.AetherType;
-const isCompatible = core.isCompatible;
 
 const std_modules = std.StaticStringMap([]const u8).initComptime(.{
     .{ "core.ae", @embedFile("../../std/core.ae") },
@@ -190,12 +189,89 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
     self.current_class_props = &class_props;
     defer self.current_class_props = old_props;
 
-    for (c.primary_constructor) |*prop| {
-        try class_props.put(prop.name, {});
+    if (c.superclass_name) |super_name| {
+        const parent_c_name = self.alias_map.get(super_name) orelse super_name;
+        const parent_node = self.classes_ast.get(parent_c_name);
+        if (parent_node == null) {
+            self.reportError(node.line, node.column, "TypeError: Superclass '{s}' not found.", .{super_name});
+            return error.TypeError;
+        }
+        const p_decl = parent_node.?.data.class_decl;
+        if (!p_decl.is_open) {
+            self.reportError(node.line, node.column, "TypeError: Class '{s}' is final and cannot be inherited.", .{super_name});
+            return error.TypeError;
+        }
         
+        // Validate superclass constructor arguments
+        if (c.superclass_args.len != p_decl.primary_constructor.len) {
+            self.reportError(node.line, node.column, "TypeError: Expected {} arguments for superclass constructor of '{s}', got {}.", .{ p_decl.primary_constructor.len, super_name, c.superclass_args.len });
+            return error.TypeError;
+        }
+        
+        var constr_scope = Scope.init(self.allocator, scope);
+        defer constr_scope.deinit();
+        for (c.primary_constructor) |prop| {
+            const p_t = try self.resolveTypeRef(prop.type_ref);
+            try constr_scope.define(prop.name, p_t, prop.is_mut);
+        }
+        
+        for (c.superclass_args, 0..) |arg, i| {
+            const arg_type = try self.inferNode(arg, &constr_scope);
+            const expected_type = try self.resolveTypeRef(p_decl.primary_constructor[i].type_ref);
+            if (!self.isCompatible(expected_type, arg_type)) {
+                self.reportError(arg.line, arg.column, "TypeError: Expected {} for argument {} of superclass constructor, got {}.", .{ expected_type.*, i + 1, arg_type.* });
+                return error.TypeError;
+            }
+        }
+        
+        // Populate inherited properties and methods into class_scope & class_props
+        var curr_super: ?[]const u8 = super_name;
+        while (curr_super) |s_name| {
+            const actual_s_name = self.alias_map.get(s_name) orelse s_name;
+            const s_node = self.classes_ast.get(actual_s_name) orelse break;
+            const s_decl = s_node.data.class_decl;
+            
+            for (s_decl.primary_constructor) |prop| {
+                if (!class_props.contains(prop.name)) {
+                    try class_props.put(prop.name, {});
+                    const p_type = try self.resolveTypeRef(prop.type_ref);
+                    try class_scope.define(prop.name, p_type, prop.is_mut);
+                }
+            }
+            
+            for (s_decl.methods) |method| {
+                if (method.data == .fun_decl) {
+                    const m_decl = method.data.fun_decl;
+                    var param_types = std.ArrayList(*const AetherType).init(self.allocator);
+                    for (m_decl.params) |p| {
+                        const p_t = if (p.type_ref) |tr| try self.resolveTypeRef(tr) else try self.resolveTypeName("Void", false);
+                        try param_types.append(p_t);
+                    }
+                    const ret_t = if (m_decl.type_ref) |tr| try self.resolveTypeRef(tr) else try self.resolveTypeName("Void", false);
+                    const fn_type = try self.allocator.create(AetherType);
+                    fn_type.* = .{ .Function = .{
+                        .params = try param_types.toOwnedSlice(),
+                        .return_type = ret_t,
+                        .c_name = m_decl.resolved_c_name orelse m_decl.name,
+                    }};
+                    
+                    if (class_scope.symbols.get(m_decl.name) == null) {
+                        try class_scope.define(m_decl.name, fn_type, false);
+                    }
+                }
+            }
+            
+            curr_super = s_decl.superclass_name;
+        }
+    }
+
+    for (c.primary_constructor) |*prop| {
         const param_type = try self.resolveTypeRef(prop.type_ref);
         prop.resolved_type = param_type;
-        try class_scope.define(prop.name, param_type, prop.is_mut);
+        if (prop.is_property) {
+            try class_props.put(prop.name, {});
+            try class_scope.define(prop.name, param_type, prop.is_mut);
+        }
     }
 
     // Methods
@@ -291,7 +367,7 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     }
     
     if (f.is_expr_body) {
-        if (!isCompatible(return_type, f.body.resolved_type.?)) {
+        if (!self.isCompatible(return_type, f.body.resolved_type.?)) {
             self.reportError(node.line, node.column, "TypeError: Expected {} but found {} in expression body.", .{return_type.*, f.body.resolved_type.?.*});
             return error.TypeError;
         }
@@ -312,7 +388,7 @@ pub fn inferVarDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     }
 
     if (declared != null and inferred != null) {
-        if (!isCompatible(declared.?, inferred.?)) {
+        if (!self.isCompatible(declared.?, inferred.?)) {
             self.reportError(node.line, node.column, "TypeError: Expected {} but found {} for variable '{s}'.", .{ declared.?.*, inferred.?.*, v.name });
             return error.TypeError;
         }

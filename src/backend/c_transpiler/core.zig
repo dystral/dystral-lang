@@ -60,6 +60,7 @@ pub const CTranspiler = struct {
     test_names: std.ArrayList([]const u8),
     test_count: usize = 0,
     classes_ast: ?*std.StringHashMap(*ASTNode) = null,
+    alias_map: ?*std.StringHashMap([]const u8) = null,
     source_file: []const u8 = "<unknown>", // path to the .ae source file being transpiled
 
     pub const emitClassDecl = decl_mod.emitClassDecl;
@@ -70,6 +71,84 @@ pub const CTranspiler = struct {
 
     pub const emitStatement = stmt_mod.emitStatement;
     pub const emitExpression = expr_mod.emitExpression;
+
+    pub fn isOverride(self: *CTranspiler, class_decl: anytype, method_name: []const u8) bool {
+        var curr_super = class_decl.superclass_name;
+        while (curr_super) |super_name| {
+            const actual_super = if (self.alias_map) |am| (am.get(super_name) orelse super_name) else super_name;
+            if (self.classes_ast) |ca| {
+                if (ca.get(actual_super)) |parent_node| {
+                    const p_decl = parent_node.data.class_decl;
+                    for (p_decl.methods) |m| {
+                        if (std.mem.eql(u8, m.data.fun_decl.name, method_name)) return true;
+                    }
+                    curr_super = p_decl.superclass_name;
+                    continue;
+                }
+            }
+            break;
+        }
+        return false;
+    }
+
+    pub fn getMethodOwner(self: *CTranspiler, class_decl: anytype, method_name: []const u8) ?[]const u8 {
+        var curr_super = class_decl.superclass_name;
+        while (curr_super) |super_name| {
+            const actual_super = if (self.alias_map) |am| (am.get(super_name) orelse super_name) else super_name;
+            if (self.classes_ast) |ca| {
+                if (ca.get(actual_super)) |parent_node| {
+                    const p_decl = parent_node.data.class_decl;
+                    for (p_decl.methods) |m| {
+                        if (std.mem.eql(u8, m.data.fun_decl.name, method_name)) return actual_super;
+                    }
+                    curr_super = p_decl.superclass_name;
+                    continue;
+                }
+            }
+            break;
+        }
+        return null;
+    }
+
+    pub fn getPropertyOwner(self: *CTranspiler, class_decl: anytype, prop_name: []const u8) ?[]const u8 {
+        var curr_super = class_decl.superclass_name;
+        while (curr_super) |super_name| {
+            const actual_super = if (self.alias_map) |am| (am.get(super_name) orelse super_name) else super_name;
+            if (self.classes_ast) |ca| {
+                if (ca.get(actual_super)) |parent_node| {
+                    const p_decl = parent_node.data.class_decl;
+                    for (p_decl.primary_constructor) |prop| {
+                        if (std.mem.eql(u8, prop.name, prop_name) and prop.is_property) return actual_super;
+                    }
+                    curr_super = p_decl.superclass_name;
+                    continue;
+                }
+            }
+            break;
+        }
+        return null;
+    }
+
+    pub fn getSuperclassPath(self: *CTranspiler, subclass_name: []const u8, target_superclass_name: []const u8) ![]const u8 {
+        var path = std.ArrayList(u8).init(self.allocator);
+        var curr: ?[]const u8 = subclass_name;
+        while (curr) |curr_name| {
+            const actual_curr = if (self.alias_map) |am| (am.get(curr_name) orelse curr_name) else curr_name;
+            if (std.mem.eql(u8, actual_curr, target_superclass_name)) {
+                break;
+            }
+            const node = self.classes_ast.?.get(actual_curr) orelse break;
+            const c = node.data.class_decl;
+            if (c.superclass_name) |parent| {
+                if (path.items.len > 0) try path.appendSlice(".");
+                try path.appendSlice("parent");
+                curr = parent;
+            } else {
+                break;
+            }
+        }
+        return try path.toOwnedSlice();
+    }
 
     pub fn init(allocator: std.mem.Allocator) CTranspiler {
         return CTranspiler{

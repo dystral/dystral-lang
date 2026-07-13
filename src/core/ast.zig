@@ -22,6 +22,10 @@ pub const TokenType = enum {
     kw_in,
     kw_for,
     kw_of,
+    kw_open,
+    kw_as,
+    kw_is,
+    kw_not_is,
 
     // Symbols and Operators
     eq,         // =
@@ -82,6 +86,7 @@ pub const ASTTypeRef = struct {
     generic_args: []const *const ASTTypeRef,
     is_array: bool,
     is_nullable: bool,
+    resolved_type: ?*const type_system.AetherType = null,
 };
 
 /// Auxiliary structures for the AST
@@ -95,6 +100,7 @@ pub const ClassProp = struct {
     name: []const u8,
     type_ref: *const ASTTypeRef,
     resolved_type: ?*const type_system.AetherType = null,
+    is_property: bool = true,
 };
 
 pub const ASTNode = struct {
@@ -136,6 +142,9 @@ pub const ASTNodeType = union(enum) {
         primary_constructor: []ClassProp,
         methods: []const *ASTNode,
         resolved_c_name: ?[]const u8,
+        is_open: bool,
+        superclass_name: ?[]const u8,
+        superclass_args: []const *ASTNode,
     },
     test_decl: struct {
         name: []const u8,
@@ -223,6 +232,15 @@ pub const ASTNodeType = union(enum) {
     },
     return_stmt: struct {
         value: ?*ASTNode,
+    },
+    as_expr: struct {
+        value: *ASTNode,
+        type_ref: *const ASTTypeRef,
+    },
+    is_expr: struct {
+        value: *ASTNode,
+        type_ref: *const ASTTypeRef,
+        is_not: bool,
     },
 };
 

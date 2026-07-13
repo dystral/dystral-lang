@@ -54,7 +54,19 @@ pub const Lexer = struct {
             '*' => self.makeToken(.star),
             '/' => self.makeToken(.slash),
             '=' => self.makeToken(if (self.match('=')) .eq_eq else .eq),
-            '!' => self.makeToken(if (self.match('=')) .bang_eq else if (self.match('!')) .bang_bang else .bang),
+            '!' => {
+                if (self.match('=')) return self.makeToken(.bang_eq);
+                if (self.match('!')) return self.makeToken(.bang_bang);
+                if (self.peek() == 'i' and self.peekNext() == 's') {
+                    const after_is = if (self.current + 2 < self.source.len) self.source[self.current + 2] else 0;
+                    if (!isAlpha(after_is) and !isDigit(after_is)) {
+                        _ = self.advance(); // consume 'i'
+                        _ = self.advance(); // consume 's'
+                        return self.makeToken(.kw_not_is);
+                    }
+                }
+                return self.makeToken(.bang);
+            },
             '<' => self.makeToken(if (self.match('=')) .less_eq else .less),
             '>' => self.makeToken(if (self.match('=')) .greater_eq else .greater),
             '&' => self.makeToken(if (self.match('&')) .and_and else .invalid),
@@ -94,6 +106,9 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, text, "test")) return .kw_test;
         if (std.mem.eql(u8, text, "lib")) return .kw_lib;
         if (std.mem.eql(u8, text, "of")) return .kw_of;
+        if (std.mem.eql(u8, text, "open")) return .kw_open;
+        if (std.mem.eql(u8, text, "as")) return .kw_as;
+        if (std.mem.eql(u8, text, "is")) return .kw_is;
         if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return .bool_literal;
         return .identifier;
     }

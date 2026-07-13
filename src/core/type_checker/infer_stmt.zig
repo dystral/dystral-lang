@@ -14,10 +14,32 @@ pub fn inferIfExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aether
         self.reportError(node.line, node.column, "TypeError: if condition must be Bool, found {}.", .{cond_type.*});
         return error.TypeError;
     }
-    const then_type = try self.inferNode(i.then_branch, scope);
+    
+    var then_scope = scope;
+    var local_then_scope: Scope = undefined;
+    var has_smart_cast = false;
+    
+    if (i.condition.data == .is_expr) {
+        const is_e = i.condition.data.is_expr;
+        if (is_e.is_not == false and is_e.value.data == .identifier) {
+            const var_name = is_e.value.data.identifier.name;
+            const target_t = try self.resolveTypeRef(is_e.type_ref);
+            
+            local_then_scope = Scope.init(self.allocator, scope);
+            try local_then_scope.define(var_name, target_t, false);
+            then_scope = &local_then_scope;
+            has_smart_cast = true;
+        }
+    }
+
+    const then_type = try self.inferNode(i.then_branch, then_scope);
+    if (has_smart_cast) {
+        local_then_scope.deinit();
+    }
+
     if (i.else_branch) |else_b| {
         const else_type = try self.inferNode(else_b, scope);
-        if (!core.isCompatible(then_type, else_type) and !core.isCompatible(else_type, then_type)) {
+        if (!self.isCompatible(then_type, else_type) and !self.isCompatible(else_type, then_type)) {
             self.reportError(node.line, node.column, "TypeError: if branches have incompatible types: {} and {}.", .{ then_type.*, else_type.* });
             return error.TypeError;
         }

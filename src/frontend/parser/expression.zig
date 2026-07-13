@@ -106,14 +106,40 @@ pub fn ofOperator(self: *Parser) anyerror!*ASTNode {
     return expr;
 }
 pub fn comparison(self: *Parser) anyerror!*ASTNode {
-    var expr = try self.term();
+    var expr = try self.typeCheckOrCast();
 
     while (self.match(.greater) or self.match(.greater_eq) or self.match(.less) or self.match(.less_eq)) {
         const op = self.previous.token_type;
         const line = self.previous.line;
         const col = self.previous.column;
-        const right = try self.term();
+        const right = try self.typeCheckOrCast();
         expr = try self.createNodeAt(.{ .binary_expr = .{ .left = expr, .op = op, .right = right } }, line, col);
+    }
+    return expr;
+}
+
+pub fn typeCheckOrCast(self: *Parser) anyerror!*ASTNode {
+    var expr = try self.term();
+
+    while (true) {
+        if (self.match(.kw_as)) {
+            const line = self.previous.line;
+            const col = self.previous.column;
+            const type_ref = try self.parseType();
+            expr = try self.createNodeAt(.{ .as_expr = .{ .value = expr, .type_ref = type_ref } }, line, col);
+        } else if (self.match(.kw_is)) {
+            const line = self.previous.line;
+            const col = self.previous.column;
+            const type_ref = try self.parseType();
+            expr = try self.createNodeAt(.{ .is_expr = .{ .value = expr, .type_ref = type_ref, .is_not = false } }, line, col);
+        } else if (self.match(.kw_not_is)) {
+            const line = self.previous.line;
+            const col = self.previous.column;
+            const type_ref = try self.parseType();
+            expr = try self.createNodeAt(.{ .is_expr = .{ .value = expr, .type_ref = type_ref, .is_not = true } }, line, col);
+        } else {
+            break;
+        }
     }
     return expr;
 }
