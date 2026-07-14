@@ -242,6 +242,11 @@ pub const ASTNodeType = union(enum) {
     return_stmt: struct {
         value: ?*ASTNode,
     },
+    ternary_expr: struct {
+        condition: *ASTNode,
+        then_branch: *ASTNode,
+        else_branch: ?*ASTNode,
+    },
     as_expr: struct {
         value: *ASTNode,
         type_ref: *const ASTTypeRef,

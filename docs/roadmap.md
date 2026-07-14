@@ -73,16 +73,16 @@ This document tracks the historical progress, current status, and future roadmap
 - [x] **Task 16.2:** Allow the compiler to read, analyze, and compile multiple `.ae` files into a single Global AST.
 - [x] **Task 16.3:** Resolve namespace collisions between files using dynamic Name Mangling.
 
-### Phase 17: Core Library, Arrays & For-Loops (PENDING / LATER)
-- [ ] **Task 17.1:** Remove the native bypass of functions like `print()`, `assert()`, `exit()` in the TypeChecker, utilizing the hidden standard library package instead.
-- [ ] **Task 17.2:** Native support for Collections/Arrays (`[String]`).
-- [ ] **Task 17.3:** Support native iteration with `for` loops (`for (item in list)`).
+### Phase 17: Core Library, Arrays & For-Loops (COMPLETED)
+- [x] **Task 17.1:** Remove the native bypass of functions like `print()`, `assert()`, `exit()` in the TypeChecker, utilizing the hidden standard library package instead.
+- [x] **Task 17.2:** Native support for Collections/Arrays (`[String]`).
+- [x] **Task 17.3:** Support native iteration with `for` loops (`for (item in list)`).
 
-### Phase 18: Short Ternary Operator (PENDING / LATER)
-- [ ] **Task 18.1:** Add support in the Lexer/AST for the Ternary Operator (`condition ? true_expr : false_expr`).
-- [ ] **Task 18.2:** Implement short ternary (`condition ? true_expr`), which returns `null` automatically if the condition is false.
-- [ ] **Task 18.3:** Implement semantic validation (verify matching types, forcing short ternaries to return union types with `null`).
-- [ ] **Task 18.4:** Transpile control structure safely to the C ternary operator.
+### Phase 18: Short Ternary Operator (COMPLETED)
+- [x] **Task 18.1:** Add support in the Lexer/AST for the Ternary Operator (`condition ? true_expr : false_expr`).
+- [x] **Task 18.2:** Implement short ternary (`condition ? true_expr`), which returns `null` automatically if the condition is false.
+- [x] **Task 18.3:** Implement semantic validation (verify matching types, forcing short ternaries to return union types with `null`).
+- [x] **Task 18.4:** Transpile control structure safely to the C ternary operator.
 
 ### Phase 19: Exception Handling & Multi-Catch (COMPLETED)
 - [x] **Task 19.1:** Implement support for `try` and `catch` blocks (excluding `finally` to simplify design).

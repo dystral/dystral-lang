@@ -106,3 +106,13 @@ Este documento registra as decisões arquiteturais estruturais tomadas durante o
 4. Opcionalmente suportar blocos `catch` anônimos sem assinatura (`catch { ... }`) que capturam qualquer erro de forma silenciosa.
 **Razão:** O uso de `setjmp`/`longjmp` simula a nível de C o comportamento de tabelas de saltos não-locais de exceções tradicionais. Esse modelo mapeia-se de forma direta para a instrução nativa `invoke` e blocos de `landingpad` no backend LLVM IR futuro, fornecendo no futuro tratamento de custo zero (Zero-Cost Exception) sem comprometer o fluxo lógico de C do transpiler atual.
 
+## ADR 17: Operadores Ternário e Ternário Curto
+**Data:** Fase 18
+**Contexto:** O Aether não possuía o operador condicional ternário (`? :`), exigindo o uso de blocos `if-else` mais verbosos. Além disso, queríamos suportar um operador ternário curto (`condicao ? valor`) que retorna `null` implicitamente quando a condição é falsa.
+**Decisão:**
+1. **Precedência e Associatividade:** O operador ternário terá precedência logo abaixo do operador Elvis (`?:`) e acima do de atribuição (`=`), associando à direita (permitindo ternários aninhados sem parênteses, ex: `a ? b : c ? d : e` avalia como `a ? b : (c ? d : e)`).
+2. **Tipo de Retorno (Ternário Curto):** O tipo retornado pelo ternário curto `a ? b` é uma união entre o tipo de `b` e `Null` (ex: `Type?`). Para evitar tipos opcionais aninhados redundantes (ex: `String??`), achatamos o tipo de retorno se `b` já for anulável. Expressões do tipo `Void` são proibidas como branch positiva.
+3. **Transpilação para C:** Para o ternário padrão, geramos `((cond) ? (then) : (else))`. Para o ternário curto, como o C não o suporta nativamente, transpilamos como `((cond) ? (then) : 0)`.
+**Razão:** Traz mais concisão e expressividade à linguagem, seguindo o pragmatismo e a simplicidade da transpilação direta para C, com checagem estática rigorosa de nulidade no TypeChecker.
+
+

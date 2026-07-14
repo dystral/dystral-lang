@@ -9,7 +9,7 @@ pub fn expression(self: *Parser) anyerror!*ASTNode {
 }
 
 pub fn assignment(self: *Parser) anyerror!*ASTNode {
-    const expr = try self.elvis();
+    const expr = try self.ternary();
 
     if (self.match(.eq)) {
         const line = self.previous.line;
@@ -36,6 +36,30 @@ pub fn assignment(self: *Parser) anyerror!*ASTNode {
         }
 
         self.errorAtCurrent("Invalid assignment target.");
+    }
+
+    return expr;
+}
+
+pub fn ternary(self: *Parser) anyerror!*ASTNode {
+    const expr = try self.elvis();
+
+    if (self.match(.question)) {
+        const line = self.previous.line;
+        const col = self.previous.column;
+        
+        const then_branch = try self.expression();
+        
+        var else_branch: ?*ASTNode = null;
+        if (self.match(.colon)) {
+            else_branch = try self.ternary();
+        }
+        
+        return try self.createNodeAt(.{ .ternary_expr = .{
+            .condition = expr,
+            .then_branch = then_branch,
+            .else_branch = else_branch,
+        } }, line, col);
     }
 
     return expr;

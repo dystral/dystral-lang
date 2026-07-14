@@ -462,3 +462,43 @@ try {
 }
 ```
 
+## 12. Ternary Operators
+
+Aether provides standard ternary conditional expressions and a unique short ternary operator to simplify conditional value assignments.
+
+### 12.1 Standard Ternary Operator
+
+The standard ternary operator uses the classic `condition ? true_expr : false_expr` syntax:
+
+```kotlin
+fun max(a: Int, b: Int): Int {
+    return (a > b) ? a : b
+}
+```
+
+* **Type Safety:** The type of the ternary expression is inferred as the common compatible type of both branches. If the branches have incompatible types, the compiler will fail with a `TypeError`.
+* **Right-Associativity:** The operator associates to the right, meaning nested ternaries parse naturally:
+```kotlin
+// In Aether, this evaluates as: a ? b : (c ? d : e)
+val result = a ? b : c ? d : e
+```
+
+### 12.2 Short Ternary Operator
+
+The short ternary operator `condition ? true_expr` omits the else branch. When the condition is false, it implicitly returns `null`:
+
+```kotlin
+fun getAdminRole(isAdmin: Bool): String? {
+    return isAdmin ? "Administrator"
+}
+```
+
+* **Nullable Union Return Type:** Because a short ternary returns `null` when false, its type is automatically promoted to a Union Type with `Null` (e.g. `String?`).
+* **Nesting Flattening:** If the positive branch is already a nullable type (like `String?`), the return type is flattened to `String?` rather than nesting (e.g., `String??`).
+* **Void Safety:** Since returning `null` implies a value payload, you cannot use expressions returning `Void` inside a short ternary.
+```kotlin
+// THIS IS A COMPILATION ERROR:
+cond ? print("hello") 
+```
+
+

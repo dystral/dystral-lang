@@ -128,8 +128,32 @@ fun print(value: String): Void {
     Standard.puts(value.ptr)
 }
 
+fun print(value: String?): Void {
+    if (value == null) {
+        Standard.puts("null".ptr)
+    } else {
+        Standard.puts(value!!.ptr)
+    }
+}
+
 fun print(value: Bool): Void {
     print(value.toString())
+}
+
+fun print(value: Int?): Void {
+    if (value == null) {
+        Standard.puts("null".ptr)
+    } else {
+        print(value!!)
+    }
+}
+
+fun print(value: Bool?): Void {
+    if (value == null) {
+        Standard.puts("null".ptr)
+    } else {
+        print(value!!)
+    }
 }
 
 open class Exception(val message: String)

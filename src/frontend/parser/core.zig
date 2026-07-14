@@ -36,6 +36,7 @@ pub const Parser = struct {
 
     pub const expression = expression_mod.expression;
     pub const assignment = expression_mod.assignment;
+    pub const ternary = expression_mod.ternary;
     pub const elvis = expression_mod.elvis;
     pub const logicOr = expression_mod.logicOr;
     pub const logicAnd = expression_mod.logicAnd;

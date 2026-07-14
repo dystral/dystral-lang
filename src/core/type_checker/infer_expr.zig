@@ -850,3 +850,48 @@ pub fn inferIsExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aether
 
     t.* = .Bool;
 }
+
+pub fn inferTernaryExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
+    const ternary_node = node.data.ternary_expr;
+    const cond_type = try self.inferNode(ternary_node.condition, scope);
+    
+    if (!core.isBool(cond_type)) {
+        self.reportError(node.line, node.column, "TypeError: Ternary condition must be Bool, found {}.", .{cond_type.*});
+        return error.TypeError;
+    }
+    
+    const then_type = try self.inferNode(ternary_node.then_branch, scope);
+    
+    if (ternary_node.else_branch) |else_b| {
+        const else_type = try self.inferNode(else_b, scope);
+        
+        if (self.isCompatible(then_type, else_type)) {
+            t.* = then_type.*;
+        } else if (self.isCompatible(else_type, then_type)) {
+            t.* = else_type.*;
+        } else {
+            self.reportError(node.line, node.column, "TypeError: Ternary branches have incompatible types: {} and {}.", .{ then_type.*, else_type.* });
+            return error.TypeError;
+        }
+    } else {
+        // Short ternary
+        if (then_type.* == .Void) {
+            self.reportError(node.line, node.column, "TypeError: Short ternary positive branch cannot be Void.", .{});
+            return error.TypeError;
+        }
+        
+        if (core.isNullable(then_type)) {
+            t.* = then_type.*;
+        } else {
+            const left_t = try self.allocator.create(AetherType);
+            left_t.* = then_type.*;
+            const right_t = try self.allocator.create(AetherType);
+            right_t.* = .Null;
+            t.* = .{ .Union = .{
+                .left = left_t,
+                .right = right_t,
+            } };
+        }
+    }
+}
+

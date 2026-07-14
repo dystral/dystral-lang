@@ -1,0 +1,59 @@
+test "standard ternary works" {
+    val a = 10
+    val b = 20
+    val max = (a > b) ? a : b
+    assert(max == 20)
+    
+    val min = (a < b) ? a : b
+    assert(min == 10)
+}
+
+test "nested ternary works" {
+    val score = 85
+    val grade = (score >= 90) ? "A" : (score >= 80) ? "B" : "C"
+    assert(grade == "B")
+}
+
+test "short ternary works when condition is true" {
+    val isPremium = true
+    val discount: String? = isPremium ? "PREMIUM"
+    assert(discount != null)
+    assert(discount == "PREMIUM")
+}
+
+test "short ternary works when condition is false" {
+    val isPremium = false
+    val discount: String? = isPremium ? "PREMIUM"
+    assert(discount == null)
+}
+
+test "short ternary flattens nullable types" {
+    val isPremium = true
+    val optStr: String? = "VAL"
+    val res: String? = isPremium ? optStr
+    assert(res == "VAL")
+}
+
+test "ternary and elvis operators on the same line" {
+    val isReady = true
+    val optValue: String? = null
+    
+    val result = isReady ? optValue ?: "default" : "ignored"
+    assert(result == "default")
+    
+    val isNotReady = false
+    val result2 = isNotReady ? optValue ?: "default" : "ignored"
+    assert(result2 == "ignored")
+
+    val result3 = isNotReady ? optValue ?: "default"
+    print(result3)
+    assert(result3 == null)
+
+    val result4 = (isNotReady ? optValue) ?: "default"
+    assert(result4 == "default")
+
+    val result5 = isNotReady ? (optValue ?: "default")
+    assert(result5 == null)
+}
+
+

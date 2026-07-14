@@ -400,6 +400,21 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             }
             try self.writer.appendSlice(")");
         },
+        .ternary_expr => |t| {
+            try self.writer.appendSlice("((");
+            try self.emitExpression(t.condition);
+            try self.writer.appendSlice(") ? (");
+            try self.emitExpression(t.then_branch);
+            try self.writer.appendSlice(") : ");
+            if (t.else_branch) |eb| {
+                try self.writer.appendSlice("(");
+                try self.emitExpression(eb);
+                try self.writer.appendSlice(")");
+            } else {
+                try self.writer.appendSlice("0");
+            }
+            try self.writer.appendSlice(")");
+        },
         .binary_expr => |b| {
             if (b.op == .elvis) {
                 try self.writer.appendSlice("((");

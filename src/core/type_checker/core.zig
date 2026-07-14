@@ -290,6 +290,7 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
         .call_expr => try infer_expr_mod.inferCallExpr(self, node, scope, t),
         .as_expr => try infer_expr_mod.inferAsExpr(self, node, scope, t),
         .is_expr => try infer_expr_mod.inferIsExpr(self, node, scope, t),
+        .ternary_expr => try infer_expr_mod.inferTernaryExpr(self, node, scope, t),
         .if_expr => try infer_stmt_mod.inferIfExpr(self, node, scope, t),
         .while_stmt => try infer_stmt_mod.inferWhileStmt(self, node, scope, t),
         .for_stmt => try infer_stmt_mod.inferForStmt(self, node, scope, t),
@@ -576,6 +577,15 @@ fn core_cloneNode(self: *TypeChecker, node: *ASTNode) anyerror!*ASTNode {
                 .item_name = f.item_name,
                 .iterable = try self.cloneNode(f.iterable),
                 .body = try self.cloneNode(f.body),
+            }};
+        },
+        .ternary_expr => |t| {
+            var el: ?*ASTNode = null;
+            if (t.else_branch) |e| el = try self.cloneNode(e);
+            new_node.data = .{ .ternary_expr = .{
+                .condition = try self.cloneNode(t.condition),
+                .then_branch = try self.cloneNode(t.then_branch),
+                .else_branch = el,
             }};
         },
         .as_expr => |a| {
