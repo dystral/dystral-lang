@@ -50,7 +50,7 @@ pub const Lexer = struct {
             '.' => self.makeToken(.dot),
             ':' => self.makeToken(.colon),
             '+' => self.makeToken(.plus),
-            '-' => self.makeToken(.minus),
+            '-' => self.makeToken(if (self.match('>')) .arrow else .minus),
             '*' => self.makeToken(.star),
             '/' => self.makeToken(.slash),
             '=' => self.makeToken(if (self.match('=')) .eq_eq else .eq),
@@ -112,6 +112,7 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, text, "try")) return .kw_try;
         if (std.mem.eql(u8, text, "catch")) return .kw_catch;
         if (std.mem.eql(u8, text, "throw")) return .kw_throw;
+        if (std.mem.eql(u8, text, "when")) return .kw_when;
         if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return .bool_literal;
         return .identifier;
     }

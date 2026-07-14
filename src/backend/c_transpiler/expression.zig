@@ -568,6 +568,114 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                 try self.writer.appendSlice(")");
             }
         },
+        .is_type_cond => {
+            return error.UnsupportedExpression;
+        },
+        .when_expr => |w| {
+            const res_t = node.resolved_type.?;
+            const is_void = res_t.* == .Void;
+
+            try self.writer.appendSlice("({ ");
+
+            const res_var_name = try std.fmt.allocPrint(self.allocator, "_when_res_{}_{}", .{ node.line, node.column });
+            if (!is_void) {
+                const res_c_type = try core.getCTypeStr(self.allocator, res_t);
+                try self.writer.writer().print("{s} {s}; ", .{ res_c_type, res_var_name });
+            }
+
+            const subj_var_name = try std.fmt.allocPrint(self.allocator, "_when_subj_{}_{}", .{ node.line, node.column });
+            if (w.subject) |subj| {
+                const subj_t = subj.resolved_type.?;
+                const subj_c_type = try core.getCTypeStr(self.allocator, subj_t);
+                try self.writer.writer().print("{s} {s} = ", .{ subj_c_type, subj_var_name });
+                try self.emitExpression(subj);
+                try self.writer.appendSlice("; ");
+            }
+
+            for (w.cases, 0..) |case, i| {
+                if (i > 0) {
+                    try self.writer.appendSlice("else ");
+                }
+
+                if (case.is_else) {
+                    try self.writer.appendSlice("{ ");
+                    try emitWhenCaseBody(self, case.body, is_void, res_var_name);
+                    try self.writer.appendSlice("} ");
+                } else {
+                    try self.writer.appendSlice("if (");
+                    for (case.conds, 0..) |cond, c_idx| {
+                        if (c_idx > 0) {
+                            try self.writer.appendSlice(" || ");
+                        }
+
+                        if (w.subject) |subj| {
+                            const subj_t = subj.resolved_type.?;
+                            if (cond.data == .is_type_cond) {
+                                const type_cond = cond.data.is_type_cond;
+                                const target_t = type_cond.type_ref.resolved_type.?;
+                                const target_c_name = target_t.Custom;
+
+                                if (type_cond.is_not) {
+                                    try self.writer.appendSlice("!(");
+                                }
+                                try self.writer.writer().print("(({s}) != 0 && aether_is_instance(*(const AetherClassDescriptor**)(", .{ subj_var_name });
+                                try self.writer.writer().print("{s}), &{s}_descriptor))", .{ subj_var_name, target_c_name });
+                                if (type_cond.is_not) {
+                                    try self.writer.appendSlice(")");
+                                }
+                            } else {
+                                // Value check: subj == cond
+                                const is_str = (subj_t.* == .String or (subj_t.* == .Custom and std.mem.eql(u8, subj_t.Custom, "core_String")));
+                                if (is_str) {
+                                    try self.writer.writer().print("core_String_equals({s}, ", .{ subj_var_name });
+                                    try self.emitExpression(cond);
+                                    try self.writer.appendSlice(")");
+                                } else {
+                                    try self.writer.writer().print("{s} == ", .{ subj_var_name });
+                                    try self.emitExpression(cond);
+                                }
+                            }
+                        } else {
+                            // Subjectless when: cond is boolean expr
+                            try self.emitExpression(cond);
+                        }
+                    }
+                    try self.writer.appendSlice(") { ");
+                    try emitWhenCaseBody(self, case.body, is_void, res_var_name);
+                    try self.writer.appendSlice("} ");
+                }
+            }
+
+            if (!is_void) {
+                try self.writer.writer().print("{s}; ", .{ res_var_name });
+            }
+            try self.writer.appendSlice("})");
+        },
         else => return error.UnsupportedExpression,
+    }
+}
+
+fn emitWhenCaseBody(self: *CTranspiler, body: *ASTNode, is_void: bool, res_var_name: []const u8) anyerror!void {
+    if (body.data == .block) {
+        const stmts = body.data.block.statements;
+        for (stmts, 0..) |stmt, idx| {
+            if (idx == stmts.len - 1 and !is_void) {
+                try self.writer.appendSlice("    ");
+                try self.writer.writer().print("{s} = ", .{ res_var_name });
+                try self.emitExpression(stmt);
+                try self.writer.appendSlice(";\n");
+            } else {
+                try self.emitStatement(stmt);
+            }
+        }
+    } else {
+        if (!is_void) {
+            try self.writer.appendSlice("    ");
+            try self.writer.writer().print("{s} = ", .{ res_var_name });
+            try self.emitExpression(body);
+            try self.writer.appendSlice(";\n");
+        } else {
+            try self.emitStatement(body);
+        }
     }
 }

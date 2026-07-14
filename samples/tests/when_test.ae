@@ -1,0 +1,59 @@
+open class Animal
+class Dog(val name: String) : Animal()
+class Cat(val lives: Int) : Animal()
+
+test "basic when with single value match" {
+    val x = 2
+    val res = when (x) {
+        1 -> "one"
+        2 -> "two"
+        else -> "other"
+    }
+    assert(res == "two")
+}
+
+test "when with multiple value matching via comma" {
+    val x = 404
+    val res = when (x) {
+        200, 201 -> "success"
+        400, 401, 404 -> "error"
+        else -> "unknown"
+    }
+    assert(res == "error")
+}
+
+test "subjectless when acting as if-else chain" {
+    val x = 10
+    val y = 20
+    val res = when {
+        x > y -> "greater"
+        x < y -> "less"
+        else -> "equal"
+    }
+    assert(res == "less")
+}
+
+test "when with type checking and smart casting" {
+    val pet: Animal = Dog("Rex")
+    val description = when (pet) {
+        is Dog -> {
+            // Check that smart cast allows accessing 'name' on Dog
+            "Dog named " + pet.name
+        }
+        is Cat -> {
+            // Check that smart cast allows accessing 'lives' on Cat
+            "Cat with " + pet.lives.toString() + " lives"
+        }
+        else -> "Unknown animal"
+    }
+    assert(description == "Dog named Rex")
+}
+
+test "when with negated type checking" {
+    val pet: Animal = Cat(7)
+    val isNotDog = when (pet) {
+        !is Dog -> true
+        else -> false
+    }
+    assert(isNotDog == true)
+}

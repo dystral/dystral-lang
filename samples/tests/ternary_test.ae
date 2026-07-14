@@ -46,7 +46,6 @@ test "ternary and elvis operators on the same line" {
     assert(result2 == "ignored")
 
     val result3 = isNotReady ? optValue ?: "default"
-    print(result3)
     assert(result3 == null)
 
     val result4 = (isNotReady ? optValue) ?: "default"

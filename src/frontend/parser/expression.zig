@@ -151,12 +151,42 @@ pub fn typeCheckOrCast(self: *Parser) anyerror!*ASTNode {
             const col = self.previous.column;
             const type_ref = try self.parseType();
             expr = try self.createNodeAt(.{ .as_expr = .{ .value = expr, .type_ref = type_ref } }, line, col);
-        } else if (self.match(.kw_is)) {
+        } else if (self.check(.kw_is)) {
+            var temp_lexer = self.lexer;
+            var is_when_branch = false;
+            while (true) {
+                const tok = temp_lexer.scanToken();
+                if (tok.token_type == .arrow) {
+                    is_when_branch = true;
+                    break;
+                }
+                if (tok.token_type == .l_brace or tok.token_type == .r_brace or tok.token_type == .eof) {
+                    break;
+                }
+            }
+            if (is_when_branch) break;
+
+            _ = self.match(.kw_is);
             const line = self.previous.line;
             const col = self.previous.column;
             const type_ref = try self.parseType();
             expr = try self.createNodeAt(.{ .is_expr = .{ .value = expr, .type_ref = type_ref, .is_not = false } }, line, col);
-        } else if (self.match(.kw_not_is)) {
+        } else if (self.check(.kw_not_is)) {
+            var temp_lexer = self.lexer;
+            var is_when_branch = false;
+            while (true) {
+                const tok = temp_lexer.scanToken();
+                if (tok.token_type == .arrow) {
+                    is_when_branch = true;
+                    break;
+                }
+                if (tok.token_type == .l_brace or tok.token_type == .r_brace or tok.token_type == .eof) {
+                    break;
+                }
+            }
+            if (is_when_branch) break;
+
+            _ = self.match(.kw_not_is);
             const line = self.previous.line;
             const col = self.previous.column;
             const type_ref = try self.parseType();
@@ -284,6 +314,68 @@ pub fn primary(self: *Parser) anyerror!*ASTNode {
             }
         }
         return try self.createNodeAt(.{ .if_expr = .{ .condition = condition, .then_branch = then_branch, .else_branch = else_branch } }, line, col);
+    }
+
+    if (self.match(.kw_when)) {
+        var subject: ?*ASTNode = null;
+        if (self.match(.l_paren)) {
+            subject = try self.expression();
+            try self.consume(.r_paren, "Expected ')' after subject.");
+        }
+
+        try self.consume(.l_brace, "Expected '{' after 'when'.");
+
+        var cases = std.ArrayList(ast.WhenCase).init(self.allocator);
+        while (!self.check(.r_brace) and !self.check(.eof)) {
+            var conds = std.ArrayList(*ASTNode).init(self.allocator);
+            var is_else = false;
+
+            if (self.match(.kw_else)) {
+                is_else = true;
+            } else {
+                while (true) {
+                    if (self.match(.kw_is)) {
+                        const tc_line = self.previous.line;
+                        const tc_col = self.previous.column;
+                        const type_ref = try self.parseType();
+                        const cond_node = try self.createNodeAt(.{ .is_type_cond = .{ .type_ref = type_ref, .is_not = false } }, tc_line, tc_col);
+                        try conds.append(cond_node);
+                    } else if (self.match(.kw_not_is)) {
+                        const tc_line = self.previous.line;
+                        const tc_col = self.previous.column;
+                        const type_ref = try self.parseType();
+                        const cond_node = try self.createNodeAt(.{ .is_type_cond = .{ .type_ref = type_ref, .is_not = true } }, tc_line, tc_col);
+                        try conds.append(cond_node);
+                    } else {
+                        try conds.append(try self.expression());
+                    }
+
+                    if (!self.match(.comma)) break;
+                }
+            }
+
+            try self.consume(.arrow, "Expected '->' after condition.");
+
+            var body: *ASTNode = undefined;
+            if (self.match(.l_brace)) {
+                var stmts = std.ArrayList(*ASTNode).init(self.allocator);
+                while (!self.check(.r_brace) and !self.check(.eof)) {
+                    try stmts.append(try self.declaration());
+                }
+                try self.consume(.r_brace, "Expected '}' after block body.");
+                body = try self.createNode(.{ .block = .{ .statements = try stmts.toOwnedSlice() } });
+            } else {
+                body = try self.expression();
+            }
+
+            try cases.append(ast.WhenCase{
+                .conds = try conds.toOwnedSlice(),
+                .body = body,
+                .is_else = is_else,
+            });
+        }
+        try self.consume(.r_brace, "Expected '}' at the end of 'when' expression.");
+        return try self.createNodeAt(.{ .when_expr = .{ .subject = subject, .cases = try cases.toOwnedSlice() } }, line, col);
     }
     
     if (self.match(.bool_literal)) {

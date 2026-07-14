@@ -191,6 +191,7 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
 
     if (c.superclass_name) |super_name| {
         const parent_c_name = self.alias_map.get(super_name) orelse super_name;
+        c.superclass_name = parent_c_name; // Store fully resolved mangled C name to avoid transpiler collision
         const parent_node = self.classes_ast.get(parent_c_name);
         if (parent_node == null) {
             self.reportError(node.line, node.column, "TypeError: Superclass '{s}' not found.", .{super_name});
@@ -225,7 +226,7 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
         }
         
         // Populate inherited properties and methods into class_scope & class_props
-        var curr_super: ?[]const u8 = super_name;
+        var curr_super: ?[]const u8 = parent_c_name;
         while (curr_super) |s_name| {
             const actual_s_name = self.alias_map.get(s_name) orelse s_name;
             const s_node = self.classes_ast.get(actual_s_name) orelse break;

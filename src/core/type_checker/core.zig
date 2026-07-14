@@ -10,6 +10,7 @@ pub const Scope = type_system.Scope;
 const infer_expr_mod = @import("infer_expr.zig");
 const infer_stmt_mod = @import("infer_stmt.zig");
 const infer_decl_mod = @import("infer_decl.zig");
+const infer_when_mod = @import("infer_when.zig");
 pub const isNullable = type_system.isNullable;
 pub const extractBaseType = type_system.extractBaseType;
 pub const isBool = type_system.isBool;
@@ -298,6 +299,8 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
         .try_stmt => try infer_stmt_mod.inferTryStmt(self, node, scope, t),
         .throw_stmt => try infer_stmt_mod.inferThrowStmt(self, node, scope, t),
         .block => return try self.checkBlock(node.data.block.statements, scope),
+        .is_type_cond => t.* = .Bool,
+        .when_expr => try infer_when_mod.inferWhenExpr(self, node, scope, t),
         .identifier => try infer_expr_mod.inferIdentifier(self, node, scope, t),
         .int_literal => t.* = .Int,
         .string_literal => {
@@ -599,6 +602,32 @@ fn core_cloneNode(self: *TypeChecker, node: *ASTNode) anyerror!*ASTNode {
                 .value = try self.cloneNode(i.value),
                 .type_ref = try self.cloneTypeRef(i.type_ref),
                 .is_not = i.is_not,
+            }};
+        },
+        .is_type_cond => |i| {
+            new_node.data = .{ .is_type_cond = .{
+                .type_ref = try self.cloneTypeRef(i.type_ref),
+                .is_not = i.is_not,
+            }};
+        },
+        .when_expr => |w| {
+            var new_cases = try self.allocator.alloc(ast.WhenCase, w.cases.len);
+            for (w.cases, 0..) |case, idx| {
+                var new_conds = try self.allocator.alloc(*ASTNode, case.conds.len);
+                for (case.conds, 0..) |cond, c_idx| {
+                    new_conds[c_idx] = try self.cloneNode(cond);
+                }
+                new_cases[idx] = .{
+                    .conds = new_conds,
+                    .body = try self.cloneNode(case.body),
+                    .is_else = case.is_else,
+                };
+            }
+            var subject: ?*ASTNode = null;
+            if (w.subject) |subj| subject = try self.cloneNode(subj);
+            new_node.data = .{ .when_expr = .{
+                .subject = subject,
+                .cases = new_cases,
             }};
         },
         else => {}, // For identifiers and literals, shallow copy is fine as long as we cleared resolved_type

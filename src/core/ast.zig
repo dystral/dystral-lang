@@ -29,6 +29,7 @@ pub const TokenType = enum {
     kw_try,
     kw_catch,
     kw_throw,
+    kw_when,
 
     // Symbols and Operators
     eq,         // =
@@ -60,6 +61,7 @@ pub const TokenType = enum {
     greater_eq, // >=
     and_and,    // &&
     or_or,      // ||
+    arrow,      // ->
 
     // Identifiers and Literals
     identifier,
@@ -110,6 +112,12 @@ pub const CatchBlock = struct {
     var_name: ?[]const u8,
     types: []const *const ASTTypeRef,
     body: *ASTNode,
+};
+
+pub const WhenCase = struct {
+    conds: []const *ASTNode,
+    body: *ASTNode,
+    is_else: bool,
 };
 
 pub const ASTNode = struct {
@@ -262,6 +270,14 @@ pub const ASTNodeType = union(enum) {
     },
     throw_stmt: struct {
         expr: *ASTNode,
+    },
+    is_type_cond: struct {
+        type_ref: *const ASTTypeRef,
+        is_not: bool,
+    },
+    when_expr: struct {
+        subject: ?*ASTNode,
+        cases: []const WhenCase,
     },
 };
 

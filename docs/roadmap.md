@@ -156,6 +156,29 @@ This document tracks the historical progress, current status, and future roadmap
 - [x] **Task 30.5:** Emit function pointers for polymorphic methods in the struct and wire them up in constructors.
 - [x] **Task 30.6:** Implement type compatibility and casting rules (upcasting and downcasting/smart casts) in the Type Checker.
 
+### Phase 31: Lambda Expressions & Higher-Order Functions (PENDING)
+- [ ] **Task 31.1:** Add support in the Lexer and Parser for function types (e.g. `(Int, Int) -> String`) and lambda literals (e.g. `{ x, y -> x + y }`).
+- [ ] **Task 31.2:** Update the TypeChecker to resolve lambda argument types and return types, implementing parameter type inference where possible.
+- [ ] **Task 31.3:** Implement scope capturing (closures) in the TypeChecker to detect variables captured from outer scopes.
+- [ ] **Task 31.4:** Update the C Transpiler to generate struct representations for closures (containing function pointers and captured environments) and handle invocation.
+
+### Phase 32: Pattern Matching & `when` Expressions (PENDING)
+- [ ] **Task 32.1:** Add the `when` keyword to the Lexer and AST.
+- [ ] **Task 32.2:** Update the Parser to support pattern matching syntax (matching by value, type check via `is`, and default `else` branch).
+- [ ] **Task 32.3:** Implement smart-casting in the TypeChecker for matching branches (e.g. if matched via `is String`, treat variable as `String` in that branch).
+- [ ] **Task 32.4:** Transpile `when` expressions into clean C `switch` statements or chained `if-else` blocks in the C Transpiler.
+
+### Phase 33: Interfaces & Abstract Classes (PENDING)
+- [ ] **Task 33.1:** Add the `interface` and `abstract` keywords to the Lexer and Parser.
+- [ ] **Task 33.2:** Update AST declarations to support abstract methods (methods without a body) and interface inheritance.
+- [ ] **Task 33.3:** Implement semantic validation in the TypeChecker: verify that non-abstract classes implement all inherited interface/abstract methods.
+- [ ] **Task 33.4:** Update the C Transpiler to generate virtual tables (vtables) for interfaces, enabling runtime dynamic dispatch.
+
+### Phase 34: Extension Functions (PENDING)
+- [ ] **Task 34.1:** Add support in the Parser for declaring extension functions (e.g., `fun String.lastChar(): String`).
+- [ ] **Task 34.2:** Resolve extension methods in the TypeChecker statically (ensuring they can access public members of the receiver class).
+- [ ] **Task 34.3:** Desugar extension function calls (e.g., `str.lastChar()`) to static helper function calls (e.g., `lastChar(str)`) in the C Transpiler.
+
 ---
 
 ## ✅ Definition of Done (Per Phase)

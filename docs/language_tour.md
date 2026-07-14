@@ -501,4 +501,64 @@ fun getAdminRole(isAdmin: Bool): String? {
 cond ? print("hello") 
 ```
 
+---
+
+## 13. Pattern Matching (when Expressions)
+
+Aether supports Kotlin-style `when` expressions for flexible conditional branching. It can act both as an expression (evaluating to a value) or as a statement (for side effects).
+
+### 13.1 Basic Usage (With Subject)
+You can match a subject expression against multiple values separated by commas:
+
+```kotlin
+val code = 404
+val message = when (code) {
+    200 -> "OK"
+    401, 403 -> "Unauthorized Access"
+    404 -> "Not Found"
+    else -> "Unknown Error"
+}
+assert(message == "Not Found")
+```
+
+* **Exhaustiveness:** If `when` is used as an expression (to assign a value), the `else` branch is **mandatory**. If used as a statement, `else` is optional.
+
+### 13.2 Smart Casting via Type Check
+Aether integrates pattern matching with its class hierarchy and polymorphism. If you match a stable variable against a type using `is Type`, the variable is automatically **smart-cast** inside that branch's scope:
+
+```kotlin
+open class Shape
+class Circle(val radius: Int) : Shape()
+class Square(val side: Int) : Shape()
+
+fun printArea(shape: Shape) {
+    when (shape) {
+        is Circle -> {
+            // 'shape' is smart-cast to Circle here
+            print("Circle Area: " + (shape.radius * shape.radius).toString())
+        }
+        is Square -> {
+            // 'shape' is smart-cast to Square here
+            print("Square Area: " + (shape.side * shape.side).toString())
+        }
+        else -> print("Unknown shape")
+    }
+}
+```
+
+### 13.3 Subjectless when
+If you omit the subject, the `when` expression acts as a cleaner alternative to `if-else if-else` chains. Each branch condition must evaluate to a `Bool`:
+
+```kotlin
+val x = 10
+val y = 20
+
+when {
+    x > y -> print("x is greater")
+    x < y -> print("y is greater")
+    else -> print("they are equal")
+}
+```
+
+
 

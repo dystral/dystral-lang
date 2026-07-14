@@ -115,4 +115,12 @@ Este documento registra as decisões arquiteturais estruturais tomadas durante o
 3. **Transpilação para C:** Para o ternário padrão, geramos `((cond) ? (then) : (else))`. Para o ternário curto, como o C não o suporta nativamente, transpilamos como `((cond) ? (then) : 0)`.
 **Razão:** Traz mais concisão e expressividade à linguagem, seguindo o pragmatismo e a simplicidade da transpilação direta para C, com checagem estática rigorosa de nulidade no TypeChecker.
 
+## ADR 18: Pattern Matching e Expressões when
+**Data:** Fase 32
+**Contexto:** O compilador Aether precisava de uma forma expressiva de controle de fluxo condicional baseado em valores e tipos, para substituir cadeias longas de `if-else` e dar suporte a smart casting elegante.
+**Decisão:** Adotar a expressão `when` (estilo Kotlin). A expressão `when` pode ter um assunto (`when (x)`) ou não. Suportará condições baseadas em valores literais, expressões gerais ou testes de tipo (`is Type` / `!is Type`). Cada caso é separado de seu corpo usando o operador `->`. Para transpilação, geramos uma cadeia de `if-else` em C embutida em uma Expressão de Bloco de Instruções do GCC (`({ ... })`).
+Se o `when` retornar um valor não-Void, o compilador exige a presença de um ramo `else` para garantir a exaustividade (checagem de tipos rigorosa). Além disso, se o assunto for um identificador (variável estável) e houver uma única checagem de tipo `is Type` (sem negação `is_not == false`), o compilador fará *smart cast* da variável dentro do escopo daquele ramo.
+**Razão:** O uso da expressão de bloco C `({ ... })` permite que `when` funcione tanto como expressão quanto instrução de forma uniforme em C, sem a limitação de switch-cases de C (que só suportam inteiros constantes). O *smart casting* melhora radicalmente a ergonomia de checagem de tipos polimórficos estabelecida no ADR 15.
+
+
 
