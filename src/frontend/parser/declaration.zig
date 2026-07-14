@@ -24,7 +24,7 @@ pub fn declaration(self: *Parser) anyerror!*ASTNode {
         return try self.varDeclaration(true);
     }
     if (self.match(.kw_fun)) {
-        return try self.funDeclaration(try modifiers.toOwnedSlice(), false);
+        return try self.funDeclaration(annotations, try modifiers.toOwnedSlice(), false);
     }
     if (self.match(.kw_class)) {
         var is_open = false;
@@ -91,8 +91,9 @@ pub fn libDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*AS
     try self.consume(.l_brace, "Expected '{' before lib body.");
     var functions = std.ArrayList(*ASTNode).init(self.allocator);
     while (!self.check(.r_brace) and !self.check(.eof)) {
+        const fun_annotations = try self.parseAnnotations();
         if (self.match(.kw_fun)) {
-            const func = try self.funDeclaration(&[_]TokenType{}, true);
+            const func = try self.funDeclaration(fun_annotations, &[_]TokenType{}, true);
             try functions.append(func);
         } else {
             self.errorAtCurrent("Only functions are allowed inside 'lib' blocks.");
@@ -185,7 +186,7 @@ pub fn importDeclaration(self: *Parser) anyerror!*ASTNode {
     } }, line, col);
 }
 
-pub fn funDeclaration(self: *Parser, modifiers: []const TokenType, allow_no_body: bool) anyerror!*ASTNode {
+pub fn funDeclaration(self: *Parser, annotations: []const ast.Annotation, modifiers: []const TokenType, allow_no_body: bool) anyerror!*ASTNode {
     const line = self.previous.line;
     const col = self.previous.column;
     
@@ -234,6 +235,7 @@ pub fn funDeclaration(self: *Parser, modifiers: []const TokenType, allow_no_body
     }
 
     return try self.createNodeAt(.{ .fun_decl = .{
+        .annotations = annotations,
         .modifiers = modifiers,
         .name = name,
         .params = try params.toOwnedSlice(),
@@ -323,7 +325,7 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation, is_open: b
             }
             
             if (self.match(.kw_fun)) {
-                try methods.append(try self.funDeclaration(try modifiers.toOwnedSlice(), false));
+                try methods.append(try self.funDeclaration(&[_]ast.Annotation{}, try modifiers.toOwnedSlice(), false));
             } else {
                 self.errorAtCurrent("Only methods are currently supported inside classes.");
                 return error.ParseError;

@@ -12,7 +12,7 @@ test "fs.ae: should write and read file correctly" {
 }
 
 test "fs.ae: should support generic pointer types" {
-    val intPtr: Pointer<Int> = Standard.GC_MALLOC(4)
+    val intPtr: Pointer<Int> = Standard.gcMalloc(4)
     val voidPtr: OpaquePointer = intPtr
     val intPtr2: Pointer<Int> = voidPtr
     assert(intPtr == intPtr2)

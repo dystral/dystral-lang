@@ -261,7 +261,15 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                 
                 if (rt.* == .Custom and self.libs.contains(rt.Custom)) {
                     // It's a C method call from a lib block!
-                    try self.writer.writer().print("{s}(", .{g.name});
+                    var c_func_name = g.name;
+                    if (self.alias_map) |am| {
+                        const full_lib_func_name = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{rt.Custom, g.name});
+                        defer self.allocator.free(full_lib_func_name);
+                        if (am.get(full_lib_func_name)) |mapped| {
+                            c_func_name = mapped;
+                        }
+                    }
+                    try self.writer.writer().print("{s}(", .{c_func_name});
                     for (c.arguments, 0..) |arg, i| {
                         if (i > 0) try self.writer.appendSlice(", ");
                         const arg_t = ts.extractBaseType(arg.resolved_type.?);

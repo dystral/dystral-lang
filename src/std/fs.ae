@@ -21,7 +21,7 @@ fun readFile(path: String): String {
     val size = NativeFS.ftell(file)
 
     NativeFS.fseek(file, 0, 0)
-    val buffer = Standard.GC_MALLOC(size + 1)
+    val buffer = Standard.gcMalloc(size + 1)
     val read = NativeFS.fread(buffer, 1, size, file)
 
     NativeFS.fclose(file)

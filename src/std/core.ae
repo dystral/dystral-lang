@@ -1,23 +1,38 @@
 @Header("<stdlib.h>", "<stdio.h>")
 lib Standard {
     fun printf(format: OpaquePointer, value: Int): Void
+
     fun sprintf(buffer: OpaquePointer, format: OpaquePointer, value: Int): Int
+
     fun puts(str: OpaquePointer): Int
-    fun GC_MALLOC(size: Int): OpaquePointer
-    fun GC_REALLOC(ptr: OpaquePointer, newSize: Int): OpaquePointer
+
+    @Alias("GC_MALLOC")
+    fun gcMalloc(size: Int): OpaquePointer
+
+    @Alias("GC_REALLOC")
+    fun gcRealloc(ptr: OpaquePointer, newSize: Int): OpaquePointer
+    
     fun exit(code: Int): Void
 }
 
 @Header("<string.h>")
 lib NativeString {
     fun strcmp(s1: OpaquePointer, s2: OpaquePointer): Int
+    
     fun strstr(haystack: OpaquePointer, needle: OpaquePointer): OpaquePointer
+    
     fun strcpy(dest: OpaquePointer, src: OpaquePointer): OpaquePointer
+    
     fun strncpy(dest: OpaquePointer, src: OpaquePointer, n: Int): OpaquePointer
+    
     fun strlen(s: OpaquePointer): Int
+    
     //TODO: Remove this, they are only for internal usage
-    fun aether_char_at(s: OpaquePointer, index: Int): Int
-    fun aether_terminate(s: OpaquePointer, index: Int): Void
+    @Alias("aether_char_at")
+    fun charAt(s: OpaquePointer, index: Int): Int
+    
+    @Alias("aether_terminate")
+    fun terminate(s: OpaquePointer, index: Int): Void
 }
 
 @Header("<unistd.h>")
@@ -38,7 +53,7 @@ class String(val ptr: OpaquePointer, val length: Int) {
     }
     operator fun plus(other: String): String {
         val totalLen = this.length + other.length
-        val buf = Standard.GC_MALLOC(totalLen + 1)
+        val buf = Standard.gcMalloc(totalLen + 1)
         Standard.sprintf(buf, "%s%s".ptr, this.ptr, other.ptr)
         return String(buf, totalLen)
     }
@@ -61,7 +76,7 @@ class String(val ptr: OpaquePointer, val length: Int) {
         if (count == 0) { return this }
         
         val newLen = this.length + (count * (newStr.length - old.length))
-        val res = Standard.GC_MALLOC(newLen + 1)
+        val res = Standard.gcMalloc(newLen + 1)
         
         curr = this.ptr
         var resCurr = res
@@ -88,11 +103,30 @@ class String(val ptr: OpaquePointer, val length: Int) {
         return String(res, newLen)
     }
 
+    fun indexOf(sub: String): Int {
+        val match = NativeString.strstr(this.ptr, sub.ptr)
+        if (match == null) {
+            return -1
+        }
+        return match - this.ptr
+    }
+
+    fun substring(start: Int, end: Int): String {
+        if (start < 0 || end > this.length || start > end) {
+            return ""
+        }
+        val len = end - start
+        val buf = Standard.gcMalloc(len + 1)
+        NativeString.strncpy(buf, this.ptr + start, len)
+        NativeString.terminate(buf, len)
+        return String(buf, len)
+    }
+
     fun hashCode(): Int {
         var hash = 5381
         var i = 0
         while (i < this.length) {
-            val c = NativeString.aether_char_at(this.ptr, i)
+            val c = NativeString.charAt(this.ptr, i)
             hash = hash * 33 + c
             i = i + 1
         }
@@ -103,7 +137,7 @@ class String(val ptr: OpaquePointer, val length: Int) {
 @Primitive("int")
 class Int {
     override fun toString(): String {
-        val buf = Standard.GC_MALLOC(32)
+        val buf = Standard.gcMalloc(32)
         Standard.sprintf(buf, "%d".ptr, this)
         return String(buf, NativeString.strlen(buf))
     }

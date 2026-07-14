@@ -148,24 +148,33 @@ Then, run `aether test` in your terminal. The compiler will automatically discov
 
 Because Aether transpiles to C, integrating with native C libraries is seamless. You can declare a `lib` block to map C functions into Aether without writing any wrapper code.
 
-Annotations (like `@Header`) instruct the C Transpiler to inject the corresponding `#include` directives at the top of the generated C file.
+Annotations on `lib` blocks instruct the compiler and linker on how to process the native library:
+- **`@Header` (Compile-Time Includes)**: Instructs the C Transpiler to inject the corresponding `#include` directives at the top of the generated C file so that C compiler knows about the function signatures, structs, and constants.
+- **`@Link` (Linker-Time Libraries)**: Instructs the Aether compiler to append the corresponding `-l<library>` flag (e.g., `-lcurl`) during the linking phase, and injects `-DAETHER_USE_<LIBRARY>` preprocessor definitions into the C compiler.
+- **`@Alias` (Function Names Mapping)**: Placed on individual functions inside `lib` blocks to map Aether `camelCase` function names to the corresponding C `snake_case` library functions.
 
 ```kotlin
-// core.ae (Aether's emerging Standard Library)
-@Header("<stdio.h>", "<stdlib.h>")
-lib System {
-    fun print(value: Unknown): Void
-    fun exit(code: Int): Void
+// http.ae (FFI declaration using Header, Link, and Alias)
+@Link("curl")
+@Header("<curl/curl.h>")
+lib NativeHttp {
+    @Alias("curl_easy_init")
+    fun curlEasyInit(): OpaquePointer
+    
+    @Alias("curl_easy_perform")
+    fun curlEasyPerform(curl: OpaquePointer): Int
+    
+    @Alias("curl_easy_cleanup")
+    fun curlEasyCleanup(curl: OpaquePointer): Void
 }
 ```
 
 You can then import and use these native functions exactly like standard Aether code:
 
 ```kotlin
-import { System } from "core"
+import { NativeHttp } from "http"
 
-System.print("Hello from C!")
-System.exit(0)
+val curl = NativeHttp.curlEasyInit()
 ```
 
 *(Note: In the current phase, Annotations are structural compiler pragmas. In future phases, Aether will support declaring custom user-defined annotations natively).*

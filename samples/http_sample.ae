@@ -1,0 +1,38 @@
+import { Client, Server } from "std.http"
+import { TCPServer } from "std.net"
+
+fun main() {
+    print("--- HTTP Client Demo ---")
+    val client = Client()
+    val response = client.get("https://httpbin.org/get")
+    
+    print("Status code:")
+    print(response.status)
+    print("Body length:")
+    print(response.body.length)
+
+    print("--- HTTP Server Demo (Listening on 8080) ---")
+    val server = Server(TCPServer(-1))
+    
+    if (server.bind(8080)) {
+        print("Server is listening on port 8080...")
+        
+        // Loop simple para aceitar uma conexão e responder
+        var running = true
+        while (running) {
+            val conn = server.accept()
+            if (conn != null) {
+                val req = conn!!.readRequest()
+                print("Received request: " + req.method + " " + req.path)
+                
+                conn!!.writeResponse(200, "text/plain", "Hello from Aether HTTP Server!")
+                conn!!.close()
+                
+                // Finaliza o demo após a primeira requisição para evitar loops infinitos nos testes/samples
+                running = false
+            }
+        }
+    } else {
+        print("Failed to bind server to port 8080")
+    }
+}

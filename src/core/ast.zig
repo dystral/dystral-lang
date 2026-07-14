@@ -144,6 +144,7 @@ pub const ASTNodeType = union(enum) {
         initializer: ?*ASTNode,
     },
     fun_decl: struct {
+        annotations: []const Annotation,
         modifiers: []const TokenType,
         name: []const u8,
         params: []Param,

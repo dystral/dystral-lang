@@ -115,9 +115,26 @@ pub fn main() !void {
 
     const actual_zig = "zig";
 
+    var cc_argv = std.ArrayList([]const u8).init(allocator);
+    try cc_argv.appendSlice(&[_][]const u8{ actual_zig, "cc", "-O0", "-fwrapv", "-fno-sanitize=undefined", out_c_filename, "-lgc" });
+
+    var lib_it = transpiler.link_libraries.keyIterator();
+    while (lib_it.next()) |lib_name| {
+        const flag = try std.fmt.allocPrint(allocator, "-l{s}", .{lib_name.*});
+        try cc_argv.append(flag);
+        
+        const macro = try std.fmt.allocPrint(allocator, "-DAETHER_USE_{s}", .{lib_name.*});
+        for (macro) |*c| {
+            c.* = std.ascii.toUpper(c.*);
+        }
+        try cc_argv.append(macro);
+    }
+
+    try cc_argv.appendSlice(&[_][]const u8{ "-o", final_bin });
+
     const result = try std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &[_][]const u8{ actual_zig, "cc", "-O0", "-fwrapv", "-fno-sanitize=undefined", out_c_filename, "-lgc", "-o", final_bin },
+        .argv = cc_argv.items,
     });
     defer {
         allocator.free(result.stdout);

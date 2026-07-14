@@ -179,6 +179,18 @@ This document tracks the historical progress, current status, and future roadmap
 - [ ] **Task 34.2:** Resolve extension methods in the TypeChecker statically (ensuring they can access public members of the receiver class).
 - [ ] **Task 34.3:** Desugar extension function calls (e.g., `str.lastChar()`) to static helper function calls (e.g., `lastChar(str)`) in the C Transpiler.
 
+### Phase 35: Standard Library HTTP & Networking (`std.http` & `std.net`) (COMPLETED)
+- [x] **Task 35.1:** Design `std.net` defining Socket and TCP abstractions using POSIX socket FFI bindings.
+- [x] **Task 35.2:** Implement `std.http.Client` binding to C `libcurl` to support standard HTTP methods (GET, POST) and return `std.http.Response`.
+- [x] **Task 35.3:** Implement `std.http.Server` utilizing `libuv` or lightweight non-blocking sockets with custom C wrappers for event dispatching.
+- [x] **Task 35.4:** Write integration tests and sample scripts verifying basic HTTP requests and responses.
+
+### Phase 36: Fiber-based Concurrency & Event Loop Runtime (PENDING)
+- [ ] **Task 36.1:** Update C runtime to support lightweight cooperative threads (Fibers/Green-Threads) with manual context switching (e.g., using `<ucontext.h>` or platform-specific assembly).
+- [ ] **Task 36.2:** Build an integrated Global Event Loop in the runtime using `epoll` (Linux) / `kqueue` (macOS/BSD) or `libevent` under the hood.
+- [ ] **Task 36.3:** Re-implement standard socket block functions in Aether FFI to yield execution of the running Fiber, resuming only when notified by the runtime event loop.
+- [ ] **Task 36.4:** Implement high-performance, non-blocking `std.http` on top of Fibers to achieve Go/Crystal-like concurrency.
+
 ---
 
 ## ✅ Definition of Done (Per Phase)

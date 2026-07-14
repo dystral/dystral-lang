@@ -1,0 +1,62 @@
+@Header("<sys/socket.h>", "<netinet/in.h>", "<arpa/inet.h>", "<unistd.h>")
+lib NativeNet {
+    @Alias("aether_tcp_bind")
+    fun tcpBind(port: Int): Int
+
+    @Alias("aether_tcp_accept")
+    fun tcpAccept(fd: Int): Int
+
+    @Alias("aether_socket_read")
+    fun socketRead(fd: Int, buf: OpaquePointer, maxLen: Int): Int
+
+    @Alias("aether_socket_write")
+    fun socketWrite(fd: Int, data: OpaquePointer, len: Int): Int
+    
+    @Alias("aether_socket_close")
+    fun socketClose(fd: Int): Void
+}
+
+class Socket(val fd: Int) {
+    fun read(maxLen: Int): String {
+        val buf = Standard.gcMalloc(maxLen + 1)
+        val n = NativeNet.socketRead(this.fd, buf, maxLen)
+        if (n <= 0) {
+            return ""
+        }
+        NativeString.terminate(buf, n)
+        return String(buf, n)
+    }
+    
+    fun write(data: String): Int {
+        return NativeNet.socketWrite(this.fd, data.ptr, data.length)
+    }
+    
+    fun close(): Void {
+        NativeNet.socketClose(this.fd)
+    }
+}
+
+class TCPServer(var fd: Int) {
+    fun bind(port: Int): Bool {
+        this.fd = NativeNet.tcpBind(port)
+        return this.fd >= 0
+    }
+    
+    fun accept(): Socket? {
+        if (this.fd < 0) {
+            return null
+        }
+        val clientFd = NativeNet.tcpAccept(this.fd)
+        if (clientFd < 0) {
+            return null
+        }
+        return Socket(clientFd)
+    }
+    
+    fun close(): Void {
+        if (this.fd >= 0) {
+            NativeNet.socketClose(this.fd)
+            this.fd = -1
+        }
+    }
+}

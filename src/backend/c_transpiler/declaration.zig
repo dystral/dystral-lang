@@ -371,6 +371,10 @@ pub fn emitLibDecl(self: *CTranspiler, node: *ASTNode) !void {
                     try self.writer.writer().print("#include \"{s}\"\n", .{arg});
                 }
             }
+        } else if (std.mem.eql(u8, ann.name, "Link")) {
+            for (ann.arguments) |arg| {
+                try self.link_libraries.put(arg, {});
+            }
         }
     }
     try self.writer.appendSlice("\n");

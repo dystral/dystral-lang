@@ -14,6 +14,8 @@ const std_modules = std.StaticStringMap([]const u8).initComptime(.{
     .{ "math.ae", @embedFile("../../std/math.ae") },
     .{ "fs.ae", @embedFile("../../std/fs.ae") },
     .{ "collections.ae", @embedFile("../../std/collections.ae") },
+    .{ "net.ae", @embedFile("../../std/net.ae") },
+    .{ "http.ae", @embedFile("../../std/http.ae") },
 });
 
 pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
@@ -422,9 +424,16 @@ pub fn inferLibDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
             ret_type = try self.allocator.create(AetherType);
             ret_type.* = .Void;
         }
-        
+        var c_name = f.name;
+        for (f.annotations) |ann| {
+            if (std.mem.eql(u8, ann.name, "Alias")) {
+                if (ann.arguments.len > 0) {
+                    c_name = ann.arguments[0];
+                }
+            }
+        }
         try scope.define(full_name, ret_type, false);
-        try self.alias_map.put(full_name, f.name); // So CTranspiler knows the native name
+        try self.alias_map.put(full_name, c_name);
     }
     t.* = .Void;
 }

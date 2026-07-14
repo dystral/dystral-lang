@@ -176,6 +176,9 @@ pub const Scope = struct {
         if (self.symbols.get(name)) |existing| {
             if (t.* == .Function) {
                 if (existing.* == .Overloads) {
+                    for (existing.Overloads.items) |ov| {
+                        if (isCompatible(ov, t)) return;
+                    }
                     try existing.Overloads.append(t);
                     return;
                 } else {
@@ -183,6 +186,9 @@ pub const Scope = struct {
                     return error.SymbolAlreadyDefined;
                 }
             } else {
+                if (existing.* == .Variable and isCompatible(existing.Variable.aether_type, t)) {
+                    return;
+                }
                 std.debug.print("SymbolAlreadyDefined: {s} is not Function\n", .{name});
                 return error.SymbolAlreadyDefined;
             }
@@ -282,6 +288,15 @@ pub fn isCompatible(expected: *const AetherType, actual: *const AetherType) bool
                     return isCompatible(elem, act_base.Pointer);
                 }
                 return false;
+            },
+            .Function => |f_exp| {
+                if (act_base.* != .Function) return false;
+                const f_act = act_base.Function;
+                if (f_exp.params.len != f_act.params.len) return false;
+                for (f_exp.params, 0..) |p_exp, i| {
+                    if (!isCompatible(p_exp, f_act.params[i])) return false;
+                }
+                return isCompatible(f_exp.return_type, f_act.return_type);
             },
             else => return true,
         }

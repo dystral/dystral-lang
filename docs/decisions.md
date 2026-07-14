@@ -122,5 +122,14 @@ Este documento registra as decisões arquiteturais estruturais tomadas durante o
 Se o `when` retornar um valor não-Void, o compilador exige a presença de um ramo `else` para garantir a exaustividade (checagem de tipos rigorosa). Além disso, se o assunto for um identificador (variável estável) e houver uma única checagem de tipo `is Type` (sem negação `is_not == false`), o compilador fará *smart cast* da variável dentro do escopo daquele ramo.
 **Razão:** O uso da expressão de bloco C `({ ... })` permite que `when` funcione tanto como expressão quanto instrução de forma uniforme em C, sem a limitação de switch-cases de C (que só suportam inteiros constantes). O *smart casting* melhora radicalmente a ergonomia de checagem de tipos polimórficos estabelecida no ADR 15.
 
+## ADR 19: Standard Library HTTP e Networking via FFI e Evolução de Loop de Eventos
+**Data:** Fase 35 e 36
+**Contexto:** Para criar frameworks web e bibliotecas de requisição no Aether, precisamos de uma API de HTTP client e HTTP server performática. Go e Crystal usam concorrência baseada em fibers/goroutines sobre loops de eventos, mas o Aether não possui scheduler cooperativo nem event loop integrado no runtime atualmente.
+**Decisão:** Adotar uma abordagem híbrida evolutiva:
+1. **Fase Inicial (Phase 35):** Implementar o cliente HTTP (`std.http.Client`) via FFI com a biblioteca C `libcurl`, e o servidor HTTP (`std.http.Server`) utilizando FFI com `libuv` (ou soquetes não-bloqueantes com wrappers leves em C compilados no runtime).
+2. **Fase de Concorrência Avançada (Phase 36):** Projetar uma infraestrutura de Fibers cooperativas no C runtime e um loop de eventos centralizado baseado em `epoll`/`kqueue`/`libevent`. Reimplementar soquetes da standard library para suspender as fibers em caso de bloqueio de I/O, entregando concorrência de altíssima performance no nível de Go e Crystal.
+**Razão:** A curto prazo, reutilizar `libcurl` e `libuv` através de FFI aproveita a performance máxima e maturidade dessas bibliotecas em C, minimizando o risco de falhas de segurança e reduzindo drasticamente o esforço de implementação. A longo prazo, a evolução para Fibers integradas e um loop de eventos central no runtime dará ao Aether a mesma ergonomia síncrona e escalabilidade em concorrência que Go e Crystal oferecem.
+
+
 
 
