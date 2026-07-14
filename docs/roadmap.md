@@ -162,11 +162,11 @@ This document tracks the historical progress, current status, and future roadmap
 - [ ] **Task 31.3:** Implement scope capturing (closures) in the TypeChecker to detect variables captured from outer scopes.
 - [ ] **Task 31.4:** Update the C Transpiler to generate struct representations for closures (containing function pointers and captured environments) and handle invocation.
 
-### Phase 32: Pattern Matching & `when` Expressions (PENDING)
-- [ ] **Task 32.1:** Add the `when` keyword to the Lexer and AST.
-- [ ] **Task 32.2:** Update the Parser to support pattern matching syntax (matching by value, type check via `is`, and default `else` branch).
-- [ ] **Task 32.3:** Implement smart-casting in the TypeChecker for matching branches (e.g. if matched via `is String`, treat variable as `String` in that branch).
-- [ ] **Task 32.4:** Transpile `when` expressions into clean C `switch` statements or chained `if-else` blocks in the C Transpiler.
+### Phase 32: Pattern Matching & `when` Expressions (COMPLETED)
+- [x] **Task 32.1:** Add the `when` keyword to the Lexer and AST.
+- [x] **Task 32.2:** Update the Parser to support pattern matching syntax (matching by value, type check via `is`, and default `else` branch).
+- [x] **Task 32.3:** Implement smart-casting in the TypeChecker for matching branches (e.g. if matched via `is String`, treat variable as `String` in that branch).
+- [x] **Task 32.4:** Transpile `when` expressions into clean C `switch` statements or chained `if-else` blocks in the C Transpiler.
 
 ### Phase 33: Interfaces & Abstract Classes (PENDING)
 - [ ] **Task 33.1:** Add the `interface` and `abstract` keywords to the Lexer and Parser.
