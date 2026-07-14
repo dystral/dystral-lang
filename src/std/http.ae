@@ -157,7 +157,7 @@ class ServerConnection(val sock: Socket) {
     }
 }
 
-class Server(val tcpServer: TCPServer) {
+class Server(val tcpServer: TCPServer = TCPServer(-1)) {
     fun bind(port: Int): Bool {
         return this.tcpServer.bind(port)
     }

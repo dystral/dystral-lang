@@ -98,6 +98,7 @@ pub const ASTTypeRef = struct {
 pub const Param = struct {
     name: []const u8,
     type_ref: ?*const ASTTypeRef,
+    initializer: ?*ASTNode = null,
 };
 
 pub const ClassProp = struct {
@@ -106,6 +107,7 @@ pub const ClassProp = struct {
     type_ref: *const ASTTypeRef,
     resolved_type: ?*const type_system.AetherType = null,
     is_property: bool = true,
+    initializer: ?*ASTNode = null,
 };
 
 pub const CatchBlock = struct {

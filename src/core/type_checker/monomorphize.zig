@@ -1,0 +1,103 @@
+const std = @import("std");
+const ast = @import("../ast.zig");
+const type_system = @import("../type_system.zig");
+const core = @import("core.zig");
+const infer_decl_mod = @import("infer_decl.zig");
+
+const ASTNode = ast.ASTNode;
+const TypeChecker = core.TypeChecker;
+const AetherType = type_system.AetherType;
+
+pub fn monomorphizeClass(self: *TypeChecker, base_name: []const u8, type_args: []*const AetherType, mangled_name: []const u8) !void {
+    if (self.classes_ast.get(mangled_name) != null) return;
+    
+    const actual_base_name = self.alias_map.get(base_name) orelse base_name;
+    const base_node = self.classes_ast.get(actual_base_name);
+    if (base_node == null) {
+        self.reportError(0, 0, "TypeError: Generic class '{s}' not found.", .{base_name});
+        return error.TypeError;
+    }
+    
+    const new_node = try self.allocator.create(ASTNode);
+    new_node.* = base_node.?.*;
+    
+    // Temporarily insert to avoid infinite recursion (e.g. Node<K, V> having next: Node<K, V>)
+    try self.classes_ast.put(mangled_name, new_node);
+    
+    const class_decl = base_node.?.data.class_decl;
+    if (class_decl.generic_params.len != type_args.len) {
+        self.reportError(0, 0, "TypeError: Expected {} generic arguments for '{s}', got {}.", .{class_decl.generic_params.len, base_name, type_args.len});
+        return error.TypeError;
+    }
+    
+    // Create the generic map mapping (e.g. "T" -> .String)
+    var generic_map = std.StringHashMap(*const AetherType).init(self.allocator);
+    defer generic_map.deinit();
+    for (class_decl.generic_params, 0..) |param_name, i| {
+        try generic_map.put(param_name, type_args[i]);
+    }
+    
+    // Setup alias_map early so resolveTypeName can use it!
+    var old_aliases = std.StringHashMap([]const u8).init(self.allocator);
+    defer old_aliases.deinit();
+
+    for (class_decl.generic_params, 0..) |param_name, i| {
+        const conc_name = try std.fmt.allocPrint(self.allocator, "{}", .{type_args[i].*});
+        if (self.alias_map.get(param_name)) |old_val| {
+            try old_aliases.put(param_name, old_val);
+        }
+        try self.alias_map.put(param_name, conc_name);
+    }
+
+    var new_props = try self.allocator.alloc(ast.ClassProp, class_decl.primary_constructor.len);
+    for (class_decl.primary_constructor, 0..) |prop, i| {
+        new_props[i] = prop;
+        new_props[i].type_ref = try self.cloneTypeRef(prop.type_ref);
+    }
+    
+    var new_methods = try self.allocator.alloc(*ASTNode, class_decl.methods.len);
+    for (class_decl.methods, 0..) |method, i| {
+        const new_method = try self.allocator.create(ASTNode);
+        new_method.* = method.*;
+        if (method.data == .fun_decl) {
+            var m_decl = method.data.fun_decl;
+            if (m_decl.type_ref) |tr| {
+                m_decl.type_ref = try self.cloneTypeRef(tr);
+            }
+            if (m_decl.params.len > 0) {
+                var new_params = try self.allocator.alloc(ast.Param, m_decl.params.len);
+                for (m_decl.params, 0..) |p, j| {
+                    new_params[j] = p;
+                    if (p.type_ref) |ptr| {
+                        new_params[j].type_ref = try self.cloneTypeRef(ptr);
+                    }
+                }
+                m_decl.params = new_params;
+            }
+            m_decl.body = try self.cloneNode(m_decl.body);
+            new_method.data = .{ .fun_decl = m_decl };
+        }
+        new_methods[i] = new_method;
+    }
+    var new_class_decl = class_decl;
+    new_class_decl.primary_constructor = new_props;
+    new_class_decl.methods = new_methods;
+    new_class_decl.name = mangled_name;
+    new_class_decl.resolved_c_name = mangled_name;
+    new_class_decl.generic_params = &.{};
+    new_node.data = .{ .class_decl = new_class_decl };
+    
+    // Register and trigger deep inference on the monomorphized class!
+    const class_type = try self.allocator.create(AetherType);
+    try infer_decl_mod.inferClassDecl(self, new_node, &self.global_scope, class_type);
+    
+    for (class_decl.generic_params) |param_name| {
+        if (old_aliases.get(param_name)) |old_val| {
+            try self.alias_map.put(param_name, old_val);
+        } else {
+            _ = self.alias_map.remove(param_name);
+        }
+    }
+
+    try self.monomorphized_nodes.append(new_node);
+}

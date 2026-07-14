@@ -24,16 +24,17 @@ pub const TypeChecker = struct {
     is_test_mode: bool = false,
     current_class_props: ?*std.StringHashMap(void) = null,
     classes_ast: std.StringHashMap(*ASTNode),
+    functions_ast: std.StringHashMap(*ASTNode),
     monomorphized_nodes: std.ArrayList(*ASTNode),
 
 
     pub const inferNode = core_inferNode;
     pub const reportError = core_reportError;
     pub const resolveTypeRef = core_resolveTypeRef;
-    pub const cloneTypeRef = core_cloneTypeRef;
+    pub const cloneTypeRef = @import("clone.zig").cloneTypeRef;
     pub const resolveTypeName = core_resolveTypeName;
-    pub const monomorphizeClass = core_monomorphizeClass;
-    pub const cloneNode = core_cloneNode;
+    pub const monomorphizeClass = @import("monomorphize.zig").monomorphizeClass;
+    pub const cloneNode = @import("clone.zig").cloneNode;
     pub const validate = core_validate;
     pub const checkBlock = infer_stmt_mod.checkBlock;
     pub const isCompatible = core_isCompatible;
@@ -50,6 +51,7 @@ pub const TypeChecker = struct {
             .is_test_mode = false,
             .current_class_props = null,
             .classes_ast = std.StringHashMap(*ASTNode).init(allocator),
+            .functions_ast = std.StringHashMap(*ASTNode).init(allocator),
             .monomorphized_nodes = std.ArrayList(*ASTNode).init(allocator),
         };
 
@@ -60,6 +62,7 @@ pub const TypeChecker = struct {
         self.global_scope.deinit();
         self.alias_map.deinit();
         self.classes_ast.deinit();
+        self.functions_ast.deinit();
         self.monomorphized_nodes.deinit();
     }
 };
@@ -191,26 +194,6 @@ fn core_resolveTypeRef(self: *TypeChecker, ref: *const ast.ASTTypeRef) anyerror!
     return t;
 }
 
-fn core_cloneTypeRef(self: *TypeChecker, ref: *const ast.ASTTypeRef) anyerror!*ast.ASTTypeRef {
-    const new_ref = try self.allocator.create(ast.ASTTypeRef);
-    var name = ref.name;
-    if (self.alias_map.get(ref.name)) |aliased| {
-        name = aliased;
-    }
-    
-    var generic_args = try self.allocator.alloc(*const ast.ASTTypeRef, ref.generic_args.len);
-    for (ref.generic_args, 0..) |arg, i| {
-        generic_args[i] = try self.cloneTypeRef(arg);
-    }
-    
-    new_ref.* = .{
-        .name = name,
-        .generic_args = generic_args,
-        .is_array = ref.is_array,
-        .is_nullable = ref.is_nullable,
-    };
-    return new_ref;
-}
 
 fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool) anyerror!*AetherType {
     var p = parser_mod.Parser.init(self.allocator, name);
@@ -362,278 +345,6 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
         node.resolved_type = t;
     }
     return t;
-}
-
-fn core_monomorphizeClass(self: *TypeChecker, base_name: []const u8, type_args: []*const AetherType, mangled_name: []const u8) !void {
-    if (self.classes_ast.get(mangled_name) != null) return;
-    
-    const actual_base_name = self.alias_map.get(base_name) orelse base_name;
-    const base_node = self.classes_ast.get(actual_base_name);
-    if (base_node == null) {
-        self.reportError(0, 0, "TypeError: Generic class '{s}' not found.", .{base_name});
-        return error.TypeError;
-    }
-    
-    const new_node = try self.allocator.create(ASTNode);
-    new_node.* = base_node.?.*;
-    
-    // Temporarily insert to avoid infinite recursion (e.g. Node<K, V> having next: Node<K, V>)
-    try self.classes_ast.put(mangled_name, new_node);
-    
-    const class_decl = base_node.?.data.class_decl;
-    if (class_decl.generic_params.len != type_args.len) {
-        self.reportError(0, 0, "TypeError: Expected {} generic arguments for '{s}', got {}.", .{class_decl.generic_params.len, base_name, type_args.len});
-        return error.TypeError;
-    }
-    
-    // Create the generic map mapping (e.g. "T" -> .String)
-    var generic_map = std.StringHashMap(*const AetherType).init(self.allocator);
-    defer generic_map.deinit();
-    for (class_decl.generic_params, 0..) |param_name, i| {
-        try generic_map.put(param_name, type_args[i]);
-    }
-    
-    // For now, we simulate Monomorphization by re-defining the class directly
-    // and using `alias_map` to map the generic parameter to the concrete type!
-    // Wait! A much smarter way: Re-run `inferClassDecl` dynamically with a hooked alias_map!
-    // Since we need to typecheck its methods, we can just inject "T" -> "String" in alias_map
-    // and run inferClassDecl on the same node again!
-    // BUT we must avoid modifying the original node if it's shared. 
-    // Actually, we can clone just the `class_decl` properties and methods.
-    
-    // Setup alias_map early so resolveTypeName can use it!
-    var old_aliases = std.StringHashMap([]const u8).init(self.allocator);
-    defer old_aliases.deinit();
-
-    for (class_decl.generic_params, 0..) |param_name, i| {
-        const conc_name = try std.fmt.allocPrint(self.allocator, "{}", .{type_args[i].*});
-        if (self.alias_map.get(param_name)) |old_val| {
-            try old_aliases.put(param_name, old_val);
-        }
-        try self.alias_map.put(param_name, conc_name);
-    }
-
-    var new_props = try self.allocator.alloc(ast.ClassProp, class_decl.primary_constructor.len);
-    for (class_decl.primary_constructor, 0..) |prop, i| {
-        new_props[i] = prop;
-        new_props[i].type_ref = try self.cloneTypeRef(prop.type_ref);
-    }
-    
-    var new_methods = try self.allocator.alloc(*ASTNode, class_decl.methods.len);
-    for (class_decl.methods, 0..) |method, i| {
-        const new_method = try self.allocator.create(ASTNode);
-        new_method.* = method.*;
-        if (method.data == .fun_decl) {
-            var m_decl = method.data.fun_decl;
-            if (m_decl.type_ref) |tr| {
-                m_decl.type_ref = try self.cloneTypeRef(tr);
-            }
-            if (m_decl.params.len > 0) {
-                var new_params = try self.allocator.alloc(ast.Param, m_decl.params.len);
-                for (m_decl.params, 0..) |p, j| {
-                    new_params[j] = p;
-                    if (p.type_ref) |ptr| {
-                        new_params[j].type_ref = try self.cloneTypeRef(ptr);
-                    }
-                }
-                m_decl.params = new_params;
-            }
-            m_decl.body = try self.cloneNode(m_decl.body);
-            new_method.data = .{ .fun_decl = m_decl };
-        }
-        new_methods[i] = new_method;
-    }
-    var new_class_decl = class_decl;
-    new_class_decl.primary_constructor = new_props;
-    new_class_decl.methods = new_methods;
-    new_class_decl.name = mangled_name;
-    new_class_decl.resolved_c_name = mangled_name;
-    new_class_decl.generic_params = &.{};
-    new_node.data = .{ .class_decl = new_class_decl };
-    
-    // Register and trigger deep inference on the monomorphized class!
-    const class_type = try self.allocator.create(AetherType);
-    try infer_decl_mod.inferClassDecl(self, new_node, &self.global_scope, class_type);
-    
-    for (class_decl.generic_params) |param_name| {
-        if (old_aliases.get(param_name)) |old_val| {
-            try self.alias_map.put(param_name, old_val);
-        } else {
-            _ = self.alias_map.remove(param_name);
-        }
-    }
-
-    try self.monomorphized_nodes.append(new_node);
-}
-
-fn core_cloneNode(self: *TypeChecker, node: *ASTNode) anyerror!*ASTNode {
-    const new_node = try self.allocator.create(ASTNode);
-    new_node.* = node.*;
-    new_node.resolved_type = null;
-    
-    switch (node.data) {
-        .block => |b| {
-            var new_stmts = try self.allocator.alloc(*ASTNode, b.statements.len);
-            for (b.statements, 0..) |stmt, i| {
-                new_stmts[i] = try self.cloneNode(stmt);
-            }
-            new_node.data = .{ .block = .{ .statements = new_stmts } };
-        },
-        .binary_expr => |b| {
-            new_node.data = .{ .binary_expr = .{
-                .left = try self.cloneNode(b.left),
-                .op = b.op,
-                .right = try self.cloneNode(b.right),
-            }};
-        },
-        .call_expr => |c| {
-            var new_args = try self.allocator.alloc(*ASTNode, c.arguments.len);
-            for (c.arguments, 0..) |arg, i| {
-                new_args[i] = try self.cloneNode(arg);
-            }
-            new_node.data = .{ .call_expr = .{
-                .callee = try self.cloneNode(c.callee),
-                .arguments = new_args,
-            }};
-        },
-        .get_expr => |g| {
-            new_node.data = .{ .get_expr = .{
-                .object = try self.cloneNode(g.object),
-                .name = g.name,
-                .is_safe = g.is_safe,
-            }};
-        },
-        .return_stmt => |r| {
-            var val: ?*ASTNode = null;
-            if (r.value) |v| val = try self.cloneNode(v);
-            new_node.data = .{ .return_stmt = .{ .value = val } };
-        },
-        .var_decl => |v| {
-            var val: ?*ASTNode = null;
-            if (v.initializer) |init| val = try self.cloneNode(init);
-            const ref = if (v.type_ref) |tr| try self.cloneTypeRef(tr) else null;
-            new_node.data = .{ .var_decl = .{
-                .is_mut = v.is_mut,
-                .name = v.name,
-                .type_ref = ref,
-                .initializer = val,
-            }};
-        },
-        .set_expr => |s| {
-            new_node.data = .{ .set_expr = .{
-                .object = try self.cloneNode(s.object),
-                .name = s.name,
-                .value = try self.cloneNode(s.value),
-                .is_safe = s.is_safe,
-            }};
-        },
-        .if_expr => |i| {
-            var el: ?*ASTNode = null;
-            if (i.else_branch) |e| el = try self.cloneNode(e);
-            new_node.data = .{ .if_expr = .{
-                .condition = try self.cloneNode(i.condition),
-                .then_branch = try self.cloneNode(i.then_branch),
-                .else_branch = el,
-            }};
-        },
-        .while_stmt => |w| {
-            new_node.data = .{ .while_stmt = .{
-                .condition = try self.cloneNode(w.condition),
-                .body = try self.cloneNode(w.body),
-            }};
-        },
-        .array_literal => |a| {
-            var new_elems = try self.allocator.alloc(*ASTNode, a.elements.len);
-            for (a.elements, 0..) |el, i| {
-                new_elems[i] = try self.cloneNode(el);
-            }
-            new_node.data = .{ .array_literal = .{ .elements = new_elems } };
-        },
-
-        .unary_expr => |u| {
-            new_node.data = .{ .unary_expr = .{
-                .operator = u.operator,
-                .operand = try self.cloneNode(u.operand),
-            }};
-        },
-        .assignment => |a| {
-            new_node.data = .{ .assignment = .{
-                .name = a.name,
-                .value = try self.cloneNode(a.value),
-            }};
-        },
-        .index_expr => |i| {
-            new_node.data = .{ .index_expr = .{
-                .object = try self.cloneNode(i.object),
-                .index = try self.cloneNode(i.index),
-            }};
-        },
-        .index_set_expr => |i| {
-            new_node.data = .{ .index_set_expr = .{
-                .object = try self.cloneNode(i.object),
-                .index = try self.cloneNode(i.index),
-                .value = try self.cloneNode(i.value),
-            }};
-        },
-        .for_stmt => |f| {
-            new_node.data = .{ .for_stmt = .{
-                .item_name = f.item_name,
-                .iterable = try self.cloneNode(f.iterable),
-                .body = try self.cloneNode(f.body),
-            }};
-        },
-        .ternary_expr => |t| {
-            var el: ?*ASTNode = null;
-            if (t.else_branch) |e| el = try self.cloneNode(e);
-            new_node.data = .{ .ternary_expr = .{
-                .condition = try self.cloneNode(t.condition),
-                .then_branch = try self.cloneNode(t.then_branch),
-                .else_branch = el,
-            }};
-        },
-        .as_expr => |a| {
-            new_node.data = .{ .as_expr = .{
-                .value = try self.cloneNode(a.value),
-                .type_ref = try self.cloneTypeRef(a.type_ref),
-            }};
-        },
-        .is_expr => |i| {
-            new_node.data = .{ .is_expr = .{
-                .value = try self.cloneNode(i.value),
-                .type_ref = try self.cloneTypeRef(i.type_ref),
-                .is_not = i.is_not,
-            }};
-        },
-        .is_type_cond => |i| {
-            new_node.data = .{ .is_type_cond = .{
-                .type_ref = try self.cloneTypeRef(i.type_ref),
-                .is_not = i.is_not,
-            }};
-        },
-        .when_expr => |w| {
-            var new_cases = try self.allocator.alloc(ast.WhenCase, w.cases.len);
-            for (w.cases, 0..) |case, idx| {
-                var new_conds = try self.allocator.alloc(*ASTNode, case.conds.len);
-                for (case.conds, 0..) |cond, c_idx| {
-                    new_conds[c_idx] = try self.cloneNode(cond);
-                }
-                new_cases[idx] = .{
-                    .conds = new_conds,
-                    .body = try self.cloneNode(case.body),
-                    .is_else = case.is_else,
-                };
-            }
-            var subject: ?*ASTNode = null;
-            if (w.subject) |subj| subject = try self.cloneNode(subj);
-            new_node.data = .{ .when_expr = .{
-                .subject = subject,
-                .cases = new_cases,
-            }};
-        },
-        else => {}, // For identifiers and literals, shallow copy is fine as long as we cleared resolved_type
-    }
-    
-    return new_node;
 }
 
 fn core_isSubclassOf(self: *TypeChecker, subclass_name: []const u8, superclass_name: []const u8) bool {

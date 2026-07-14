@@ -202,9 +202,15 @@ pub fn funDeclaration(self: *Parser, annotations: []const ast.Annotation, modifi
             const param_name = self.previous.lexeme;
             const parsed_type = try self.parseTypeAnnotation();
             
+            var initializer: ?*ASTNode = null;
+            if (self.match(.eq)) {
+                initializer = try self.expression();
+            }
+
             try params.append(.{ 
                 .name = param_name, 
                 .type_ref = parsed_type,
+                .initializer = initializer,
             });
             
             if (!self.match(.comma)) break;
@@ -287,11 +293,17 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation, is_open: b
                     return error.ParseError;
                 };
                 
+                var initializer: ?*ASTNode = null;
+                if (self.match(.eq)) {
+                    initializer = try self.expression();
+                }
+
                 try props.append(.{
                     .is_mut = is_mut,
                     .name = prop_name,
                     .type_ref = parsed_type,
                     .is_property = is_property,
+                    .initializer = initializer,
                 });
                 
                 if (!self.match(.comma)) break;

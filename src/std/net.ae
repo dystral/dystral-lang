@@ -36,7 +36,7 @@ class Socket(val fd: Int) {
     }
 }
 
-class TCPServer(var fd: Int) {
+class TCPServer(var fd: Int = -1) {
     fun bind(port: Int): Bool {
         this.fd = NativeNet.tcpBind(port)
         return this.fd >= 0

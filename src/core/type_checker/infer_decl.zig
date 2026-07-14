@@ -136,6 +136,11 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
         }
     }
     
+    var fun_ast_it = tc.functions_ast.iterator();
+    while (fun_ast_it.next()) |entry| {
+        try self.functions_ast.put(entry.key_ptr.*, entry.value_ptr.*);
+    }
+    
     tc.deinit();
 
     t.* = .Void;
@@ -206,8 +211,25 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
         }
         
         // Validate superclass constructor arguments
-        if (c.superclass_args.len != p_decl.primary_constructor.len) {
-            self.reportError(node.line, node.column, "TypeError: Expected {} arguments for superclass constructor of '{s}', got {}.", .{ p_decl.primary_constructor.len, super_name, c.superclass_args.len });
+        if (c.superclass_args.len < p_decl.primary_constructor.len) {
+            var new_super_args = std.ArrayList(*ASTNode).init(self.allocator);
+            for (c.superclass_args) |arg| {
+                try new_super_args.append(arg);
+            }
+            var i = c.superclass_args.len;
+            while (i < p_decl.primary_constructor.len) : (i += 1) {
+                const prop = p_decl.primary_constructor[i];
+                if (prop.initializer) |init_node| {
+                    const cloned = try self.cloneNode(init_node);
+                    try new_super_args.append(cloned);
+                } else {
+                    self.reportError(node.line, node.column, "TypeError: Missing argument for superclass constructor parameter '{s}' of '{s}' which has no default value.", .{ prop.name, super_name });
+                    return error.TypeError;
+                }
+            }
+            c.superclass_args = try new_super_args.toOwnedSlice();
+        } else if (c.superclass_args.len > p_decl.primary_constructor.len) {
+            self.reportError(node.line, node.column, "TypeError: Expected at most {} arguments for superclass constructor of '{s}', got {}.", .{ p_decl.primary_constructor.len, super_name, c.superclass_args.len });
             return error.TypeError;
         }
         
@@ -271,6 +293,16 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
     for (c.primary_constructor) |*prop| {
         const param_type = try self.resolveTypeRef(prop.type_ref);
         prop.resolved_type = param_type;
+
+        if (prop.initializer) |init_node| {
+            const cloned_init = try self.cloneNode(init_node);
+            const init_type = try self.inferNode(cloned_init, scope);
+            if (!self.isCompatible(param_type, init_type)) {
+                self.reportError(node.line, node.column, "TypeError: Default value type {} is incompatible with property type {}.", .{ init_type.*, param_type.* });
+                return error.TypeError;
+            }
+        }
+
         if (prop.is_property) {
             try class_props.put(prop.name, {});
             try class_scope.define(prop.name, param_type, prop.is_mut);
@@ -331,6 +363,16 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
             param_type.* = .Void;
             try mangled_name.appendSlice("_Void");
         }
+
+        if (p.initializer) |init_node| {
+            const cloned_init = try self.cloneNode(init_node);
+            const init_type = try self.inferNode(cloned_init, scope);
+            if (!self.isCompatible(param_type, init_type)) {
+                self.reportError(node.line, node.column, "TypeError: Default value type {} is incompatible with parameter type {}.", .{ init_type.*, param_type.* });
+                return error.TypeError;
+            }
+        }
+
         try fun_scope.define(p.name, param_type, false);
         try param_types.append(param_type);
     }
@@ -340,6 +382,8 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     } else {
         f.resolved_c_name = try mangled_name.toOwnedSlice();
     }
+
+    try self.functions_ast.put(f.resolved_c_name.?, node);
     
     var return_type: *const AetherType = undefined;
     var body_inferred = false;

@@ -191,6 +191,11 @@ This document tracks the historical progress, current status, and future roadmap
 - [ ] **Task 36.3:** Re-implement standard socket block functions in Aether FFI to yield execution of the running Fiber, resuming only when notified by the runtime event loop.
 - [ ] **Task 36.4:** Implement high-performance, non-blocking `std.http` on top of Fibers to achieve Go/Crystal-like concurrency.
 
+### Phase 37: Default Parameters (COMPLETED)
+- [x] **Task 37.1:** Update AST and Parser to support optional default initializers.
+- [x] **Task 37.2:** Implement default parameter injection and validation in the Type Checker.
+- [x] **Verify:** Call functions and instantiate classes (`Server()`) using default constructor properties.
+
 ---
 
 ## ✅ Definition of Done (Per Phase)

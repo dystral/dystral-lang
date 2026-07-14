@@ -562,11 +562,38 @@ If you omit the subject, the `when` expression acts as a cleaner alternative to 
 val x = 10
 val y = 20
 
+
 when {
     x > y -> print("x is greater")
     x < y -> print("y is greater")
     else -> print("they are equal")
 }
+
+---
+
+## 14. Default Parameters
+
+Aether supports default values for parameters in functions, methods, and class constructors (both generic and non-generic). This reduces the need for overloading and simplifies constructor instantiations.
+
+```kotlin
+// Function with default parameters
+fun greet(name: String, greeting: String = "Hello") = greeting + ", " + name + "!"
+
+class Server(val tcpServer: TCPServer = TCPServer())
+
+fun main() {
+    // Uses the default greeting "Hello"
+    print(greet("Alice")) // "Hello, Alice!"
+    
+    // Overrides the default greeting
+    print(greet("Bob", "Hi")) // "Hi, Bob!"
+    
+    // Instantiates Server using default constructor parameter (which calls TCPServer())
+    val server = Server()
+}
+```
+
+Statically typed defaults are evaluated and type-checked during function and class declarations. If a caller omits an argument that has a default value, the type checker automatically clones and injects the default expression at the call-site.
 ```
 
 

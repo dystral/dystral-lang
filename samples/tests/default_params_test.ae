@@ -1,0 +1,49 @@
+fun greet(name: String, greeting: String = "Hello") = greeting + ", " + name + "!"
+
+fun compute(a: Int, b: Int = 10, c: Int = 5) = a + b + c
+
+class Box(val value: Int = 42)
+
+class Vector3D(val x: Int, val y: Int = 0, val z: Int = 0)
+
+open class Parent(val a: Int = 1)
+class Child : Parent()
+
+test "default_params: should use default arguments in top-level functions" {
+    assert(greet("Alice") == "Hello, Alice!")
+    assert(greet("Bob", "Hi") == "Hi, Bob!")
+    
+    assert(compute(1) == 16)         // 1 + 10 + 5
+    assert(compute(1, 2) == 8)       // 1 + 2 + 5
+    assert(compute(1, 2, 3) == 6)    // 1 + 2 + 3
+}
+
+test "default_params: should use default constructor properties" {
+    val b1 = Box()
+    assert(b1.value == 42)
+    
+    val b2 = Box(100)
+    assert(b2.value == 100)
+}
+
+test "default_params: should mix provided and default constructor properties" {
+    val v1 = Vector3D(5)
+    assert(v1.x == 5)
+    assert(v1.y == 0)
+    assert(v1.z == 0)
+    
+    val v2 = Vector3D(5, 2)
+    assert(v2.x == 5)
+    assert(v2.y == 2)
+    assert(v2.z == 0)
+    
+    val v3 = Vector3D(5, 2, 3)
+    assert(v3.x == 5)
+    assert(v3.y == 2)
+    assert(v3.z == 3)
+}
+
+test "default_params: should inherit default superclass constructor arguments" {
+    val c = Child()
+    assert(c.a == 1)
+}
