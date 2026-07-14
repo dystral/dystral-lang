@@ -26,6 +26,9 @@ pub const TokenType = enum {
     kw_as,
     kw_is,
     kw_not_is,
+    kw_try,
+    kw_catch,
+    kw_throw,
 
     // Symbols and Operators
     eq,         // =
@@ -101,6 +104,12 @@ pub const ClassProp = struct {
     type_ref: *const ASTTypeRef,
     resolved_type: ?*const type_system.AetherType = null,
     is_property: bool = true,
+};
+
+pub const CatchBlock = struct {
+    var_name: ?[]const u8,
+    types: []const *const ASTTypeRef,
+    body: *ASTNode,
 };
 
 pub const ASTNode = struct {
@@ -241,6 +250,13 @@ pub const ASTNodeType = union(enum) {
         value: *ASTNode,
         type_ref: *const ASTTypeRef,
         is_not: bool,
+    },
+    try_stmt: struct {
+        body: *ASTNode,
+        catches: []const CatchBlock,
+    },
+    throw_stmt: struct {
+        expr: *ASTNode,
     },
 };
 

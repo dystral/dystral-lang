@@ -1,0 +1,27 @@
+class InvalidAgeException(message: String) : Exception(message)
+
+fun checkAge(age: Int) {
+    if (age < 18) {
+        throw InvalidAgeException("Age " + age.toString() + " is under 18!")
+    }
+}
+
+fun main() {
+    print("Starting age verification...")
+    
+    try {
+        checkAge(16)
+        print("Valid age!")
+    } catch (e: InvalidAgeException) {
+        print("Caught expected error: " + e.message)
+    }
+    
+    try {
+        checkAge(20)
+        print("Valid age!")
+    } catch {
+        print("Unexpected error occurred!")
+    }
+    
+    print("End of program.")
+}

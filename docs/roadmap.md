@@ -84,10 +84,10 @@ This document tracks the historical progress, current status, and future roadmap
 - [ ] **Task 18.3:** Implement semantic validation (verify matching types, forcing short ternaries to return union types with `null`).
 - [ ] **Task 18.4:** Transpile control structure safely to the C ternary operator.
 
-### Phase 19: Exception Handling & Multi-Catch (PENDING / LATER)
-- [ ] **Task 19.1:** Implement support for `try`, `catch`, and `finally` blocks.
-- [ ] **Task 19.2:** Add support for Java-style Multi-Catch (`catch (ExceptionA | ExceptionB e)`).
-- [ ] **Task 19.3:** Map Exceptions and error handling in the C Transpiler (e.g. setjmp/longjmp or structured return codes).
+### Phase 19: Exception Handling & Multi-Catch (COMPLETED)
+- [x] **Task 19.1:** Implement support for `try` and `catch` blocks (excluding `finally` to simplify design).
+- [x] **Task 19.2:** Add support for Multi-Catch (`catch (e: ExceptionA | ExceptionB)`) and optional catch blocks (`catch { ... }`).
+- [x] **Task 19.3:** Map Exceptions and non-local unwinding in the C Transpiler via `<setjmp.h>` (setjmp/longjmp).
 
 ### Phase 20: LLVM Native Emitter & Release Pipeline (PENDING / LATER)
 - [ ] **Task 20.1:** Add support for the `--release` flag in the CLI (`aether build --release file.ae`).

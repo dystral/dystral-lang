@@ -213,7 +213,7 @@ pub const CTranspiler = struct {
         
         var final = std.ArrayList(u8).init(self.allocator);
         try final.appendSlice(std_lib_c);
-        try final.appendSlice("\n");
+        try final.appendSlice("\n__thread AetherExceptionFrame* aether_exception_stack = 0;\n__thread void* aether_active_exception = 0;\n\n");
         try final.appendSlice(self.forward_writer.items); // forward decls go first
         try final.appendSlice(self.header_writer.items);
         try final.appendSlice(self.writer.items);

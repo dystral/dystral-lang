@@ -53,6 +53,8 @@ pub const Parser = struct {
     pub const whileStatement = statement_mod.whileStatement;
     pub const forStatement = statement_mod.forStatement;
     pub const returnStatement = statement_mod.returnStatement;
+    pub const tryStatement = statement_mod.tryStatement;
+    pub const throwStatement = statement_mod.throwStatement;
 
     pub const declaration = declaration_mod.declaration;
     pub const varDeclaration = declaration_mod.varDeclaration;
@@ -120,19 +122,16 @@ fn core_parseType(self: *Parser) anyerror!*const ast.ASTTypeRef {
     var is_nullable = false;
     if (self.match(.question)) {
         is_nullable = true;
-    } else if (self.match(.pipe)) {
-        if (self.match(.kw_null)) {
+    } else if (self.check(.pipe)) {
+        var temp_lexer = self.lexer;
+        const next_tok = temp_lexer.scanToken();
+        const is_null_ref = next_tok.token_type == .kw_null or 
+            (next_tok.token_type == .identifier and std.mem.eql(u8, next_tok.lexeme, "Null"));
+        
+        if (is_null_ref) {
+            _ = self.match(.pipe);
+            self.advance();
             is_nullable = true;
-        } else if (self.match(.identifier)) {
-            if (std.mem.eql(u8, self.previous.lexeme, "Null")) {
-                is_nullable = true;
-            } else {
-                self.errorAtCurrent("Expected 'null' or 'Null' after '|'.");
-                return error.ParseError;
-            }
-        } else {
-            self.errorAtCurrent("Expected 'null' or 'Null' after '|'.");
-            return error.ParseError;
         }
     }
     

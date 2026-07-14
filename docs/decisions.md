@@ -95,3 +95,14 @@ Este documento registra as decisões arquiteturais estruturais tomadas durante o
 **Contexto:** O Aether necessita de suporte a herança de classes para permitir polimorfismo dinâmico e implementar o tratamento estruturado de Exceções (Phase 19). Precisamos de uma arquitetura que ofereça polimorfismo mantendo a performance de uma linguagem nativa compilada e que se adapte de forma direta tanto no C Transpiler quanto no futuro LLVM Backend.
 **Decisão:** Adotar herança de classe única baseada em embutimento de structs em C (onde a struct da classe pai é o primeiro campo da struct da classe filha) combinado com despacho dinâmico via ponteiros de função embutidos na struct. Toda classe marcada como `open` ou que possui herança terá seus ponteiros de métodos dinâmicos instanciados nas structs e remapeados nos construtores das subclasses.
 **Razão:** Permite polimorfismo dinâmico e reutilização de estado sem a necessidade de tabelas de métodos virtuais (VTables) globais complexas no compilador. A herança por embutimento garante que a conversão de ponteiros (upcasting) no backend C e LLVM IR seja gratuita (offset zero). Os ponteiros de função na struct facilitam o despacho dinâmico direto em C (`obj->speak_ptr(obj)`) e LLVM IR (`indirect call`), e permitem otimizações nativas de devirtualização pelo compilador LLVM.
+
+## ADR 16: Exception Handling via local setjmp/longjmp Stack Unwinding
+**Data:** Fase 19
+**Contexto:** Queríamos implementar o tratamento estruturado de exceções (`try-catch`), com suporte a multi-catch e captura genérica de erros, gerando código que mapeie eficientemente para C e que seja compatível com a infraestrutura futura de `landingpad`/`invoke` do LLVM IR.
+**Decisão:** Adotar um modelo de desenrolamento de pilha não-local baseado na biblioteca padrão `<setjmp.h>`.
+1. Cada bloco `try` gera um frame de exceção local empilhado em uma pilha thread-local (`aether_exception_stack`), capturando o ponto de retorno via `setjmp`.
+2. Lançamentos de erros (`throw`) armazenam a exceção ativa em uma variável thread-local e saltam para o frame ativo via `longjmp`.
+3. Os catches são resolvidos por ordem de declaração usando RTTI dinâmico em runtime (`aether_is_instance`). Se nenhum capturar, ocorre rethrow automático. O tipo estático da variável capturada no multi-catch é a classe base `Exception`.
+4. Opcionalmente suportar blocos `catch` anônimos sem assinatura (`catch { ... }`) que capturam qualquer erro de forma silenciosa.
+**Razão:** O uso de `setjmp`/`longjmp` simula a nível de C o comportamento de tabelas de saltos não-locais de exceções tradicionais. Esse modelo mapeia-se de forma direta para a instrução nativa `invoke` e blocos de `landingpad` no backend LLVM IR futuro, fornecendo no futuro tratamento de custo zero (Zero-Cost Exception) sem comprometer o fluxo lógico de C do transpiler atual.
+

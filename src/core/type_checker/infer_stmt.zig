@@ -119,3 +119,52 @@ pub fn checkBlock(self: *TypeChecker, block: []const *ASTNode, parent_scope: *Sc
     t.* = .Void;
     return t;
 }
+
+pub fn inferThrowStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
+    const expr = node.data.throw_stmt.expr;
+    const expr_type = try self.inferNode(expr, scope);
+    
+    const exception_type = self.resolveTypeName("Exception", false) catch {
+        self.reportError(node.line, node.column, "TypeError: Class 'Exception' must be declared in std.core.", .{});
+        return error.TypeError;
+    };
+    
+    if (!self.isCompatible(exception_type, expr_type)) {
+        self.reportError(node.line, node.column, "TypeError: Can only throw objects inheriting from Exception, found {}.", .{expr_type.*});
+        return error.TypeError;
+    }
+    
+    t.* = .Void;
+}
+
+pub fn inferTryStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
+    const ts = node.data.try_stmt;
+    _ = try self.inferNode(ts.body, scope);
+    
+    const exception_type = self.resolveTypeName("Exception", false) catch {
+        self.reportError(node.line, node.column, "TypeError: Class 'Exception' must be declared in std.core.", .{});
+        return error.TypeError;
+    };
+    
+    for (ts.catches) |c| {
+        var catch_scope = Scope.init(self.allocator, scope);
+        defer catch_scope.deinit();
+        
+        if (c.var_name) |var_name| {
+            try catch_scope.define(var_name, exception_type, false);
+            
+            for (c.types) |tr| {
+                const target_t = try self.resolveTypeRef(tr);
+                if (!self.isCompatible(exception_type, target_t)) {
+                    self.reportError(node.line, node.column, "TypeError: Catch block type must inherit from Exception, found {}.", .{target_t.*});
+                    return error.TypeError;
+                }
+            }
+        }
+        
+        _ = try self.inferNode(c.body, &catch_scope);
+    }
+    
+    t.* = .Void;
+}
+

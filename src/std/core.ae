@@ -141,3 +141,5 @@ fun assert(condition: Bool): Void {
 
 fun sleep(seconds: Int) = Posix.sleep(seconds)
 fun sleepMs(ms: Int) = Posix.usleep(ms * 1000)
+
+open class Exception(val message: String)

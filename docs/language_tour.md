@@ -407,3 +407,58 @@ fun main() {
 ```
 
 > **Design note:** `.mut()` does not copy the underlying data — the mutable wrapper operates directly on the same internal storage. `.freeze()` returns a reference to that same storage as an immutable handle. This means both operations are **O(1)** regardless of collection size.
+
+---
+
+## 11. Exception Handling (try-catch)
+
+Aether features a native structured exception handling system using `try` and `catch` blocks. All exception types must inherit from the built-in `Exception` base class:
+
+```kotlin
+class InvalidAgeException(message: String) : Exception(message)
+
+fun checkAge(age: Int) {
+    if (age < 18) {
+        throw InvalidAgeException("Idade inválida: " + age.toString())
+    }
+}
+```
+
+Exceptions propagate up function call frames until they encounter a matching handler.
+
+### 11.1 Basic Usage
+```kotlin
+try {
+    checkAge(15)
+} catch (e: InvalidAgeException) {
+    print("Erro capturado: " + e.message)
+}
+```
+
+### 11.2 Multi-Catch
+You can catch multiple exceptions in a single block using the union syntax `|`. In this case, the caught exception `e` is statically typed as the generic `Exception` base class:
+```kotlin
+try {
+    checkAge(15)
+} catch (e: InvalidAgeException | ConnectionException) {
+    print("Exceção capturada: " + e.message)
+}
+```
+
+### 11.3 Catch-All & Swallowing Exceptions
+If you omit the variable declaration in a `catch` block, it acts as a **catch-all** that intercepts any exception:
+```kotlin
+try {
+    checkAge(15)
+} catch {
+    print("Ocorreu um erro genérico.")
+}
+```
+
+Furthermore, you can write a `try` block **without any catch clauses**. In this scenario, any exception thrown inside the `try` block is caught and swallowed silently:
+```kotlin
+try {
+    checkAge(15) // Exception is caught and ignored
+}
+```
+

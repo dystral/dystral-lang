@@ -99,6 +99,87 @@ pub fn emitStatement(self: *CTranspiler, node: *ASTNode) !void {
             }
             try self.writer.appendSlice(";\n");
         },
+        .throw_stmt => |th| {
+            try self.writer.appendSlice("    aether_throw(");
+            try self.emitExpression(th.expr);
+            try self.writer.appendSlice(");\n");
+        },
+        .try_stmt => |ts| {
+            try self.writer.appendSlice("    {\n");
+            try self.writer.appendSlice("        AetherExceptionFrame __frame;\n");
+            try self.writer.appendSlice("        aether_push_exception_frame(&__frame);\n");
+            try self.writer.appendSlice("        if (setjmp(__frame.buf) == 0) {\n");
+            
+            if (ts.body.data == .block) {
+                for (ts.body.data.block.statements) |stmt| {
+                    try self.emitStatement(stmt);
+                }
+            } else {
+                try self.emitStatement(ts.body);
+            }
+            
+            try self.writer.appendSlice("            aether_pop_exception_frame();\n");
+            try self.writer.appendSlice("        } else {\n");
+            try self.writer.appendSlice("            aether_pop_exception_frame();\n");
+            try self.writer.appendSlice("            void* __exc = aether_active_exception;\n");
+            
+            if (ts.catches.len > 0) {
+                for (ts.catches, 0..) |c, catch_i| {
+                    const prefix = if (catch_i == 0) "if" else "else if";
+                    
+                    if (c.var_name) |var_name| {
+                        try self.writer.writer().print("            {s} (__exc != 0 && (", .{prefix});
+                        for (c.types, 0..) |tr, tr_i| {
+                            if (tr_i > 0) try self.writer.appendSlice(" || ");
+                            const actual_type_name = if (self.alias_map) |am| (am.get(tr.name) orelse tr.name) else tr.name;
+                            try self.writer.writer().print("aether_is_instance(*(const AetherClassDescriptor**)(__exc), &{s}_descriptor)", .{actual_type_name});
+                        }
+                        try self.writer.appendSlice(")) {\n");
+                        try self.writer.writer().print("                aether_active_exception = 0;\n", .{});
+                        try self.writer.writer().print("                core_Exception* {s} = (core_Exception*)__exc;\n", .{var_name});
+                        
+                        if (c.body.data == .block) {
+                            for (c.body.data.block.statements) |stmt| {
+                                try self.emitStatement(stmt);
+                            }
+                        } else {
+                            try self.emitStatement(c.body);
+                        }
+                        
+                        try self.writer.appendSlice("            }\n");
+                    } else {
+                        if (catch_i == 0) {
+                            try self.writer.appendSlice("            {\n");
+                        } else {
+                            try self.writer.appendSlice("            else {\n");
+                        }
+                        try self.writer.writer().print("                aether_active_exception = 0;\n", .{});
+                        
+                        if (c.body.data == .block) {
+                            for (c.body.data.block.statements) |stmt| {
+                                try self.emitStatement(stmt);
+                            }
+                        } else {
+                            try self.emitStatement(c.body);
+                        }
+                        
+                        try self.writer.appendSlice("            }\n");
+                    }
+                }
+                
+                const last_catch_is_typed = ts.catches[ts.catches.len - 1].var_name != null;
+                if (last_catch_is_typed) {
+                    try self.writer.appendSlice("            else {\n");
+                    try self.writer.appendSlice("                aether_throw(__exc);\n");
+                    try self.writer.appendSlice("            }\n");
+                }
+            } else {
+                try self.writer.appendSlice("            aether_active_exception = 0;\n");
+            }
+            
+            try self.writer.appendSlice("        }\n");
+            try self.writer.appendSlice("    }\n");
+        },
         .block => |b| {
             try self.writer.appendSlice("    {\n");
             for (b.statements) |stmt| {

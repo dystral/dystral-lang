@@ -61,3 +61,62 @@ pub fn returnStatement(self: *Parser) anyerror!*ASTNode {
     
     return try self.createNodeAt(.{ .return_stmt = .{ .value = value } }, line, col);
 }
+
+pub fn throwStatement(self: *Parser) anyerror!*ASTNode {
+    const line = self.previous.line;
+    const col = self.previous.column;
+    const expr = try self.expression();
+    return try self.createNodeAt(.{ .throw_stmt = .{ .expr = expr } }, line, col);
+}
+
+pub fn tryStatement(self: *Parser) anyerror!*ASTNode {
+    const line = self.previous.line;
+    const col = self.previous.column;
+    
+    try self.consume(.l_brace, "Expected '{' after 'try'.");
+    var try_stmts = std.ArrayList(*ASTNode).init(self.allocator);
+    while (!self.check(.r_brace) and !self.check(.eof)) {
+        try try_stmts.append(try self.declaration());
+    }
+    try self.consume(.r_brace, "Expected '}' after 'try' block.");
+    const try_body = try self.createNode(.{ .block = .{ .statements = try try_stmts.toOwnedSlice() } });
+    
+    var catches = std.ArrayList(ast.CatchBlock).init(self.allocator);
+    while (self.match(.kw_catch)) {
+        var var_name: ?[]const u8 = null;
+        var types = std.ArrayList(*const ast.ASTTypeRef).init(self.allocator);
+        
+        if (self.match(.l_paren)) {
+            try self.consume(.identifier, "Expected exception variable name.");
+            var_name = self.previous.lexeme;
+            try self.consume(.colon, "Expected ':' after exception variable name.");
+            
+            while (true) {
+                const t_ref = try self.parseType();
+                try types.append(t_ref);
+                if (!self.match(.pipe)) break;
+            }
+            try self.consume(.r_paren, "Expected ')' after catch parameter.");
+        }
+        
+        try self.consume(.l_brace, "Expected '{' after catch declaration.");
+        var catch_stmts = std.ArrayList(*ASTNode).init(self.allocator);
+        while (!self.check(.r_brace) and !self.check(.eof)) {
+            try catch_stmts.append(try self.declaration());
+        }
+        try self.consume(.r_brace, "Expected '}' after catch block.");
+        const catch_body = try self.createNode(.{ .block = .{ .statements = try catch_stmts.toOwnedSlice() } });
+        
+        try catches.append(.{
+            .var_name = var_name,
+            .types = try types.toOwnedSlice(),
+            .body = catch_body,
+        });
+    }
+    
+    return try self.createNodeAt(.{ .try_stmt = .{
+        .body = try_body,
+        .catches = try catches.toOwnedSlice(),
+    } }, line, col);
+}
+

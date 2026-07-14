@@ -294,6 +294,8 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
         .while_stmt => try infer_stmt_mod.inferWhileStmt(self, node, scope, t),
         .for_stmt => try infer_stmt_mod.inferForStmt(self, node, scope, t),
         .return_stmt => try infer_stmt_mod.inferReturnStmt(self, node, scope, t),
+        .try_stmt => try infer_stmt_mod.inferTryStmt(self, node, scope, t),
+        .throw_stmt => try infer_stmt_mod.inferThrowStmt(self, node, scope, t),
         .block => return try self.checkBlock(node.data.block.statements, scope),
         .identifier => try infer_expr_mod.inferIdentifier(self, node, scope, t),
         .int_literal => t.* = .Int,
