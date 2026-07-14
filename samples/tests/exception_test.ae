@@ -97,4 +97,17 @@ test "exception: try without catch swallows exceptions" {
     assert(executed == true)
 }
 
+test "exception: catching failed assertions" {
+    var caught = false
+    try {
+        assert(1 == 2)
+    } catch (e: AssertionException) {
+        caught = true
+        assert(e.message == "Assertion failed")
+    }
+    assert(caught == true)
+}
+
+
+
 

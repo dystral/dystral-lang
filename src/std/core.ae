@@ -132,14 +132,15 @@ fun print(value: Bool): Void {
     print(value.toString())
 }
 
+open class Exception(val message: String)
+
+class AssertionException(message: String) : Exception(message)
+
 fun assert(condition: Bool): Void {
     if (condition == false) {
-        print("[FAIL] Assertion failed")
-        Standard.exit(1)
+        throw AssertionException("Assertion failed")
     }
 }
 
 fun sleep(seconds: Int) = Posix.sleep(seconds)
 fun sleepMs(ms: Int) = Posix.usleep(ms * 1000)
-
-open class Exception(val message: String)

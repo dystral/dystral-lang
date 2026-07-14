@@ -311,12 +311,34 @@ pub const CTranspiler = struct {
                     }
 
                     if (self.is_test_mode) {
-                        try self.writer.appendSlice("int main() {\n    GC_init();\n");
+                        try self.writer.appendSlice("int main() {\n    GC_init();\n    int __failed = 0;\n");
                         for (self.test_names.items, 0..) |tname, i| {
-                            try self.writer.writer().print("    aether_test_{d}();\n", .{i});
-                            try self.writer.writer().print("    printf(\"[PASS] %s\\n\", \"{s}\");\n", .{tname});
+                            try self.writer.appendSlice("    {\n");
+                            try self.writer.appendSlice("        AetherExceptionFrame __frame;\n");
+                            try self.writer.appendSlice("        aether_push_exception_frame(&__frame);\n");
+                            try self.writer.appendSlice("        if (setjmp(__frame.buf) == 0) {\n");
+                            try self.writer.writer().print("            aether_test_{d}();\n", .{i});
+                            try self.writer.appendSlice("            aether_pop_exception_frame();\n");
+                            try self.writer.writer().print("            printf(\"[PASS] {s}\\n\");\n", .{tname});
+                            try self.writer.appendSlice("        } else {\n");
+                            try self.writer.appendSlice("            aether_pop_exception_frame();\n");
+                            try self.writer.appendSlice("            void* __exc = aether_active_exception;\n");
+                            try self.writer.appendSlice("            aether_active_exception = 0;\n");
+                            try self.writer.appendSlice("            const char* __name = \"UnknownException\";\n");
+                            try self.writer.appendSlice("            const char* __msg = \"\";\n");
+                            try self.writer.appendSlice("            if (__exc) {\n");
+                            try self.writer.appendSlice("                const AetherClassDescriptor* __desc = *(const AetherClassDescriptor**)__exc;\n");
+                            try self.writer.appendSlice("                if (__desc) __name = __desc->name;\n");
+                            try self.writer.appendSlice("                if (aether_is_instance(__desc, &core_Exception_descriptor)) {\n");
+                            try self.writer.appendSlice("                    __msg = ((core_Exception*)__exc)->message->ptr;\n");
+                            try self.writer.appendSlice("                }\n");
+                            try self.writer.appendSlice("            }\n");
+                            try self.writer.writer().print("            printf(\"[FAIL] {s}: %s (%s)\\n\", __name, __msg);\n", .{tname});
+                            try self.writer.appendSlice("            __failed = 1;\n");
+                            try self.writer.appendSlice("        }\n");
+                            try self.writer.appendSlice("    }\n");
                         }
-                        try self.writer.appendSlice("    return 0;\n}\n");
+                        try self.writer.appendSlice("    return __failed;\n}\n");
                     } else if (!has_main) {
                         try self.writer.appendSlice("int main(int argc, char** argv) {\n    GC_init();\n");
                         try self.writer.appendSlice("    (void)argc;\n");
