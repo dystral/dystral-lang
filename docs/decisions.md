@@ -149,3 +149,20 @@ Se o `when` retornar um valor não-Void, o compilador exige a presença de um ra
 4. Transpilação sem overhead: funções estáticas declaradas no `object` são compiladas diretamente como funções globais sem o argumento de ponteiro de instância (`this`). Variáveis estáticas no `object` tornam-se variáveis globais em C, com os nomes mangled adequadamente (`File_read`, `File_defaultPath`).
 **Razão:** Mantém a simplicidade do modelo de transpilação sem introduzir modificadores redundantes de escopo (`static`) em cada campo. A exigência de mesma linha na continuação (`} object {`) reforça a integridade visual da declaração conjunta, tratando o bloco `object` como parte intrínseca do tipo.
 
+## ADR 22: Standard Library Environment Configuration (`std.env`)
+**Data:** Fase 39
+**Contexto:** O Aether precisava de suporte a gerenciamento de variáveis de ambiente do processo e leitura de arquivos de configuração locais `.env` de forma limpa, tipada e resiliente.
+**Decisão:**
+1. Criar o módulo `std.env` expondo o objeto `Env` com suporte a `load()`, `get()`, `set()`, `unset()` e `exists()`.
+2. Implementar FFI bindings eficientes para a biblioteca padrão do C (`getenv`, `setenv`, `unsetenv` e `atoi` do `<stdlib.h>`).
+3. O método `Env.load(path)` fará checagem de legibilidade silenciosa do arquivo via FFI (tentando `fopen` no modo leitura) antes de processá-lo, retornando `false` sem emitir erros no stdout se o arquivo não existir.
+4. O parseador de `.env` descartará linhas vazias e comentários iniciados por `#`, fará split no primeiro caractere `=`, aplicará trim de espaços/newlines nas chaves e valores, e removerá aspas externas simples (`'`) ou duplas (`"`) do valor.
+5. Permitir conversão automática e segura para tipos em sobrecargas de `Env.get`:
+   - `Env.get(key): String?` (retorna `null` se não existir).
+   - `Env.get(key, default: String): String` (retorna o default se não existir).
+   - `Env.get(key, default: Int): Int` (converte via `atoi` ou retorna default se não existir).
+   - `Env.get(key, default: Bool): Bool` (valida valores truthy como `"true"`, `"1"`, `"yes"`, `"on"` ou retorna default se não existir).
+6. Executar o auto-loading automático do `.env` na primeira chamada de leitura (`get`, `exists`) caso `Env.load()` não tenha sido invocado previamente.
+**Razão:** Centraliza o acesso à configuração do processo sob uma única API consistente, facilitando inicialização de servidores e scripts que dependem de configurações dinâmicas de infraestrutura sem poluir a saída de erros na inicialização.
+
+

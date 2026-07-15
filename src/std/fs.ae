@@ -44,6 +44,15 @@ class File(val path: String) {
 
     fun delete() = NativeFS.remove(path) == 0
 
+    fun exists(): Bool {
+        val file = NativeFS.fopen(path, "r")
+        if (file == null) {
+            return false
+        }
+        NativeFS.fclose(file)
+        return true
+    }
+
 } object {
     
     fun read(path: String) = File(path).read()
@@ -51,4 +60,6 @@ class File(val path: String) {
     fun write(path: String, content: String) = File(path).write(content)
 
     fun delete(path: String) = File(path).delete()
+
+    fun exists(path: String) = File(path).exists()
 }

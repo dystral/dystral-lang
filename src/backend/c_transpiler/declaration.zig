@@ -394,6 +394,9 @@ pub fn emitObjectDecl(self: *CTranspiler, node: *ASTNode) anyerror!void {
         } else if (member.data == .var_decl) {
             const v = member.data.var_decl;
             const var_name = v.resolved_c_name orelse v.name;
+            if (self.emitted_variables.contains(var_name)) continue;
+            try self.emitted_variables.put(var_name, {});
+            
             var type_str: []const u8 = "int";
             if (member.resolved_type) |rt| {
                 type_str = try core.getCTypeStr(self.allocator, rt);

@@ -1,0 +1,133 @@
+import { Env } from "std.env"
+import { File } from "std.fs"
+
+test "env: basic env variable setting, getting, unsetting and exists" {
+    // Initially doesn't exist
+    Env.unset("AETHER_TEST_VAR")
+    assert(Env.exists("AETHER_TEST_VAR") == false)
+    assert(Env.get("AETHER_TEST_VAR") == null)
+
+    // Set variable
+    assert(Env.set("AETHER_TEST_VAR", "test-val-123"))
+    assert(Env.exists("AETHER_TEST_VAR") == true)
+    
+    // Get variable
+    val valOpt = Env.get("AETHER_TEST_VAR")
+    assert(valOpt != null)
+    assert(valOpt!! == "test-val-123")
+
+    // Unset variable
+    assert(Env.unset("AETHER_TEST_VAR"))
+    assert(Env.exists("AETHER_TEST_VAR") == false)
+}
+
+test "env: default overloads for String, Int and Bool" {
+    Env.unset("TEST_STR_KEY")
+    Env.unset("TEST_INT_KEY")
+    Env.unset("TEST_BOOL_KEY")
+
+    // Fallbacks
+    assert(Env.get("TEST_STR_KEY", "fallback-str") == "fallback-str")
+    assert(Env.get("TEST_INT_KEY", 9999) == 9999)
+    assert(Env.get("TEST_BOOL_KEY", true) == true)
+    assert(Env.get("TEST_BOOL_KEY", false) == false)
+
+    // Set values
+    Env.set("TEST_STR_KEY", "real-str")
+    Env.set("TEST_INT_KEY", "12345")
+    
+    assert(Env.get("TEST_STR_KEY", "fallback-str") == "real-str")
+    assert(Env.get("TEST_INT_KEY", 9999) == 12345)
+
+    // Truthy booleans
+    Env.set("TEST_BOOL_KEY", "true")
+    assert(Env.get("TEST_BOOL_KEY", false) == true)
+
+    Env.set("TEST_BOOL_KEY", "1")
+    assert(Env.get("TEST_BOOL_KEY", false) == true)
+
+    Env.set("TEST_BOOL_KEY", "yes")
+    assert(Env.get("TEST_BOOL_KEY", false) == true)
+
+    Env.set("TEST_BOOL_KEY", "on")
+    assert(Env.get("TEST_BOOL_KEY", false) == true)
+
+    // Falsy booleans
+    Env.set("TEST_BOOL_KEY", "false")
+    assert(Env.get("TEST_BOOL_KEY", true) == false)
+
+    Env.set("TEST_BOOL_KEY", "0")
+    assert(Env.get("TEST_BOOL_KEY", true) == false)
+
+    Env.set("TEST_BOOL_KEY", "random-text")
+    assert(Env.get("TEST_BOOL_KEY", true) == false)
+    
+    // Clean up
+    Env.unset("TEST_STR_KEY")
+    Env.unset("TEST_INT_KEY")
+    Env.unset("TEST_BOOL_KEY")
+}
+
+test "env: parsing .env file correctly with comments, spaces and quotes" {
+    val path = "./.env.test"
+    
+    // Construct double quote string dynamically via FFI since lexer does not support escaped double quotes \"
+    val quoteBuf = Standard.gcMalloc(2)
+    Standard.sprintf(quoteBuf, "%c".ptr, 34)
+    val dq = String(quoteBuf, 1)
+
+    val content = "# Comment line\n  # Space padded comment\nDB_HOST = localhost\nDB_PORT=5432\nDEBUG=true\n\n# Empty lines and padding\n  TEMP_KEY   =   temp-value   \n  \nQUOTED_VAL=" + dq + "quoted value" + dq + "\nSINGLE_QUOTED_VAL='single quoted'\n"
+    
+    // Write test file
+    assert(File.write(path, content))
+
+    // Load file
+    assert(Env.load(path) == true)
+
+    // Assert parsed variables
+    assert(Env.get("DB_HOST", "default") == "localhost")
+    assert(Env.get("DB_PORT", 0) == 5432)
+    assert(Env.get("DEBUG", false) == true)
+    assert(Env.get("TEMP_KEY", "default") == "temp-value")
+    assert(Env.get("QUOTED_VAL", "default") == "quoted value")
+    assert(Env.get("SINGLE_QUOTED_VAL", "default") == "single quoted")
+
+    // Clean up
+    assert(File.delete(path))
+    Env.unset("DB_HOST")
+    Env.unset("DB_PORT")
+    Env.unset("DEBUG")
+    Env.unset("TEMP_KEY")
+    Env.unset("QUOTED_VAL")
+    Env.unset("SINGLE_QUOTED_VAL")
+}
+
+test "env: silent failure on missing .env file" {
+    // Loading a non-existent file returns false but does not crash
+    assert(Env.load("./non-existent-env-file-name-xyz") == false)
+}
+
+test "env: global env helper functions" {
+    Env.unset("GLOBAL_ENV_TEST_VAR")
+    
+    // Check fallback
+    assert(env("GLOBAL_ENV_TEST_VAR") == null)
+    assert(env("GLOBAL_ENV_TEST_VAR", "fallback") == "fallback")
+    assert(env("GLOBAL_ENV_TEST_VAR", 8888) == 8888)
+    assert(env("GLOBAL_ENV_TEST_VAR", true) == true)
+    
+    // Set value and test
+    Env.set("GLOBAL_ENV_TEST_VAR", "hello-world")
+    assert(env("GLOBAL_ENV_TEST_VAR") != null)
+    assert(env("GLOBAL_ENV_TEST_VAR")!! == "hello-world")
+    assert(env("GLOBAL_ENV_TEST_VAR", "fallback") == "hello-world")
+    
+    Env.set("GLOBAL_ENV_TEST_VAR", "7777")
+    assert(env("GLOBAL_ENV_TEST_VAR", 8888) == 7777)
+    
+    Env.set("GLOBAL_ENV_TEST_VAR", "yes")
+    assert(env("GLOBAL_ENV_TEST_VAR", false) == true)
+    
+    // Clean up
+    Env.unset("GLOBAL_ENV_TEST_VAR")
+}

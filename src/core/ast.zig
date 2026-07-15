@@ -31,6 +31,7 @@ pub const TokenType = enum {
     kw_throw,
     kw_when,
     kw_object,
+    kw_default,
 
     // Symbols and Operators
     eq,         // =

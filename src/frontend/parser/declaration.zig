@@ -260,6 +260,10 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation, is_open: b
     const line = self.previous.line;
     const col = self.previous.column;
     
+    if (self.check(.kw_default)) {
+        self.reportLexerError(self.current.line, self.current.column, "Syntax Error: 'default' is a reserved keyword in Aether.", .{});
+        return error.ParseError;
+    }
     var name: []const u8 = "";
     if (self.match(.identifier)) {
         name = self.previous.lexeme;

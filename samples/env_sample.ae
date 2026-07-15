@@ -1,0 +1,37 @@
+import { Env } from "std.env"
+
+fun main() {
+    print("--- Aether Environment Configuration Sample ---")
+
+    // Try loading environment from .env file (optional, returns false if not found)
+    val envLoaded = Env.load()
+    print("Env file loaded: " + envLoaded.toString())
+
+    // 1. Reading basic string environment variables
+    val homeDir = Env.get("HOME")
+    if (homeDir != null) {
+        print("HOME directory is: " + homeDir!!)
+    } else {
+        print("HOME variable not set in process environment.")
+    }
+
+    // 2. Reading variables with fallback default values
+    val dbHost = Env.get("DB_HOST", "127.0.0.1")
+    val dbPort = Env.get("DB_PORT", 5432)
+    val debugMode = Env.get("DEBUG_MODE", false)
+
+    print("Database Host: " + dbHost)
+    print("Database Port: " + dbPort.toString())
+    print("Debug Mode: " + debugMode.toString())
+
+    // 3. Modifying the environment dynamically
+    Env.set("MY_CUSTOM_CONFIG", "aether-config-value")
+    
+    if (Env.exists("MY_CUSTOM_CONFIG")) {
+        print("Custom configuration exists: " + Env.get("MY_CUSTOM_CONFIG", "default"))
+    }
+
+    // 4. Unsetting variable
+    Env.unset("MY_CUSTOM_CONFIG")
+    print("Custom configuration exists after unset: " + Env.exists("MY_CUSTOM_CONFIG").toString())
+}

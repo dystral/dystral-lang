@@ -208,12 +208,21 @@ This document tracks the historical progress, current status, and future roadmap
 - [x] **Task 38.5:** Update the CTranspiler to emit correct C symbols using static name mangling (e.g., `class File` methods transpile to `File_member(File* self)`, while `object File` methods transpile to static global functions like `File_member(...)` without instance pointer overhead).
 - [x] **Verify:** Compile and run a hybrid `File` module where the static factory `File.read(path)` and the instance method `file.read()` coexist seamlessly.
 
-### Phase 39: Standard Library Environment Configuration (`std.env`) (PENDING)
-- [ ] **Task 39.1:** Implement `std.env` using `std.fs.File` to read `.env` files or environment variables. `Env.load()`, `Env.get(key)`, `Env.set(key, value)`, `Env.unset(key)`, `Env.exists(key)`. If `path` is not provided, `Env.load()` should read `.env` in the current directory. If `Env.get()` is called without `Env.load()` being called first, `Env.load()` should be called automatically.
-- [ ] **Task 39.2:** Implement `Env.get(key, default: String): String`. If the key is not found, return the default value.
-- [ ] **Task 39.3:** Implement `Env.get(key, default: Int): Int`. If the key is not found, return the default value.
-- [ ] **Task 39.4:** Implement `Env.get(key, default: Bool): Bool`. If the key is not found, return the default value.
-- [ ] **Verify:** Compile and run a script that uses `Env.get()` to retrieve environment variables.
+### Phase 39: Standard Library Environment Configuration (`std.env`) (COMPLETED)
+- [x] **Task 39.1:** Implement `std.env` using `std.fs.File` to read `.env` files or environment variables. `Env.load()`, `Env.get(key)`, `Env.set(key, value)`, `Env.unset(key)`, `Env.exists(key)`. If `path` is not provided, `Env.load()` should read `.env` in the current directory. If `Env.get()` is called without `Env.load()` being called first, `Env.load()` should be called automatically.
+- [x] **Task 39.2:** Implement `Env.get(key, defaultValue: String): String`. If the key is not found, return the default value.
+- [x] **Task 39.3:** Implement `Env.get(key, defaultValue: Int): Int`. If the key is not found, return the default value.
+- [x] **Task 39.4:** Implement `Env.get(key, defaultValue: Bool): Bool`. If the key is not found, return the default value.
+- [x] **Verify:** Compile and run a script that uses `Env.get()` to retrieve environment variables.
+
+### Phase 40: Multi-Pass Compiler Architecture Refactoring (Crystal/Kotlin Style) (PLANNED)
+Refactor the Aether compiler from file-by-file recursive typechecking to a global, multi-pass type resolution architecture inspired by Crystal and Kotlin to natively support project-wide namespaces and circular dependencies.
+
+- [ ] **Task 40.1:** Refactor file resolution to support a global Parsing Pass. Scan all files in the dependency graph starting from the entry point (`main.ae`) and load their parsed ASTs into a shared registry, rather than recursively compiling imports on-the-fly.
+- [ ] **Task 40.2:** Implement Type and Signature Declaration Pass. Walk all parsed ASTs and populate a global symbol table with all class, object, and function types and signatures, leaving bodies/initializers un-typechecked.
+- [ ] **Task 40.3:** Implement Semantic Body Validation Pass. Typecheck function bodies, method definitions, and initializers using the populated global symbol table. Resolves circular imports and cross-file type dependencies natively.
+- [ ] **Task 40.4:** Deduplicate Transpiler Output. Update `CTranspiler` to leverage the global registry, ensuring each standard library module is transpiled exactly once without duplicate C definitions.
+- [ ] **Verify:** Run a test verifying circular dependencies between user classes (e.g. `class User` referencing `class Group` and vice-versa) compiles and executes successfully.
 
 ---
 

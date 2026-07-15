@@ -314,6 +314,10 @@ fn core_check(self: *Parser, token_type: TokenType) bool {
 }
 
 fn core_consume(self: *Parser, token_type: TokenType, message: []const u8) anyerror!void {
+    if (token_type == .identifier and self.check(.kw_default)) {
+        self.reportLexerError(self.current.line, self.current.column, "Syntax Error: 'default' is a reserved keyword in Aether.", .{});
+        return error.ParseError;
+    }
     if (self.check(token_type)) {
         self.advance();
         return;

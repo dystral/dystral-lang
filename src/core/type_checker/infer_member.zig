@@ -53,9 +53,15 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
             const obj = obj_node.data.object_decl;
             for (obj.members) |member| {
                 if (member.data == .var_decl and std.mem.eql(u8, member.data.var_decl.name, g.name)) {
+                    if (member.resolved_type == null) {
+                        _ = try self.inferNode(member, scope);
+                    }
                     prop_type = member.resolved_type;
                     break;
                 } else if (member.data == .fun_decl and std.mem.eql(u8, member.data.fun_decl.name, g.name)) {
+                    if (member.resolved_type == null) {
+                        _ = try self.inferNode(member, scope);
+                    }
                     prop_type = member.resolved_type;
                     break;
                 }
@@ -202,6 +208,9 @@ pub fn inferSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
             for (obj.members) |member| {
                 if (member.data == .var_decl and std.mem.eql(u8, member.data.var_decl.name, s.name)) {
                     found_prop = true;
+                    if (member.resolved_type == null) {
+                        _ = try self.inferNode(member, scope);
+                    }
                     const v = member.data.var_decl;
                     if (!v.is_mut) {
                         self.reportError(node.line, node.column, "TypeError: Cannot assign to constant property '{s}' of object '{s}'.", .{ s.name, class_name });

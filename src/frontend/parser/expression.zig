@@ -349,6 +349,11 @@ pub fn primary(self: *Parser) anyerror!*ASTNode {
     const line = self.current.line;
     const col = self.current.column;
     
+    if (self.check(.kw_default)) {
+        self.reportLexerError(self.current.line, self.current.column, "Syntax Error: 'default' is a reserved keyword in Aether.", .{});
+        return error.ParseError;
+    }
+
     if (self.match(.kw_null)) {
         return try self.createNode(.{ .null_literal = {} });
     }

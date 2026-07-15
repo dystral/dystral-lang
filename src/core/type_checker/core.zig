@@ -29,7 +29,6 @@ pub const TypeChecker = struct {
     monomorphized_nodes: std.ArrayList(*ASTNode),
     current_class_name: ?[]const u8 = null,
 
-
     pub const inferNode = core_inferNode;
     pub const reportError = core_reportError;
     pub const resolveTypeRef = core_resolveTypeRef;
@@ -41,6 +40,7 @@ pub const TypeChecker = struct {
     pub const checkBlock = infer_stmt_mod.checkBlock;
     pub const isCompatible = core_isCompatible;
     pub const isSubclassOf = core_isSubclassOf;
+    pub const injectImplicitImports = core_injectImplicitImports;
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, filename: []const u8) TypeChecker {
         const checker = TypeChecker{
@@ -213,7 +213,6 @@ fn core_resolveTypeRef(self: *TypeChecker, ref: *const ast.ASTTypeRef) anyerror!
     return t;
 }
 
-
 fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool) anyerror!*AetherType {
     var p = parser_mod.Parser.init(self.allocator, name);
     const ref = try p.parseType();
@@ -223,30 +222,48 @@ fn core_resolveTypeName(self: *TypeChecker, name: []const u8, is_nullable: bool)
     return try self.resolveTypeRef(ref);
 }
 
+fn core_injectImplicitImports(self: *TypeChecker, node: *ASTNode) anyerror!void {
+    const basename = std.fs.path.basename(self.filename);
+    
+    // std.core itself has absolutely no implicit imports
+    if (std.mem.eql(u8, basename, "core.ae")) return;
+    
+    const is_std_lib = std.mem.startsWith(u8, self.filename, "std/") or std.mem.indexOf(u8, self.filename, "std/") != null;
+    
+    const implicit_imports = if (is_std_lib)
+        &[_][]const u8{ "std.core" }
+    else
+        &[_][]const u8{ "std.core", "std.env", "std.collections", "std.time" };
+    
+    const import_count = implicit_imports.len;
+    var new_stmts = try self.allocator.alloc(*ASTNode, node.data.program.statements.len + import_count);
+    
+    for (implicit_imports, 0..) |imp_path, i| {
+        const import_node = try self.allocator.create(ASTNode);
+        import_node.* = .{
+            .line = 0,
+            .column = 0,
+            .resolved_type = null,
+            .data = .{
+                .import_stmt = .{
+                    .module_path = imp_path,
+                    .destructured = &[_][]const u8{},
+                    .module_ast = null,
+                },
+            },
+        };
+        new_stmts[i] = import_node;
+    }
+    
+    for (node.data.program.statements, 0..) |stmt, i| {
+        new_stmts[i + import_count] = stmt;
+    }
+    node.data.program.statements = new_stmts;
+}
+
 fn core_validate(self: *TypeChecker, node: *ASTNode) anyerror!void {
     if (node.data == .program) {
-        const basename = std.fs.path.basename(self.filename);
-        if (!std.mem.eql(u8, basename, "core.ae")) {
-            var new_stmts = try self.allocator.alloc(*ASTNode, node.data.program.statements.len + 1);
-                
-                const import_node = try self.allocator.create(ASTNode);
-                import_node.* = .{
-                    .line = 0,
-                    .column = 0,
-                    .resolved_type = null,
-                    .data = .{ .import_stmt = .{
-                        .module_path = "std.core",
-                        .destructured = &[_][]const u8{}, // Empty means import ALL
-                        .module_ast = null,
-                    }}
-                };
-                
-                new_stmts[0] = import_node;
-                for (node.data.program.statements, 0..) |stmt, i| {
-                    new_stmts[i + 1] = stmt;
-                }
-                node.data.program.statements = new_stmts;
-        }
+        try self.injectImplicitImports(node);
     }
     if (node.data == .program) {
         for (node.data.program.statements) |stmt| {
@@ -307,7 +324,7 @@ fn core_validate(self: *TypeChecker, node: *ASTNode) anyerror!void {
         }
     }
     _ = try self.inferNode(node, &self.global_scope);
-    
+
     // Append any dynamically monomorphized classes to the AST
     if (node.data == .program and self.monomorphized_nodes.items.len > 0) {
         var final_stmts = try self.allocator.alloc(*ASTNode, node.data.program.statements.len + self.monomorphized_nodes.items.len);
@@ -368,7 +385,7 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
         .string_literal => {
             const literal_str = node.data.string_literal;
             const len = literal_str.len;
-            
+
             const ptr_node = try self.allocator.create(ASTNode);
             ptr_node.* = .{
                 .line = node.line,
@@ -380,7 +397,7 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
             ptr_type.* = .{ .Pointer = try self.allocator.create(AetherType) };
             @constCast(ptr_type.Pointer).* = .Void;
             ptr_node.resolved_type = ptr_type;
-            
+
             const len_node = try self.allocator.create(ASTNode);
             len_node.* = .{
                 .line = node.line,
@@ -391,11 +408,11 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
             const int_type = try self.allocator.create(AetherType);
             int_type.* = .Int;
             len_node.resolved_type = int_type;
-            
+
             const callee_node = try self.allocator.create(ASTNode);
             const resolved_c_name = self.alias_map.get("String");
             const actual_c_name = resolved_c_name orelse "String";
-            
+
             callee_node.* = .{
                 .line = node.line,
                 .column = node.column,
@@ -405,11 +422,11 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
             const callee_type = try self.allocator.create(AetherType);
             callee_type.* = .{ .Custom = actual_c_name };
             callee_node.resolved_type = callee_type;
-            
+
             var args = try self.allocator.alloc(*ASTNode, 2);
             args[0] = ptr_node;
             args[1] = len_node;
-            
+
             node.data = .{ .call_expr = .{ .callee = callee_node, .arguments = args } };
             t.* = .{ .Custom = actual_c_name };
         },
@@ -428,7 +445,7 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
 
 fn core_isSubclassOf(self: *TypeChecker, subclass_name: []const u8, superclass_name: []const u8) bool {
     if (std.mem.eql(u8, subclass_name, superclass_name)) return true;
-    
+
     var current_name = subclass_name;
     while (true) {
         const class_node = self.classes_ast.get(current_name) orelse return false;

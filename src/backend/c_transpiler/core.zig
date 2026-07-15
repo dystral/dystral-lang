@@ -58,6 +58,7 @@ pub const CTranspiler = struct {
     libs: std.StringHashMap(void),
     link_libraries: std.StringHashMap(void),
     emitted_functions: std.StringHashMap(void),
+    emitted_variables: std.StringHashMap(void),
     is_test_mode: bool = false,
     test_names: std.ArrayList([]const u8),
     test_count: usize = 0,
@@ -172,6 +173,7 @@ pub const CTranspiler = struct {
             .libs = std.StringHashMap(void).init(allocator),
             .link_libraries = std.StringHashMap(void).init(allocator),
             .emitted_functions = std.StringHashMap(void).init(allocator),
+            .emitted_variables = std.StringHashMap(void).init(allocator),
             .is_test_mode = false,
             .test_names = std.ArrayList([]const u8).init(allocator),
             .test_count = 0,
@@ -188,6 +190,7 @@ pub const CTranspiler = struct {
         self.libs.deinit();
         self.link_libraries.deinit();
         self.emitted_functions.deinit();
+        self.emitted_variables.deinit();
         self.test_names.deinit();
         self.static_initializers.deinit();
     }

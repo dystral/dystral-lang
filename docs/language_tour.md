@@ -676,7 +676,27 @@ fun main() {
 ## 16. Objects & Boundless Namespaces
 Objects allow grouping static variables and functions under a class namespace. In Aether, this is declared using the `object` keyword.
 
-### 16.1 Class-Bound Objects
+### 16.1 Named Standalone Objects (Singletons)
+You can also declare standalone named `object` blocks which act as singletons or modules:
+
+```kotlin
+object Database {
+    var queryCount = 0
+    
+    fun execute(query: String): String {
+        this.queryCount = this.queryCount + 1
+        return "Result of: " + query
+    }
+}
+
+fun main() {
+    assert(Database.queryCount == 0)
+    val result = Database.execute("SELECT * FROM users")
+    assert(Database.queryCount == 1)
+}
+```
+
+### 16.2 Class-Bound Objects
 An anonymous `object` block that immediately follows or precedes a `class` definition binds its members to the class namespace.
 
 #### Same-Line Syntax Constraint
@@ -737,25 +757,67 @@ fun main() {
 }
 ```
 
-### 16.2 Named Standalone Objects (Singletons)
-You can also declare standalone named `object` blocks which act as singletons or modules:
+## 17. Environment Variables (`std.env`)
+The `std.env` module provides tools to load environment variables from `.env` files and interact with the process's environment. Like `std.core`, `std.collections`, and `std.time`, the `std.env` module is **implicitly imported** by the compiler into every program, so no `import` statement is required.
+
+### 17.1 Loading `.env` files
+Use `Env.load()` to load an environment configuration. If no path is provided, Aether looks for `.env` in the current directory. This returns `false` silently if the file is not found.
 
 ```kotlin
-object Database {
-    var queryCount = 0
-    
-    fun execute(query: String): String {
-        this.queryCount = this.queryCount + 1
-        return "Result of: " + query
-    }
-}
-
 fun main() {
-    assert(Database.queryCount == 0)
-    val result = Database.execute("SELECT * FROM users")
-    assert(Database.queryCount == 1)
+    // Loads .env from current directory (returns true if loaded, false if not found)
+    Env.load()
+    
+    // Or specify a custom path
+    Env.load("configs/local.env")
 }
 ```
+
+### 17.2 Reading Variables
+You can query variables using `Env.get`. If a get/check is performed before `Env.load()` is explicitly invoked, Aether automatically attempts to load the default `.env` file first.
+
+```kotlin
+fun main() {
+    // Nullable string retrieval
+    val host: String? = Env.get("DB_HOST")
+    
+    // Retrieval with default fallback values (String, Int, Bool overloads)
+    val port: Int = Env.get("DB_PORT", 5432)
+    val database: String = Env.get("DB_NAME", "production")
+    val isDebug: Bool = Env.get("DEBUG", false)
+}
+```
+
+### 17.3 Global `env()` Helper
+For fast, zero-boilerplate configuration lookup, Aether provides overloaded global `env()` helper functions (which delegate directly to `Env.get`):
+
+```kotlin
+fun main() {
+    // Nullable string retrieval
+    val host: String? = env("DB_HOST")
+    
+    // Retrieval with default fallback values (String, Int, Bool overloads)
+    val port: Int = env("DB_PORT", 5432)
+    val database: String = env("DB_NAME", "production")
+    val isDebug: Bool = env("DEBUG", false)
+}
+```
+
+### 17.4 Modifying and Checking Variables
+Aether allows setting, unsetting, and checking for the existence of environment variables:
+
+```kotlin
+fun main() {
+    // Check if variable exists
+    if (Env.exists("API_KEY") == false) {
+        Env.set("API_KEY", "default-secret-key")
+    }
+    
+    // Unset a variable
+    Env.unset("TEMP_TOKEN")
+}
+```
+
 
 
 

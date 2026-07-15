@@ -450,61 +450,93 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
             if (self.objects_ast.get(actual_class_name)) |obj_node| {
                 is_static = true;
                 const obj = obj_node.data.object_decl;
+                
+                // Static method overload resolution
                 for (obj.members) |member| {
                     if (member.data == .fun_decl and std.mem.eql(u8, member.data.fun_decl.name, g.name)) {
-                        found_static_method = member;
-                        break;
+                        const f = member.data.fun_decl;
+                        if (c.arguments.len > f.params.len) continue;
+                        
+                        var has_defaults = true;
+                        var i = c.arguments.len;
+                        while (i < f.params.len) : (i += 1) {
+                            if (f.params[i].initializer == null) {
+                                has_defaults = false;
+                                break;
+                            }
+                        }
+                        if (!has_defaults) continue;
+                        
+                        var all_match = true;
+                        for (c.arguments, 0..) |arg, arg_i| {
+                            const arg_type = try self.inferNode(arg, scope);
+                            const expected_type = try self.resolveTypeRef(f.params[arg_i].type_ref.?);
+                            if (!self.isCompatible(expected_type, arg_type)) {
+                                all_match = false;
+                                break;
+                            }
+                        }
+                        
+                        if (all_match) {
+                            found_static_method = member;
+                            break;
+                        }
+                    }
+                }
+                
+                if (found_static_method == null) {
+                    for (obj.members) |member| {
+                        if (member.data == .fun_decl and std.mem.eql(u8, member.data.fun_decl.name, g.name)) {
+                            found_static_method = member;
+                            break;
+                        }
                     }
                 }
             }
         }
         
         if (is_static) {
-            const ret_type = c.callee.resolved_type.?.Function.return_type;
-            if (found_static_method) |m| {
-                const f = &m.data.fun_decl;
-                if (c.arguments.len < f.params.len) {
-                    var new_args = try self.allocator.alloc(*ASTNode, f.params.len);
-                    for (c.arguments, 0..) |arg, arg_i| {
-                        new_args[arg_i] = arg;
-                    }
-                    var i = c.arguments.len;
-                    while (i < f.params.len) : (i += 1) {
-                        const prop = f.params[i];
-                        if (prop.initializer) |init_node| {
-                            const cloned = try self.cloneNode(init_node);
-                            _ = try self.inferNode(cloned, scope);
-                            new_args[i] = cloned;
-                        } else {
-                            self.reportError(node.line, node.column, "TypeError: Missing argument for parameter '{s}' of '{s}' which has no default value.", .{ prop.name, f.name });
-                            return error.TypeError;
-                        }
-                    }
-                    c.arguments = new_args;
-                }
-            }
+            const matched_method = found_static_method orelse {
+                self.reportError(node.line, node.column, "TypeError: Static method '{s}' not found.", .{g.name});
+                return error.TypeError;
+            };
+            const ret_type = matched_method.resolved_type.?.Function.return_type;
+            const f = &matched_method.data.fun_decl;
             
-            if (c.callee.resolved_type) |fn_type| {
-                if (fn_type.* == .Function) {
-                    const static_c_name = fn_type.Function.c_name;
-                    c.callee.data = .{ .identifier = .{
-                        .name = g.name,
-                        .resolved_c_name = static_c_name,
-                        .is_class_property = false,
-                    } };
-                    c.callee.resolved_type = null;
+            if (c.arguments.len < f.params.len) {
+                var new_args = try self.allocator.alloc(*ASTNode, f.params.len);
+                for (c.arguments, 0..) |arg, arg_i| {
+                    new_args[arg_i] = arg;
                 }
-            }
-            
-            if (found_static_method) |m| {
-                const f = m.data.fun_decl;
-                for (c.arguments, 0..) |arg, i| {
-                    const arg_type = try self.inferNode(arg, scope);
-                    const expected_type = try self.resolveTypeRef(f.params[i].type_ref.?);
-                    if (!self.isCompatible(expected_type, arg_type)) {
-                        self.reportError(arg.line, arg.column, "TypeError: Expected {} but found {} for argument {}.", .{ expected_type.*, arg_type.*, i + 1 });
+                var i = c.arguments.len;
+                while (i < f.params.len) : (i += 1) {
+                    const prop = f.params[i];
+                    if (prop.initializer) |init_node| {
+                        const cloned = try self.cloneNode(init_node);
+                        _ = try self.inferNode(cloned, scope);
+                        new_args[i] = cloned;
+                    } else {
+                        self.reportError(node.line, node.column, "TypeError: Missing argument for parameter '{s}' of '{s}' which has no default value.", .{ prop.name, f.name });
                         return error.TypeError;
                     }
+                }
+                c.arguments = new_args;
+            }
+            
+            const static_c_name = matched_method.resolved_type.?.Function.c_name;
+            c.callee.data = .{ .identifier = .{
+                .name = g.name,
+                .resolved_c_name = static_c_name,
+                .is_class_property = false,
+            } };
+            c.callee.resolved_type = null;
+            
+            for (c.arguments, 0..) |arg, i| {
+                const arg_type = try self.inferNode(arg, scope);
+                const expected_type = try self.resolveTypeRef(f.params[i].type_ref.?);
+                if (!self.isCompatible(expected_type, arg_type)) {
+                    self.reportError(arg.line, arg.column, "TypeError: Expected {} but found {} for argument {}.", .{ expected_type.*, arg_type.*, i + 1 });
+                    return error.TypeError;
                 }
             }
             
