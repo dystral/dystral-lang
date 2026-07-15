@@ -156,11 +156,11 @@ This document tracks the historical progress, current status, and future roadmap
 - [x] **Task 30.5:** Emit function pointers for polymorphic methods in the struct and wire them up in constructors.
 - [x] **Task 30.6:** Implement type compatibility and casting rules (upcasting and downcasting/smart casts) in the Type Checker.
 
-### Phase 31: Lambda Expressions & Higher-Order Functions (PENDING)
-- [ ] **Task 31.1:** Add support in the Lexer and Parser for function types (e.g. `(Int, Int) -> String`) and lambda literals (e.g. `{ x, y -> x + y }`).
-- [ ] **Task 31.2:** Update the TypeChecker to resolve lambda argument types and return types, implementing parameter type inference where possible.
-- [ ] **Task 31.3:** Implement scope capturing (closures) in the TypeChecker to detect variables captured from outer scopes.
-- [ ] **Task 31.4:** Update the C Transpiler to generate struct representations for closures (containing function pointers and captured environments) and handle invocation.
+### Phase 31: Lambda Expressions & Higher-Order Functions (COMPLETED)
+- [x] **Task 31.1:** Add support in the Lexer and Parser for function types (e.g. `(Int, Int) -> String`) and lambda literals (e.g. `{ x, y -> x + y }`).
+- [x] **Task 31.2:** Update the TypeChecker to resolve lambda argument types and return types, implementing parameter type inference where possible.
+- [x] **Task 31.3:** Implement scope capturing (closures) in the TypeChecker to detect variables captured from outer scopes.
+- [x] **Task 31.4:** Update the C Transpiler to generate struct representations for closures (containing function pointers and captured environments) and handle invocation.
 
 ### Phase 32: Pattern Matching & `when` Expressions (COMPLETED)
 - [x] **Task 32.1:** Add the `when` keyword to the Lexer and AST.
