@@ -1,0 +1,59 @@
+fun makeAdder(x: Int): (Int) -> Int {
+    return { y: Int -> x + y }
+}
+
+test "lambdas: should execute basic function types" {
+    val add: (Int, Int) -> Int = { x: Int, y: Int -> x + y }
+    assert(add(1, 2) == 3)
+}
+
+test "lambdas: should support implicit 'it' parameter" {
+    val twice: (Int) -> Int = { it * 2 }
+    assert(twice(10) == 20)
+}
+
+test "lambdas: should capture val variable from outer scope" {
+    val threshold = 10
+    val isAboveThreshold: (Int) -> Bool = { it > threshold }
+    assert(isAboveThreshold(15) == true)
+    assert(isAboveThreshold(5) == false)
+}
+
+test "lambdas: should capture and mutate var variable (closure)" {
+    var total = 0
+    val accumulate = { value: Int -> 
+        total = total + value
+        total
+    }
+    
+    assert(accumulate(5) == 5)
+    assert(accumulate(10) == 15)
+    assert(total == 15)
+}
+
+test "lambdas: higher order function return and nested capturing" {
+    val add5 = makeAdder(5)
+    assert(add5(10) == 15)
+}
+
+class HTMLBuilder(var content: String = "") {
+    fun body(init: () -> String) {
+        this.content = this.content + "<body>" + init() + "</body>"
+    }
+}
+
+fun html(init: HTMLBuilder.() -> Void): String {
+    val builder = HTMLBuilder()
+    init(builder)
+    return "<html>" + builder.content + "</html>"
+}
+
+test "lambdas: simple HTML builder DSL" {
+    val result = html {
+        body {
+            "Hello Aether DSL!"
+        }
+    }
+    assert(result == "<html><body>Hello Aether DSL!</body></html>")
+}
+

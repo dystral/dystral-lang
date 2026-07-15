@@ -86,11 +86,11 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
             
             if (tc.global_scope.lookupFunctions(sym)) |overloads| {
                 for (overloads) |overload| {
-                    try self.global_scope.define(sym, overload, false);
+                    try self.global_scope.define(sym, overload, false, true);
                 }
                 found = true;
             } else if (tc.global_scope.lookupVariable(sym)) |variable| {
-                try self.global_scope.define(sym, variable, false);
+                try self.global_scope.define(sym, variable, false, false);
                 found = true;
             }
             
@@ -172,9 +172,9 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
     } else {
         class_type.* = .{ .Custom = actual_c_name };
     }
-    try scope.define(c.name, class_type, false);
+    try scope.define(c.name, class_type, false, false);
     if (!std.mem.eql(u8, c.name, actual_c_name)) {
-        try scope.define(actual_c_name, class_type, false);
+        try scope.define(actual_c_name, class_type, false, false);
     }
     
     try self.classes_ast.put(actual_c_name, node);
@@ -188,7 +188,7 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
 
     var class_scope = Scope.init(self.allocator, scope);
     defer class_scope.deinit();
-    try class_scope.define("this", class_type, false);
+    try class_scope.define("this", class_type, false, false);
 
     var class_props = std.StringHashMap(void).init(self.allocator);
     defer class_props.deinit();
@@ -237,7 +237,7 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
         defer constr_scope.deinit();
         for (c.primary_constructor) |prop| {
             const p_t = try self.resolveTypeRef(prop.type_ref);
-            try constr_scope.define(prop.name, p_t, prop.is_mut);
+            try constr_scope.define(prop.name, p_t, prop.is_mut, false);
         }
         
         for (c.superclass_args, 0..) |arg, i| {
@@ -260,7 +260,7 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
                 if (!class_props.contains(prop.name)) {
                     try class_props.put(prop.name, {});
                     const p_type = try self.resolveTypeRef(prop.type_ref);
-                    try class_scope.define(prop.name, p_type, prop.is_mut);
+                    try class_scope.define(prop.name, p_type, prop.is_mut, false);
                 }
             }
             
@@ -278,10 +278,11 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
                         .params = try param_types.toOwnedSlice(),
                         .return_type = ret_t,
                         .c_name = m_decl.resolved_c_name orelse m_decl.name,
+                        .receiver = class_type,
                     }};
                     
                     if (class_scope.symbols.get(m_decl.name) == null) {
-                        try class_scope.define(m_decl.name, fn_type, false);
+                        try class_scope.define(m_decl.name, fn_type, false, true);
                     }
                 }
             }
@@ -305,7 +306,7 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
 
         if (prop.is_property) {
             try class_props.put(prop.name, {});
-            try class_scope.define(prop.name, param_type, prop.is_mut);
+            try class_scope.define(prop.name, param_type, prop.is_mut, false);
         }
     }
 
@@ -342,13 +343,20 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     var f = &node.data.fun_decl;
     var param_types = std.ArrayList(*const AetherType).init(self.allocator);
     var mangled_name = std.ArrayList(u8).init(self.allocator);
-    if (self.module_prefix) |prefix| {
+    const is_method = scope.lookupVariable("this") != null;
+    if (is_method) {
+        const this_t = scope.lookupVariable("this").?;
+        const base_t = core.extractBaseType(this_t);
+        const class_name = if (base_t.* == .Custom) base_t.Custom else (if (base_t.* == .Pointer and base_t.Pointer.* == .Custom) base_t.Pointer.Custom else f.name);
+        try mangled_name.writer().print("{s}_{s}", .{class_name, f.name});
+    } else if (self.module_prefix) |prefix| {
         try mangled_name.writer().print("{s}_{s}", .{prefix, f.name});
     } else {
         try mangled_name.appendSlice(f.name);
     }
 
     var fun_scope = Scope.init(self.allocator, scope);
+    fun_scope.is_function_boundary = true;
     defer fun_scope.deinit();
 
     for (f.params) |*p| {
@@ -356,12 +364,16 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         if (p.type_ref) |tr| {
             param_type = try self.resolveTypeRef(tr);
             
-            try mangled_name.appendSlice("_");
-            try param_type.formatSafe(mangled_name.writer());
+            if (!is_method) {
+                try mangled_name.appendSlice("_");
+                try param_type.formatSafe(mangled_name.writer());
+            }
         } else {
             param_type = try self.allocator.create(AetherType);
             param_type.* = .Void;
-            try mangled_name.appendSlice("_Void");
+            if (!is_method) {
+                try mangled_name.appendSlice("_Void");
+            }
         }
 
         if (p.initializer) |init_node| {
@@ -373,7 +385,7 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
             }
         }
 
-        try fun_scope.define(p.name, param_type, false);
+        try fun_scope.define(p.name, param_type, false, false);
         try param_types.append(param_type);
     }
     
@@ -405,9 +417,10 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         .params = try param_types.toOwnedSlice(),
         .return_type = return_type,
         .c_name = f.resolved_c_name.?,
+        .receiver = if (is_method) scope.lookupVariable("this") else null,
     } };
     
-    try scope.define(f.name, fn_type, false);
+    try scope.define(f.name, fn_type, false, true);
 
     if (!body_inferred) {
         _ = try self.inferNode(f.body, &fun_scope);
@@ -424,14 +437,17 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
 
 pub fn inferVarDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const v = &node.data.var_decl;
-    var inferred: ?*const AetherType = null;
-    if (v.initializer) |init_node| {
-        inferred = try self.inferNode(init_node, scope);
-    }
-
     var declared: ?*const AetherType = null;
     if (v.type_ref) |tr| {
         declared = try self.resolveTypeRef(tr);
+    }
+
+    var inferred: ?*const AetherType = null;
+    if (v.initializer) |init_node| {
+        if (declared) |d| {
+            init_node.expected_type = d;
+        }
+        inferred = try self.inferNode(init_node, scope);
     }
 
     if (declared != null and inferred != null) {
@@ -446,7 +462,12 @@ pub fn inferVarDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         void_t.* = .Void;
         break :blk void_t;
     });
-    try scope.define(v.name, final_type, v.is_mut);
+    try scope.define(v.name, final_type, v.is_mut, false);
+    if (scope.symbols.get(v.name)) |sym| {
+        if (sym.* == .Variable) {
+            sym.Variable.decl_node = node;
+        }
+    }
     node.resolved_type = final_type;
     t.* = .Void;
 }
@@ -455,7 +476,7 @@ pub fn inferLibDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     const l = &node.data.lib_decl;
     const lib_type = try self.allocator.create(AetherType);
     lib_type.* = .{ .Custom = l.name };
-    try scope.define(l.name, lib_type, false);
+    try scope.define(l.name, lib_type, false, false);
 
     for (l.functions) |func| {
         const f = &func.data.fun_decl;
@@ -476,7 +497,7 @@ pub fn inferLibDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
                 }
             }
         }
-        try scope.define(full_name, ret_type, false);
+        try scope.define(full_name, ret_type, false, true);
         try self.alias_map.put(full_name, c_name);
     }
     t.* = .Void;

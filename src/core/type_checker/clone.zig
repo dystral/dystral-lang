@@ -24,6 +24,9 @@ pub fn cloneTypeRef(self: *TypeChecker, ref: *const ast.ASTTypeRef) anyerror!*as
         .generic_args = generic_args,
         .is_array = ref.is_array,
         .is_nullable = ref.is_nullable,
+        .is_function = ref.is_function,
+        .receiver_type = if (ref.receiver_type) |rec| try self.cloneTypeRef(rec) else null,
+        .return_type = if (ref.return_type) |ret| try self.cloneTypeRef(ret) else null,
     };
     return new_ref;
 }
@@ -191,6 +194,24 @@ pub fn cloneNode(self: *TypeChecker, node: *ASTNode) anyerror!*ASTNode {
                 .subject = subject,
                 .cases = new_cases,
             }};
+        },
+        .lambda_expr => |l| {
+            var new_params = try self.allocator.alloc(ast.Param, l.params.len);
+            for (l.params, 0..) |p, i| {
+                new_params[i] = .{
+                    .name = p.name,
+                    .type_ref = if (p.type_ref) |tr| try self.cloneTypeRef(tr) else null,
+                    .initializer = if (p.initializer) |init| try self.cloneNode(init) else null,
+                };
+            }
+            var new_body = try self.allocator.alloc(*ASTNode, l.body.len);
+            for (l.body, 0..) |stmt, i| {
+                new_body[i] = try self.cloneNode(stmt);
+            }
+            new_node.data = .{ .lambda_expr = .{
+                .params = new_params,
+                .body = new_body,
+            } };
         },
         else => {}, // For identifiers and literals, shallow copy is fine as long as we cleared resolved_type
     }

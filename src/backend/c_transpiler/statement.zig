@@ -4,20 +4,49 @@ const core = @import("core.zig");
 const ASTNode = core.ASTNode;
 const CTranspiler = core.CTranspiler;
 
-pub fn emitStatement(self: *CTranspiler, node: *ASTNode) !void {
+fn getBoxTypeName(allocator: std.mem.Allocator, c_type: []const u8) anyerror![]const u8 {
+    var safe = std.ArrayList(u8).init(allocator);
+    for (c_type) |c| {
+        if (c == '*') {
+            try safe.appendSlice("Ptr");
+        } else if (c == ' ') {
+            try safe.appendSlice("_");
+        } else {
+            try safe.append(c);
+        }
+    }
+    return try std.fmt.allocPrint(allocator, "Box_{s}", .{safe.items});
+}
+
+pub fn emitStatement(self: *CTranspiler, node: *ASTNode) anyerror!void {
     switch (node.data) {
         .var_decl => |v| {
             var type_str: []const u8 = "int";
             if (node.resolved_type) |rt| {
                 type_str = try core.getCTypeStr(self.allocator, rt);
             }
-            try self.writer.writer().print("    {s} {s}", .{type_str, v.name});
-            
-            if (v.initializer) |init_node| {
-                try self.writer.appendSlice(" = ");
-                try self.emitExpression(init_node);
+            if (v.is_boxed) {
+                const box_type = try getBoxTypeName(self.allocator, type_str);
+                if (!self.classes.contains(box_type)) {
+                    try self.classes.put(box_type, {});
+                    try self.header_writer.writer().print("typedef struct {{\n    {s} value;\n}} {s};\n\n", .{type_str, box_type});
+                }
+                
+                try self.writer.writer().print("    {s}* {s} = GC_MALLOC(sizeof({s}))", .{box_type, v.name, box_type});
+                if (v.initializer) |init_node| {
+                    try self.writer.appendSlice(";\n");
+                    try self.writer.writer().print("    {s}->value = ", .{v.name});
+                    try self.emitExpression(init_node);
+                }
+                try self.writer.appendSlice(";\n");
+            } else {
+                try self.writer.writer().print("    {s} {s}", .{type_str, v.name});
+                if (v.initializer) |init_node| {
+                    try self.writer.appendSlice(" = ");
+                    try self.emitExpression(init_node);
+                }
+                try self.writer.appendSlice(";\n");
             }
-            try self.writer.appendSlice(";\n");
         },
         .if_expr => |i| {
             try self.writer.appendSlice("    if (");

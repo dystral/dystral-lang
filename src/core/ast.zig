@@ -91,6 +91,9 @@ pub const ASTTypeRef = struct {
     generic_args: []const *const ASTTypeRef,
     is_array: bool,
     is_nullable: bool,
+    is_function: bool = false,
+    receiver_type: ?*const ASTTypeRef = null,
+    return_type: ?*const ASTTypeRef = null,
     resolved_type: ?*const type_system.AetherType = null,
 };
 
@@ -126,6 +129,7 @@ pub const ASTNode = struct {
     line: usize,
     column: usize,
     resolved_type: ?*const type_system.AetherType = null,
+    expected_type: ?*const type_system.AetherType = null,
     data: ASTNodeType,
 };
 
@@ -144,6 +148,7 @@ pub const ASTNodeType = union(enum) {
         name: []const u8,
         type_ref: ?*const ASTTypeRef, // Optional due to inference
         initializer: ?*ASTNode,
+        is_boxed: bool = false,
     },
     fun_decl: struct {
         annotations: []const Annotation,
@@ -193,6 +198,7 @@ pub const ASTNodeType = union(enum) {
         name: []const u8,
         resolved_c_name: ?[]const u8,
         is_class_property: bool = false,
+        is_boxed: bool = false,
     },
 
     // Expressions
@@ -226,6 +232,7 @@ pub const ASTNodeType = union(enum) {
     assignment: struct {
         name: []const u8,
         value: *ASTNode,
+        is_boxed: bool = false,
     },
     get_expr: struct {
         object: *ASTNode,
@@ -281,6 +288,10 @@ pub const ASTNodeType = union(enum) {
     when_expr: struct {
         subject: ?*ASTNode,
         cases: []const WhenCase,
+    },
+    lambda_expr: struct {
+        params: []const Param,
+        body: []const *ASTNode,
     },
 };
 

@@ -164,4 +164,9 @@ static inline int aether_curl_setopt_int(CURL* curl, CURLoption option, int valu
 }
 #endif
 
+typedef struct AetherClosure {
+    void* fn_ptr;
+    void* env;
+} AetherClosure;
+
 #endif // AETHER_RUNTIME_H

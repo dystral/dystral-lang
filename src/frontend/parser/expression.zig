@@ -242,6 +242,27 @@ pub fn call(self: *Parser) anyerror!*ASTNode {
     while (true) {
         if (self.match(.l_paren)) {
             expr = try self.finishCall(expr);
+            if (self.match(.l_brace)) {
+                const line = self.previous.line;
+                const col = self.previous.column;
+                const lambda = try parseLambdaLiteral(self, line, col);
+                if (expr.data == .call_expr) {
+                    var new_args = std.ArrayList(*ASTNode).init(self.allocator);
+                    try new_args.appendSlice(expr.data.call_expr.arguments);
+                    try new_args.append(lambda);
+                    expr.data.call_expr.arguments = try new_args.toOwnedSlice();
+                }
+            }
+        } else if (self.match(.l_brace)) {
+            const line = self.previous.line;
+            const col = self.previous.column;
+            const lambda = try parseLambdaLiteral(self, line, col);
+            const args = try self.allocator.alloc(*ASTNode, 1);
+            args[0] = lambda;
+            expr = try self.createNodeAt(.{ .call_expr = .{
+                .callee = expr,
+                .arguments = args,
+            } }, line, col);
         } else if (self.match(.dot) or self.match(.question_dot)) {
             const is_safe = self.previous.token_type == .question_dot;
             try self.consume(.identifier, "Expected property name.");
@@ -273,6 +294,55 @@ pub fn finishCall(self: *Parser, callee: *ASTNode) anyerror!*ASTNode {
     }
     try self.consume(.r_paren, "Expected ')' after arguments.");
     return try self.createNodeAt(.{ .call_expr = .{ .callee = callee, .arguments = try args.toOwnedSlice() } }, line, col);
+}
+
+pub fn parseLambdaLiteral(self: *Parser, line: usize, col: usize) anyerror!*ASTNode {
+    var params = std.ArrayList(ast.Param).init(self.allocator);
+    var temp_lexer = self.lexer;
+    var has_arrow = false;
+    var brace_depth: usize = 0;
+    while (true) {
+        const tok = temp_lexer.scanToken();
+        if (tok.token_type == .eof) break;
+        if (tok.token_type == .l_brace) brace_depth += 1;
+        if (tok.token_type == .r_brace) {
+            if (brace_depth == 0) break;
+            brace_depth -= 1;
+        }
+        if (tok.token_type == .arrow and brace_depth == 0) {
+            has_arrow = true;
+            break;
+        }
+    }
+
+    if (has_arrow) {
+        while (!self.check(.arrow) and !self.check(.eof)) {
+            try self.consume(.identifier, "Expected parameter name in lambda.");
+            const p_name = self.previous.lexeme;
+            var p_type: ?*const ast.ASTTypeRef = null;
+            if (self.match(.colon)) {
+                p_type = try self.parseType();
+            }
+            try params.append(ast.Param{
+                .name = p_name,
+                .type_ref = p_type,
+                .initializer = null,
+            });
+            if (!self.match(.comma)) break;
+        }
+        try self.consume(.arrow, "Expected '->' after lambda parameters.");
+    }
+
+    var body_stmts = std.ArrayList(*ASTNode).init(self.allocator);
+    while (!self.check(.r_brace) and !self.check(.eof)) {
+        try body_stmts.append(try self.declaration());
+    }
+    try self.consume(.r_brace, "Expected '}' at the end of lambda expression.");
+
+    return try self.createNodeAt(.{ .lambda_expr = .{
+        .params = try params.toOwnedSlice(),
+        .body = try body_stmts.toOwnedSlice(),
+    } }, line, col);
 }
 
 pub fn primary(self: *Parser) anyerror!*ASTNode {
@@ -380,6 +450,10 @@ pub fn primary(self: *Parser) anyerror!*ASTNode {
     
     if (self.match(.bool_literal)) {
         return try self.createNodeAt(.{ .bool_literal = std.mem.eql(u8, self.previous.lexeme, "true") }, line, col);
+    }
+    
+    if (self.match(.l_brace)) {
+        return try parseLambdaLiteral(self, line, col);
     }
     
     if (self.match(.l_paren)) {

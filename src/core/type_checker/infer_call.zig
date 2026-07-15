@@ -29,8 +29,11 @@ fn isValidType(self: *TypeChecker, t: *const AetherType) bool {
 
 pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     var c = &node.data.call_expr;
+    // 1. Infer all arguments that are NOT lambdas
     for (c.arguments) |arg| {
-        _ = try self.inferNode(arg, scope);
+        if (arg.data != .lambda_expr) {
+            _ = try self.inferNode(arg, scope);
+        }
     }
 
     if (c.callee.data == .identifier) {
@@ -58,9 +61,16 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                 
                 var all_match = true;
                 for (c.arguments, 0..) |arg, arg_i| {
-                    if (!self.isCompatible(f.params[arg_i], arg.resolved_type.?)) {
-                        all_match = false;
-                        break;
+                    if (arg.data == .lambda_expr) {
+                        if (f.params[arg_i].* != .Function) {
+                            all_match = false;
+                            break;
+                        }
+                    } else {
+                        if (!self.isCompatible(f.params[arg_i], arg.resolved_type.?)) {
+                            all_match = false;
+                            break;
+                        }
                     }
                 }
                 
@@ -89,11 +99,56 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                     c.arguments = new_args;
                 }
                 
+                // Now, infer all lambda arguments using the matched parameter types!
+                for (c.arguments, 0..) |arg, arg_i| {
+                    if (arg.data == .lambda_expr) {
+                        arg.expected_type = f.params[arg_i];
+                        _ = try self.inferNode(arg, scope);
+                    }
+                }
+
+                // Double check compatibility of all arguments
+                for (c.arguments, 0..) |arg, arg_i| {
+                    if (!self.isCompatible(f.params[arg_i], arg.resolved_type.?)) {
+                        self.reportError(node.line, node.column, "TypeError: Expected {} for argument {} but got {}.", .{ f.params[arg_i].*, arg_i + 1, arg.resolved_type.?.* });
+                        return error.TypeError;
+                    }
+                }
+                
                 t.* = matched.Function.return_type.*;
-                c.callee.data = .{ .identifier = .{
-                    .name = name,
-                    .resolved_c_name = matched.Function.c_name,
-                } };
+                if (matched.Function.receiver) |rec| {
+                    const this_node = try self.allocator.create(ASTNode);
+                    this_node.* = .{
+                        .line = c.callee.line,
+                        .column = c.callee.column,
+                        .resolved_type = rec,
+                        .data = .{ .identifier = .{
+                            .name = "this",
+                            .resolved_c_name = null,
+                            .is_class_property = false,
+                            .is_boxed = false,
+                        } },
+                    };
+                    
+                    const get_expr_node = try self.allocator.create(ASTNode);
+                    get_expr_node.* = .{
+                        .line = c.callee.line,
+                        .column = c.callee.column,
+                        .resolved_type = matched,
+                        .data = .{ .get_expr = .{
+                            .object = this_node,
+                            .name = name,
+                            .is_safe = false,
+                        } },
+                    };
+                    
+                    c.callee = get_expr_node;
+                } else {
+                    c.callee.data = .{ .identifier = .{
+                        .name = name,
+                        .resolved_c_name = matched.Function.c_name,
+                    } };
+                }
                 return;
             } else {
                 // Print the argument types we provided to help debug
@@ -123,7 +178,37 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
         }
         
         if (scope.lookupVariable(name)) |variable| {
-            if (variable.* == .Custom) {
+            const var_base = extractBaseType(variable);
+            if (var_base.* == .Function) {
+                const f = var_base.Function;
+                _ = try self.inferNode(c.callee, scope);
+                const expected_args_count = f.params.len + (if (f.receiver != null) @as(usize, 1) else @as(usize, 0));
+                if (c.arguments.len != expected_args_count) {
+                    self.reportError(node.line, node.column, "TypeError: Expected {} arguments but got {}.", .{ expected_args_count, c.arguments.len });
+                    return error.TypeError;
+                }
+                // Infer lambda arguments:
+                for (c.arguments, 0..) |arg, arg_i| {
+                    if (arg.data == .lambda_expr) {
+                        const expected_arg_type = if (f.receiver != null) (if (arg_i == 0) f.receiver.? else f.params[arg_i - 1]) else f.params[arg_i];
+                        arg.expected_type = expected_arg_type;
+                        _ = try self.inferNode(arg, scope);
+                    }
+                }
+                // Check argument compatibility:
+                for (c.arguments, 0..) |arg, arg_i| {
+                    const expected_arg_type = if (f.receiver != null) (if (arg_i == 0) f.receiver.? else f.params[arg_i - 1]) else f.params[arg_i];
+                    if (!self.isCompatible(expected_arg_type, arg.resolved_type.?)) {
+                        self.reportError(node.line, node.column, "TypeError: Expected {} for argument {} but got {}.", .{ expected_arg_type.*, arg_i + 1, arg.resolved_type.?.* });
+                        return error.TypeError;
+                    }
+                }
+                t.* = f.return_type.*;
+                if (f.c_name.len > 0) {
+                    c.callee.data.identifier.resolved_c_name = f.c_name;
+                }
+                return;
+            } else if (variable.* == .Custom) {
                 const class_node = self.classes_ast.get(variable.Custom);
                 if (class_node) |cn| {
                     const class_decl = cn.data.class_decl;
@@ -204,9 +289,9 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                                                         const t2 = self.resolveTypeName(part2, false) catch null;
                                                         if (t1 != null and t2 != null and isValidType(self, t1.?) and isValidType(self, t2.?)) {
                                                             if (std.mem.eql(u8, g_param, "K")) {
-                                                                found_type = t1;
+                                                                 found_type = t1;
                                                             } else if (std.mem.eql(u8, g_param, "V")) {
-                                                                found_type = t2;
+                                                                 found_type = t2;
                                                             }
                                                             break;
                                                         }
@@ -414,9 +499,57 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
         
         t.* = .Void;
         if (c.callee.resolved_type) |rt| {
+            const rt_base = extractBaseType(rt);
+            if (rt_base.* == .Function) {
+                const f = rt_base.Function;
+                // Infer lambda arguments:
+                for (c.arguments, 0..) |arg, arg_i| {
+                    if (arg.data == .lambda_expr) {
+                        if (arg_i < f.params.len) {
+                            arg.expected_type = f.params[arg_i];
+                        }
+                        _ = try self.inferNode(arg, scope);
+                    }
+                }
+                // Check compatibility:
+                for (c.arguments, 0..) |arg, arg_i| {
+                    if (arg_i < f.params.len) {
+                        if (!self.isCompatible(f.params[arg_i], arg.resolved_type.?)) {
+                            self.reportError(node.line, node.column, "TypeError: Expected {} but found {} for argument {}.", .{ f.params[arg_i].*, arg.resolved_type.?.*, arg_i + 1 });
+                            return error.TypeError;
+                        }
+                    }
+                }
+            }
             t.* = rt.*;
         }
     } else {
+        _ = try self.inferNode(c.callee, scope);
         t.* = .Void;
+        if (c.callee.resolved_type) |rt| {
+            const rt_base = extractBaseType(rt);
+            if (rt_base.* == .Function) {
+                const f = rt_base.Function;
+                // Infer lambda arguments:
+                for (c.arguments, 0..) |arg, arg_i| {
+                    if (arg.data == .lambda_expr) {
+                        if (arg_i < f.params.len) {
+                            arg.expected_type = f.params[arg_i];
+                        }
+                        _ = try self.inferNode(arg, scope);
+                    }
+                }
+                // Check compatibility:
+                for (c.arguments, 0..) |arg, arg_i| {
+                    if (arg_i < f.params.len) {
+                        if (!self.isCompatible(f.params[arg_i], arg.resolved_type.?)) {
+                            self.reportError(node.line, node.column, "TypeError: Expected {} but found {} for argument {}.", .{ f.params[arg_i].*, arg.resolved_type.?.*, arg_i + 1 });
+                            return error.TypeError;
+                        }
+                    }
+                }
+            }
+            t.* = rt.*;
+        }
     }
 }

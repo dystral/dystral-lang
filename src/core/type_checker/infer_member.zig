@@ -26,6 +26,18 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
             g.object.resolved_type = obj_t;
             
             return;
+        } else if (scope.lookupFunctions(full_name)) |overloads| {
+            if (overloads.len > 0) {
+                const found_type = overloads[0];
+                t.* = found_type.*;
+                node.resolved_type = found_type;
+                
+                const obj_t = try self.allocator.create(AetherType);
+                obj_t.* = .{ .Custom = g.object.data.identifier.name };
+                g.object.resolved_type = obj_t;
+                
+                return;
+            }
         }
     }
 

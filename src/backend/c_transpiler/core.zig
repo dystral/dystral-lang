@@ -43,6 +43,7 @@ pub fn getCTypeStr(allocator: std.mem.Allocator, t: *const type_system.AetherTyp
                 return try getCTypeStr(allocator, u.right);
             }
         },
+        .Function => return "AetherClosure",
         else => return "void*",
     }
 }
@@ -72,6 +73,7 @@ pub const CTranspiler = struct {
 
     pub const emitStatement = stmt_mod.emitStatement;
     pub const emitExpression = expr_mod.emitExpression;
+    pub const collectCaptures = expr_mod.collectCaptures;
 
     pub fn isOverride(self: *CTranspiler, class_decl: anytype, method_name: []const u8) bool {
         var curr_super = class_decl.superclass_name;

@@ -49,6 +49,7 @@ pub fn inferAssignment(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
             self.reportError(node.line, node.column, "TypeError: Expected {} but found {} when reassigning variable '{s}'.", .{ expected.*, assigned_type.*, a.name });
             return error.TypeError;
         }
+        node.data.assignment.is_boxed = vs.is_boxed;
     } else {
         self.reportError(node.line, node.column, "TypeError: Undeclared variable '{s}'.", .{a.name});
         return error.TypeError;
@@ -167,13 +168,47 @@ pub fn inferIdentifier(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
     if (self.alias_map.get(i.name)) |c_name| {
         i.resolved_c_name = c_name;
     }
-    if (scope.lookupVariable(i.name)) |found| {
+    if (scope.lookupVariableSymbol(i.name)) |vs| {
+        i.is_boxed = vs.is_boxed;
         if (self.current_class_props) |props| {
             if (props.contains(i.name)) {
                 i.is_class_property = true;
             }
         }
-        t.* = found.*;
+        t.* = vs.aether_type.*;
+
+        // Detect variable capture
+        var curr: ?*Scope = scope;
+        var captured = false;
+        while (curr) |s| {
+            if (s.symbols.contains(i.name)) {
+                break;
+            }
+            if (s.is_function_boundary) {
+                captured = true;
+            }
+            curr = s.parent;
+        }
+
+        if (captured) {
+            var lookup_scope: ?*Scope = scope;
+            while (lookup_scope) |s| {
+                if (s.symbols.get(i.name)) |sym| {
+                    if (sym.* == .Variable) {
+                        if (sym.Variable.is_mut) {
+                            sym.Variable.is_boxed = true;
+                            i.is_boxed = true;
+                            if (sym.Variable.decl_node) |decl| {
+                                decl.data.var_decl.is_boxed = true;
+                            }
+                        }
+                        break;
+                    }
+                }
+                lookup_scope = s.parent;
+            }
+        }
+
         return;
     }
     if (self.alias_map.get(i.name)) |c_name| {
@@ -276,5 +311,138 @@ pub fn inferTernaryExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *A
             } };
         }
     }
+}
+
+pub fn inferLambdaExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
+    const l = &node.data.lambda_expr;
+    
+    var expected_params: ?[]const *const AetherType = null;
+    var expected_receiver: ?*const AetherType = null;
+    var expected_return: ?*const AetherType = null;
+    
+    if (node.expected_type) |exp| {
+        const exp_base = extractBaseType(exp);
+        if (exp_base.* == .Function) {
+            expected_params = exp_base.Function.params;
+            expected_receiver = exp_base.Function.receiver;
+            expected_return = exp_base.Function.return_type;
+        }
+    }
+    
+    var receiver_scope: ?Scope = null;
+    var parent_scope = scope;
+    if (expected_receiver) |rec| {
+        receiver_scope = Scope.init(self.allocator, scope);
+        try receiver_scope.?.define("this", rec, false, false);
+        
+        const rec_base = extractBaseType(rec);
+        if (rec_base.* == .Custom) {
+            var curr_class: ?[]const u8 = rec_base.Custom;
+            while (curr_class) |c_name| {
+                const actual_name = self.alias_map.get(c_name) orelse c_name;
+                if (self.classes_ast.get(actual_name)) |cn| {
+                    const class_decl = cn.data.class_decl;
+                    for (class_decl.primary_constructor) |prop| {
+                        if (prop.is_property) {
+                            const prop_t = try self.resolveTypeRef(prop.type_ref);
+                            try receiver_scope.?.define(prop.name, prop_t, prop.is_mut, false);
+                        }
+                    }
+                    for (class_decl.methods) |method| {
+                        if (method.data == .fun_decl) {
+                            const m_decl = method.data.fun_decl;
+                            var param_types = std.ArrayList(*const AetherType).init(self.allocator);
+                            for (m_decl.params) |p| {
+                                const p_t = if (p.type_ref) |tr| try self.resolveTypeRef(tr) else try self.resolveTypeName("Void", false);
+                                try param_types.append(p_t);
+                            }
+                            const ret_t = if (m_decl.type_ref) |tr| try self.resolveTypeRef(tr) else try self.resolveTypeName("Void", false);
+                             const fn_type = try self.allocator.create(AetherType);
+                             fn_type.* = .{ .Function = .{
+                                 .params = try param_types.toOwnedSlice(),
+                                 .return_type = ret_t,
+                                 .c_name = m_decl.resolved_c_name orelse m_decl.name,
+                                 .receiver = rec,
+                             } };
+                            try receiver_scope.?.define(m_decl.name, fn_type, false, true);
+                        }
+                    }
+                    curr_class = class_decl.superclass_name;
+                } else {
+                    break;
+                }
+            }
+        }
+        parent_scope = &receiver_scope.?;
+    }
+    
+    var lambda_scope = Scope.init(self.allocator, parent_scope);
+    lambda_scope.is_function_boundary = true;
+    defer lambda_scope.deinit();
+    defer {
+        if (receiver_scope) |*rs| {
+            rs.deinit();
+        }
+    }
+    
+    var param_types = std.ArrayList(*const AetherType).init(self.allocator);
+    
+    if (l.params.len > 0) {
+        for (l.params, 0..) |p, i| {
+            var p_type: *const AetherType = undefined;
+            if (p.type_ref) |tr| {
+                p_type = try self.resolveTypeRef(tr);
+            } else if (expected_params) |exp_ps| {
+                if (i < exp_ps.len) {
+                    p_type = exp_ps[i];
+                } else {
+                    self.reportError(node.line, node.column, "TypeError: Lambda has more parameters than expected function type.", .{});
+                    return error.TypeError;
+                }
+            } else {
+                self.reportError(node.line, node.column, "TypeError: Cannot infer parameter type without expected function type context. Please specify type for '{s}'.", .{p.name});
+                return error.TypeError;
+            }
+            try lambda_scope.define(p.name, p_type, false, false);
+            try param_types.append(p_type);
+        }
+    } else {
+        if (expected_params) |exp_ps| {
+            if (exp_ps.len == 1) {
+                const it_type = exp_ps[0];
+                try lambda_scope.define("it", it_type, false, false);
+                try param_types.append(it_type);
+            }
+        }
+    }
+    
+    var body_type: *const AetherType = undefined;
+    if (l.body.len == 0) {
+        const void_t = try self.allocator.create(AetherType);
+        void_t.* = .Void;
+        body_type = void_t;
+    } else {
+        var last_t: ?*const AetherType = null;
+        for (l.body) |stmt| {
+            last_t = try self.inferNode(stmt, &lambda_scope);
+        }
+        body_type = last_t.?;
+    }
+    
+    if (expected_return) |exp_ret| {
+        if (!self.isCompatible(exp_ret, body_type)) {
+            self.reportError(node.line, node.column, "TypeError: Lambda return type {} is incompatible with expected return type {}.", .{ body_type.*, exp_ret.* });
+            return error.TypeError;
+        }
+    }
+    
+    const fn_t = try self.allocator.create(AetherType);
+    fn_t.* = .{ .Function = .{
+        .params = try param_types.toOwnedSlice(),
+        .return_type = body_type,
+        .receiver = expected_receiver,
+        .c_name = "",
+    } };
+    t.* = fn_t.*;
 }
 

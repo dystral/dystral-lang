@@ -1,0 +1,50 @@
+fun makeAdder(x: Int): (Int) -> Int {
+    return { y: Int -> x + y }
+}
+
+class HTMLBuilder(var content: String = "") {
+    fun body(init: () -> String) {
+        this.content = this.content + "<body>" + init() + "</body>"
+    }
+}
+
+fun html(init: HTMLBuilder.() -> Void): String {
+    val builder = HTMLBuilder()
+    init(builder)
+    return "<html>" + builder.content + "</html>"
+}
+
+fun main() {
+    print("--- Testando Lambdas e Closures no Aether ---")
+    
+    // Lambda com tipos explícitos
+    val sum: (Int, Int) -> Int = { x: Int, y: Int -> x + y }
+    print("sum(10, 20) = " + sum(10, 20).toString())
+    
+    // Lambda com 'it' implícito
+    val twice: (Int) -> Int = { it * 2 }
+    print("twice(5) = " + twice(5).toString())
+    
+    // Captura de valor constante (val)
+    val adder = makeAdder(100)
+    print("adder(50) = " + adder(50).toString())
+    
+    // Captura de variável mutável (var) - Closure
+    var count = 0
+    val counter = {
+        count = count + 1
+        count
+    }
+    print("counter(): " + counter().toString())
+    print("counter(): " + counter().toString())
+    print("Valor final de count: " + count.toString())
+
+    // DSL com Receiver Lambda e Trailing Lambdas
+    val htmlResult = html {
+        body {
+            "Hello from Aether DSL!"
+        }
+    }
+    print("Resultado da DSL: " + htmlResult)
+}
+

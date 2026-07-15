@@ -21,12 +21,13 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             try self.writer.writer().print("\"{s}\"", .{val});
         },
         .identifier => |i| {
-            if (i.resolved_c_name) |cname| {
-                try self.writer.appendSlice(cname);
-            } else if (i.is_class_property) {
+            const name = i.resolved_c_name orelse i.name;
+            if (i.is_class_property) {
                 try self.writer.writer().print("this->{s}", .{i.name});
+            } else if (i.is_boxed) {
+                try self.writer.writer().print("{s}->value", .{name});
             } else {
-                try self.writer.appendSlice(i.name);
+                try self.writer.appendSlice(name);
             }
         },
         .unary_expr => |u| {
@@ -164,7 +165,11 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
         },
 
         .assignment => |a| {
-            try self.writer.writer().print("{s} = ", .{a.name});
+            if (a.is_boxed) {
+                try self.writer.writer().print("{s}->value = ", .{a.name});
+            } else {
+                try self.writer.writer().print("{s} = ", .{a.name});
+            }
             try self.emitExpression(a.value);
         },
         .get_expr => |g| {
@@ -237,7 +242,37 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             }
         },
         .call_expr => |c| {
-            if (c.callee.data == .identifier) {
+            const is_closure_var = (c.callee.data == .identifier and c.callee.resolved_type != null and ts.extractBaseType(c.callee.resolved_type.?).* == .Function);
+            const is_other_closure = (c.callee.data != .identifier and c.callee.data != .get_expr and c.callee.resolved_type != null and ts.extractBaseType(c.callee.resolved_type.?).* == .Function);
+            if (is_closure_var or is_other_closure) {
+                const f = ts.extractBaseType(c.callee.resolved_type.?).Function;
+                const ret_type_str = try core.getCTypeStr(self.allocator, f.return_type);
+                
+                var params_c = std.ArrayList(u8).init(self.allocator);
+                try params_c.appendSlice("void*");
+                if (f.receiver) |rec| {
+                    try params_c.appendSlice(", ");
+                    try params_c.appendSlice(try core.getCTypeStr(self.allocator, rec));
+                }
+                for (f.params) |p| {
+                    try params_c.appendSlice(", ");
+                    try params_c.appendSlice(try core.getCTypeStr(self.allocator, p));
+                }
+                
+                try self.writer.appendSlice("((");
+                try self.writer.writer().print("{s} (*)({s})", .{ret_type_str, params_c.items});
+                try self.writer.appendSlice(")(");
+                try self.emitExpression(c.callee);
+                try self.writer.appendSlice(").fn_ptr)(");
+                try self.emitExpression(c.callee);
+                try self.writer.appendSlice(".env");
+                
+                for (c.arguments) |arg| {
+                    try self.writer.appendSlice(", ");
+                    try self.emitExpression(arg);
+                }
+                try self.writer.appendSlice(")");
+            } else if (c.callee.data == .identifier) {
                 const c_name = c.callee.data.identifier.resolved_c_name orelse c.callee.data.identifier.name;
                 if (self.classes.contains(c_name) or self.known_constructors.contains(c_name)) {
                     try self.writer.writer().print("{s}_new", .{c_name});
@@ -659,6 +694,148 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             }
             try self.writer.appendSlice("})");
         },
+        .lambda_expr => |l| {
+            const line = node.line;
+            const col = node.column;
+            
+            var param_names = std.ArrayList([]const u8).init(self.allocator);
+            var param_types = std.ArrayList(*const ts.AetherType).init(self.allocator);
+            
+            var locals = std.StringHashMap(void).init(self.allocator);
+            defer locals.deinit();
+            
+            if (node.resolved_type) |rt| {
+                const rt_base = ts.extractBaseType(rt);
+                if (rt_base.* == .Function) {
+                    const f = rt_base.Function;
+                    if (f.receiver) |rec| {
+                        try param_names.append("this");
+                        try param_types.append(rec);
+                        try locals.put("this", {});
+                    }
+                }
+            }
+            
+            if (l.params.len > 0) {
+                if (node.resolved_type) |rt| {
+                    const rt_base = ts.extractBaseType(rt);
+                    if (rt_base.* == .Function) {
+                        const f = rt_base.Function;
+                        for (l.params, 0..) |p, i| {
+                            try param_names.append(p.name);
+                            try param_types.append(f.params[i]);
+                            try locals.put(p.name, {});
+                        }
+                    }
+                }
+            } else if (node.resolved_type) |rt| {
+                const rt_base = ts.extractBaseType(rt);
+                if (rt_base.* == .Function) {
+                    const f = rt_base.Function;
+                    if (f.params.len == 1) {
+                        try param_names.append("it");
+                        try param_types.append(f.params[0]);
+                        try locals.put("it", {});
+                    }
+                }
+            }
+            
+            for (l.body) |stmt| {
+                try collectDeclaredLocals(stmt, &locals);
+            }
+            
+            var captures = std.ArrayList(CaptureInfo).init(self.allocator);
+            defer captures.deinit();
+            for (l.body) |stmt| {
+                try self.collectCaptures(stmt, &locals, &captures);
+            }
+            
+            const env_struct_name = try std.fmt.allocPrint(self.allocator, "_env_{}_{}", .{line, col});
+            const lambda_fn_name = try std.fmt.allocPrint(self.allocator, "_lambda_{}_{}", .{line, col});
+            
+            if (captures.items.len > 0) {
+                var hw = self.header_writer.writer();
+                try hw.print("typedef struct {{\n", .{});
+                for (captures.items) |cap| {
+                    if (cap.is_boxed) {
+                        const box_type = try getBoxTypeName(self.allocator, cap.c_type);
+                        try hw.print("    {s}* {s};\n", .{box_type, cap.name});
+                    } else {
+                        try hw.print("    {s} {s};\n", .{cap.c_type, cap.name});
+                    }
+                }
+                try hw.print("}} {s};\n\n", .{env_struct_name});
+            }
+            
+            var return_type_str: []const u8 = "void";
+            if (node.resolved_type) |rt| {
+                const rt_base = ts.extractBaseType(rt);
+                if (rt_base.* == .Function) {
+                    return_type_str = try core.getCTypeStr(self.allocator, rt_base.Function.return_type);
+                }
+            }
+            
+            // Create a temporary body writer for this lambda
+            var body_writer = std.ArrayList(u8).init(self.allocator);
+            defer body_writer.deinit();
+            
+            const old_writer = self.writer;
+            self.writer = body_writer;
+            
+            for (l.body, 0..) |stmt, i| {
+                if (i == l.body.len - 1 and !std.mem.eql(u8, return_type_str, "void")) {
+                    try self.writer.appendSlice("    return ");
+                    try self.emitExpression(stmt);
+                    try self.writer.appendSlice(";\n");
+                } else {
+                    try self.emitStatement(stmt);
+                }
+            }
+            
+            // Restore self.writer to old_writer
+            body_writer = self.writer;
+            self.writer = old_writer;
+            
+            // Emit helper function header and body flatly into header_writer
+            var hw = self.header_writer.writer();
+            try hw.print("static inline {s} {s}(void* __env", .{return_type_str, lambda_fn_name});
+            for (param_names.items, param_types.items) |p_name, p_type| {
+                const p_c_type = try core.getCTypeStr(self.allocator, p_type);
+                try hw.print(", {s} {s}", .{p_c_type, p_name});
+            }
+            try hw.print(") {{\n", .{});
+            
+            if (captures.items.len > 0) {
+                try hw.print("    {s}* env = ({s}*)__env;\n", .{env_struct_name, env_struct_name});
+                for (captures.items) |cap| {
+                    if (cap.is_boxed) {
+                        const box_type = try getBoxTypeName(self.allocator, cap.c_type);
+                        try hw.print("    {s}* {s} = env->{s};\n", .{box_type, cap.name, cap.name});
+                    } else {
+                        try hw.print("    {s} {s} = env->{s};\n", .{cap.c_type, cap.name, cap.name});
+                    }
+                }
+            }
+            
+            try self.header_writer.appendSlice(body_writer.items);
+            try self.header_writer.appendSlice("}\n\n");
+            
+            // Construct the AetherClosure struct literal
+            try self.writer.appendSlice("(AetherClosure){ ");
+            try self.writer.writer().print("(void*){s}, ", .{lambda_fn_name});
+            if (captures.items.len > 0) {
+                try self.writer.writer().print("({{\n", .{});
+                try self.writer.writer().print("        {s}* _tmp_env = GC_MALLOC(sizeof({s}));\n", .{env_struct_name, env_struct_name});
+                for (captures.items) |cap| {
+                    try self.writer.writer().print("        _tmp_env->{s} = {s};\n", .{cap.name, cap.name});
+                }
+                try self.writer.writer().print("        _tmp_env;\n", .{});
+                try self.writer.writer().print("    }})", .{});
+            } else {
+                try self.writer.appendSlice("0");
+            }
+            try self.writer.appendSlice(" }");
+        },
         else => return error.UnsupportedExpression,
     }
 }
@@ -685,5 +862,167 @@ fn emitWhenCaseBody(self: *CTranspiler, body: *ASTNode, is_void: bool, res_var_n
         } else {
             try self.emitStatement(body);
         }
+    }
+}
+
+const CaptureInfo = struct {
+    name: []const u8,
+    c_type: []const u8,
+    is_boxed: bool,
+};
+
+fn getBoxTypeName(allocator: std.mem.Allocator, c_type: []const u8) ![]const u8 {
+    var safe = std.ArrayList(u8).init(allocator);
+    for (c_type) |c| {
+        if (c == '*') {
+            try safe.appendSlice("Ptr");
+        } else if (c == ' ') {
+            try safe.appendSlice("_");
+        } else {
+            try safe.append(c);
+        }
+    }
+    return try std.fmt.allocPrint(allocator, "Box_{s}", .{safe.items});
+}
+
+fn collectDeclaredLocals(node: *ASTNode, locals: *std.StringHashMap(void)) anyerror!void {
+    switch (node.data) {
+        .var_decl => |v| {
+            try locals.put(v.name, {});
+        },
+        .block => |b| {
+            for (b.statements) |stmt| {
+                try collectDeclaredLocals(stmt, locals);
+            }
+        },
+        .if_expr => |i| {
+            try collectDeclaredLocals(i.then_branch, locals);
+            if (i.else_branch) |eb| try collectDeclaredLocals(eb, locals);
+        },
+        .while_stmt => |w| {
+            try collectDeclaredLocals(w.body, locals);
+        },
+        .for_stmt => |f| {
+            try locals.put(f.item_name, {});
+            try collectDeclaredLocals(f.body, locals);
+        },
+        .try_stmt => |try_s| {
+            try collectDeclaredLocals(try_s.body, locals);
+            for (try_s.catches) |c| {
+                if (c.var_name) |vn| try locals.put(vn, {});
+                try collectDeclaredLocals(c.body, locals);
+            }
+        },
+        .when_expr => |w| {
+            for (w.cases) |case| {
+                try collectDeclaredLocals(case.body, locals);
+            }
+        },
+        else => {},
+    }
+}
+
+pub fn collectCaptures(self: *CTranspiler, node: *ASTNode, locals: *const std.StringHashMap(void), captures: *std.ArrayList(CaptureInfo)) anyerror!void {
+    switch (node.data) {
+        .identifier => |i| {
+            if (locals.contains(i.name)) return;
+            if (i.is_class_property) return;
+            if (std.mem.eql(u8, i.name, "this")) return;
+            
+            const name = i.resolved_c_name orelse i.name;
+            if (self.classes.contains(name) or self.classes.contains(i.name)) return;
+            if (self.emitted_functions.contains(name)) return;
+            if (self.libs.contains(name)) return;
+            
+            for (captures.items) |cap| {
+                if (std.mem.eql(u8, cap.name, i.name)) return;
+            }
+            
+            if (node.resolved_type) |rt| {
+                const c_type = try core.getCTypeStr(self.allocator, rt);
+                try captures.append(.{
+                    .name = i.name,
+                    .c_type = c_type,
+                    .is_boxed = i.is_boxed,
+                });
+            }
+        },
+        .unary_expr => |u| try self.collectCaptures(u.operand, locals, captures),
+        .binary_expr => |b| {
+            try self.collectCaptures(b.left, locals, captures);
+            try self.collectCaptures(b.right, locals, captures);
+        },
+        .call_expr => |c| {
+            try self.collectCaptures(c.callee, locals, captures);
+            for (c.arguments) |arg| {
+                try self.collectCaptures(arg, locals, captures);
+            }
+        },
+        .if_expr => |i| {
+            try self.collectCaptures(i.condition, locals, captures);
+            try self.collectCaptures(i.then_branch, locals, captures);
+            if (i.else_branch) |eb| try self.collectCaptures(eb, locals, captures);
+        },
+        .index_expr => |idx| {
+            try self.collectCaptures(idx.object, locals, captures);
+            try self.collectCaptures(idx.index, locals, captures);
+        },
+        .index_set_expr => |s| {
+            try self.collectCaptures(s.object, locals, captures);
+            try self.collectCaptures(s.index, locals, captures);
+            try self.collectCaptures(s.value, locals, captures);
+        },
+        .assignment => |a| {
+            try self.collectCaptures(a.value, locals, captures);
+            if (!locals.contains(a.name)) {
+                for (captures.items) |cap| {
+                    if (std.mem.eql(u8, cap.name, a.name)) return;
+                }
+                if (node.resolved_type) |rt| {
+                    const c_type = try core.getCTypeStr(self.allocator, rt);
+                    try captures.append(.{
+                        .name = a.name,
+                        .c_type = c_type,
+                        .is_boxed = a.is_boxed,
+                    });
+                }
+            }
+        },
+        .get_expr => |g| try self.collectCaptures(g.object, locals, captures),
+        .set_expr => |s| {
+            try self.collectCaptures(s.object, locals, captures);
+            try self.collectCaptures(s.value, locals, captures);
+        },
+        .block => |b| {
+            for (b.statements) |stmt| {
+                try self.collectCaptures(stmt, locals, captures);
+            }
+        },
+        .while_stmt => |w| {
+            try self.collectCaptures(w.condition, locals, captures);
+            try self.collectCaptures(w.body, locals, captures);
+        },
+        .for_stmt => |f| {
+            try self.collectCaptures(f.iterable, locals, captures);
+            try self.collectCaptures(f.body, locals, captures);
+        },
+        .return_stmt => |r| {
+            if (r.value) |val| try self.collectCaptures(val, locals, captures);
+        },
+        .throw_stmt => |th| try self.collectCaptures(th.expr, locals, captures),
+        .try_stmt => |try_s| {
+            try self.collectCaptures(try_s.body, locals, captures);
+            for (try_s.catches) |c| {
+                try self.collectCaptures(c.body, locals, captures);
+            }
+        },
+        .when_expr => |w| {
+            if (w.subject) |subj| try self.collectCaptures(subj, locals, captures);
+            for (w.cases) |case| {
+                for (case.conds) |cond| try self.collectCaptures(cond, locals, captures);
+                try self.collectCaptures(case.body, locals, captures);
+            }
+        },
+        else => {},
     }
 }

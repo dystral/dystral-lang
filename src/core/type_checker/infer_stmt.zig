@@ -26,7 +26,7 @@ pub fn inferIfExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aether
             const target_t = try self.resolveTypeRef(is_e.type_ref);
             
             local_then_scope = Scope.init(self.allocator, scope);
-            try local_then_scope.define(var_name, target_t, false);
+            try local_then_scope.define(var_name, target_t, false, false);
             then_scope = &local_then_scope;
             has_smart_cast = true;
         }
@@ -91,7 +91,7 @@ pub fn inferForStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     var for_scope = Scope.init(self.allocator, scope);
     defer for_scope.deinit();
     
-    try for_scope.define(f.item_name, iter_type.Array, false);
+    try for_scope.define(f.item_name, iter_type.Array, false, false);
     
     _ = try self.inferNode(f.body, &for_scope);
     t.* = .Void;
@@ -151,7 +151,7 @@ pub fn inferTryStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         defer catch_scope.deinit();
         
         if (c.var_name) |var_name| {
-            try catch_scope.define(var_name, exception_type, false);
+            try catch_scope.define(var_name, exception_type, false, false);
             
             for (c.types) |tr| {
                 const target_t = try self.resolveTypeRef(tr);

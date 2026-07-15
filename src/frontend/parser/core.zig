@@ -88,7 +88,29 @@ fn core_parseTypeAnnotation(self: *Parser) anyerror!?*const ast.ASTTypeRef {
 
 fn core_parseType(self: *Parser) anyerror!*const ast.ASTTypeRef {
     var ref = try self.allocator.create(ast.ASTTypeRef);
-    if (self.match(.l_bracket)) {
+    if (self.match(.l_paren)) {
+        var params = std.ArrayList(*const ast.ASTTypeRef).init(self.allocator);
+        if (!self.check(.r_paren)) {
+            while (true) {
+                const p_t = try self.parseType();
+                try params.append(p_t);
+                if (!self.match(.comma)) break;
+            }
+        }
+        try self.consume(.r_paren, "Expected ')' after function type parameters.");
+        try self.consume(.arrow, "Expected '->' in function type signature.");
+        const ret_t = try self.parseType();
+
+        ref.* = .{
+            .name = "",
+            .generic_args = try params.toOwnedSlice(),
+            .is_array = false,
+            .is_nullable = false,
+            .is_function = true,
+            .receiver_type = null,
+            .return_type = ret_t,
+        };
+    } else if (self.match(.l_bracket)) {
         const inner = try self.parseType();
         try self.consume(.r_bracket, "Expected ']' after array type.");
         
@@ -118,6 +140,33 @@ fn core_parseType(self: *Parser) anyerror!*const ast.ASTTypeRef {
             .is_array = false,
             .is_nullable = false,
         };
+    }
+
+    if (self.match(.dot)) {
+        try self.consume(.l_paren, "Expected '(' after receiver type.");
+        var params = std.ArrayList(*const ast.ASTTypeRef).init(self.allocator);
+        if (!self.check(.r_paren)) {
+            while (true) {
+                const p_t = try self.parseType();
+                try params.append(p_t);
+                if (!self.match(.comma)) break;
+            }
+        }
+        try self.consume(.r_paren, "Expected ')' after receiver function parameters.");
+        try self.consume(.arrow, "Expected '->' in receiver function type signature.");
+        const ret_t = try self.parseType();
+
+        const new_ref = try self.allocator.create(ast.ASTTypeRef);
+        new_ref.* = .{
+            .name = "",
+            .generic_args = try params.toOwnedSlice(),
+            .is_array = false,
+            .is_nullable = false,
+            .is_function = true,
+            .receiver_type = ref,
+            .return_type = ret_t,
+        };
+        ref = new_ref;
     }
     
     var is_nullable = false;

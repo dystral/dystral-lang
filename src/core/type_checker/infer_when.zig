@@ -102,7 +102,7 @@ pub fn inferWhenExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                 const var_name = w.subject.?.data.identifier.name;
                 const target_t = try self.resolveTypeRef(cond.data.is_type_cond.type_ref);
                 
-                try case_scope.define(var_name, target_t, false);
+                try case_scope.define(var_name, target_t, false, false);
             }
         }
 

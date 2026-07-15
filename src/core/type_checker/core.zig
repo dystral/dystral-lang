@@ -100,7 +100,21 @@ fn core_resolveTypeRef(self: *TypeChecker, ref: *const ast.ASTTypeRef) anyerror!
     var base_type: AetherType = .Void;
     var actual_is_nullable = ref.is_nullable;
 
-    if (ref.is_array) {
+    if (ref.is_function) {
+        var params = std.ArrayList(*const AetherType).init(self.allocator);
+        for (ref.generic_args) |arg| {
+            try params.append(try self.resolveTypeRef(arg));
+        }
+        const ret_t = try self.resolveTypeRef(ref.return_type.?);
+        const rec_t = if (ref.receiver_type) |rec| try self.resolveTypeRef(rec) else null;
+
+        base_type = .{ .Function = .{
+            .params = try params.toOwnedSlice(),
+            .return_type = ret_t,
+            .receiver = rec_t,
+            .c_name = "",
+        } };
+    } else if (ref.is_array) {
         if (ref.generic_args.len != 1) return error.TypeError;
         const inner_type = try self.resolveTypeRef(ref.generic_args[0]);
 
@@ -284,6 +298,7 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
         .block => return try self.checkBlock(node.data.block.statements, scope),
         .is_type_cond => t.* = .Bool,
         .when_expr => try infer_when_mod.inferWhenExpr(self, node, scope, t),
+        .lambda_expr => try infer_expr_mod.inferLambdaExpr(self, node, scope, t),
         .identifier => try infer_expr_mod.inferIdentifier(self, node, scope, t),
         .int_literal => t.* = .Int,
         .string_literal => {
@@ -392,9 +407,26 @@ fn core_isCompatible(self: *TypeChecker, expected: *const AetherType, actual: *c
                 }
                 return false;
             },
+            .Function => |f_exp| {
+                if (act_base.* != .Function) return false;
+                const f_act = act_base.Function;
+                if (f_exp.params.len != f_act.params.len) return false;
+                if (f_exp.receiver) |rec_exp| {
+                    if (f_act.receiver) |rec_act| {
+                        if (!self.isCompatible(rec_exp, rec_act)) return false;
+                    } else {
+                        return false;
+                    }
+                } else {
+                    if (f_act.receiver != null) return false;
+                }
+                for (f_exp.params, 0..) |p_exp, i| {
+                    if (!self.isCompatible(p_exp, f_act.params[i])) return false;
+                }
+                return self.isCompatible(f_exp.return_type, f_act.return_type);
+            },
             else => return true,
         }
     }
     return false;
 }
-

@@ -594,7 +594,86 @@ fun main() {
 ```
 
 Statically typed defaults are evaluated and type-checked during function and class declarations. If a caller omits an argument that has a default value, the type checker automatically clones and injects the default expression at the call-site.
+
+---
+
+## 15. Lambda Expressions & Higher-Order Functions
+
+Aether supports functional programming paradigms via lambdas (anonymous function literals) and Higher-Order Functions (functions that accept functions as arguments or return them).
+
+### 15.1 Function Types
+A function type represents a reference to a function. Its syntax is `(ParamType1, ParamType2, ...) -> ReturnType`.
+
+```kotlin
+// Declaring a variable holding a function that takes two Ints and returns an Int
+val sum: (Int, Int) -> Int = { x: Int, y: Int -> x + y }
+
+// Invocations are natural
+val result = sum(10, 20)
+assert(result == 30)
 ```
+
+### 15.2 Lambda Literals & Implicit `it`
+Lambdas are enclosed in curly braces `{}`. If a lambda has parameters, they are declared before the arrow `->`. If the lambda has only one parameter, you can omit its declaration and access it via the implicit name `it`.
+
+```kotlin
+// Explicit parameter
+val double = { x: Int -> x * 2 }
+
+// Implicit 'it' parameter (type inferred as Int from the context)
+val triple: (Int) -> Int = { it * 3 }
+
+assert(triple(5) == 15)
+```
+
+### 15.3 Scope Capturing (Closures)
+Lambdas can capture variables from their surrounding lexical scope. If a captured variable is mutable (`var`), the Aether compiler automatically wraps it in a heap-allocated box so that changes are visible both inside the lambda and in the outer scope, even after the outer function exits.
+
+```kotlin
+fun makeCounter(): () -> Int {
+    var count = 0
+    return {
+        count = count + 1
+        count
+    }
+}
+
+fun main() {
+    val counter = makeCounter()
+    assert(counter() == 1)
+    assert(counter() == 2)
+}
+```
+
+### 15.4 Trailing Lambdas & DSLs
+If the last parameter of a function is a function type, the lambda expression can be passed outside of the function call parentheses. If it is the only parameter, the parentheses can be completely omitted. This is extremely powerful for building clean DSLs:
+
+```kotlin
+class HTMLBuilder {
+    var content: String = ""
+    fun body(init: () -> String) {
+        this.content = this.content + "<body>" + init() + "</body>"
+    }
+}
+
+fun html(init: HTMLBuilder.() -> Void): String {
+    val builder = HTMLBuilder()
+    init(builder)
+    return "<html>" + builder.content + "</html>"
+}
+
+fun main() {
+    // Parentheses are completely omitted for the trailing lambda
+    val result = html {
+        body {
+            "Hello Aether DSL!"
+        }
+    }
+    assert(result == "<html><body>Hello Aether DSL!</body></html>")
+}
+```
+
+
 
 
 

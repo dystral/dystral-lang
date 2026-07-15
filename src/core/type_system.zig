@@ -14,6 +14,7 @@ pub const AetherType = union(enum) {
         params: []const *const AetherType,
         return_type: *const AetherType,
         c_name: []const u8,
+        receiver: ?*const AetherType = null,
     },
     Union: struct {
         left: *const AetherType,
@@ -50,7 +51,12 @@ pub const AetherType = union(enum) {
             },
             .Custom => |name| try writer.writeAll(name),
             .Function => |f| {
-                try writer.writeAll("fun(");
+                if (f.receiver) |r| {
+                    try r.format("", options, writer);
+                    try writer.writeAll(".(");
+                } else {
+                    try writer.writeAll("fun(");
+                }
                 for (f.params, 0..) |p, i| {
                     if (i > 0) try writer.writeAll(", ");
                     try p.format("", options, writer);
@@ -114,6 +120,10 @@ pub const AetherType = union(enum) {
                 }
             },
             .Function => |f| {
+                if (f.receiver) |r| {
+                    try r.formatSafe(writer);
+                    try writer.writeAll("_");
+                }
                 try writer.writeAll("fun_");
                 for (f.params, 0..) |p, i| {
                     if (i > 0) try writer.writeAll("_");
@@ -145,9 +155,13 @@ pub const AetherType = union(enum) {
     }
 };
 
+const ast = @import("ast.zig");
+
 pub const VariableSymbol = struct {
     aether_type: *const AetherType,
     is_mut: bool,
+    is_boxed: bool = false,
+    decl_node: ?*ast.ASTNode = null,
 };
 
 pub const Symbol = union(enum) {
@@ -159,12 +173,14 @@ pub const Scope = struct {
     allocator: std.mem.Allocator,
     parent: ?*Scope,
     symbols: std.StringHashMap(*Symbol),
+    is_function_boundary: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, parent: ?*Scope) Scope {
         return Scope{
             .allocator = allocator,
             .parent = parent,
             .symbols = std.StringHashMap(*Symbol).init(allocator),
+            .is_function_boundary = false,
         };
     }
 
@@ -172,9 +188,9 @@ pub const Scope = struct {
         self.symbols.deinit();
     }
 
-    pub fn define(self: *Scope, name: []const u8, t: *const AetherType, is_mut: bool) !void {
+    pub fn define(self: *Scope, name: []const u8, t: *const AetherType, is_mut: bool, is_func: bool) !void {
         if (self.symbols.get(name)) |existing| {
-            if (t.* == .Function) {
+            if (is_func) {
                 if (existing.* == .Overloads) {
                     for (existing.Overloads.items) |ov| {
                         if (isCompatible(ov, t)) return;
@@ -189,13 +205,13 @@ pub const Scope = struct {
                 if (existing.* == .Variable and isCompatible(existing.Variable.aether_type, t)) {
                     return;
                 }
-                std.debug.print("SymbolAlreadyDefined: {s} is not Function\n", .{name});
+                std.debug.print("SymbolAlreadyDefined: {s} is not Variable\n", .{name});
                 return error.SymbolAlreadyDefined;
             }
         }
 
         const sym = try self.allocator.create(Symbol);
-        if (t.* == .Function) {
+        if (is_func) {
             var list = std.ArrayList(*const AetherType).init(self.allocator);
             try list.append(t);
             sym.* = .{ .Overloads = list };
@@ -293,6 +309,15 @@ pub fn isCompatible(expected: *const AetherType, actual: *const AetherType) bool
                 if (act_base.* != .Function) return false;
                 const f_act = act_base.Function;
                 if (f_exp.params.len != f_act.params.len) return false;
+                if (f_exp.receiver) |rec_exp| {
+                    if (f_act.receiver) |rec_act| {
+                        if (!isCompatible(rec_exp, rec_act)) return false;
+                    } else {
+                        return false;
+                    }
+                } else {
+                    if (f_act.receiver != null) return false;
+                }
                 for (f_exp.params, 0..) |p_exp, i| {
                     if (!isCompatible(p_exp, f_act.params[i])) return false;
                 }
