@@ -2,6 +2,8 @@ const std = @import("std");
 const lexer = @import("frontend/lexer.zig");
 const parser = @import("frontend/parser/core.zig");
 const c_transpiler = @import("backend/c_transpiler/core.zig");
+const ast = @import("core/ast.zig");
+
 
 /// Main entry point for the Aether CLI.
 /// Orchestrates the pipeline: Source -> Lexer -> Parser -> AST -> C Transpiler -> Binary.
@@ -75,29 +77,153 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    var p = parser.Parser.init(arena.allocator(), source);
-    const ast_root = p.parse() catch |err| {
-        std.debug.print("Failed to parse source file. Error: {}\n", .{err});
-        return;
-    };
-    
-    if (p.had_error) {
-        return;
+    var registry = @import("core/type_checker/core.zig").ModuleRegistry.init(arena.allocator());
+    defer registry.deinit();
+
+    var queue = std.ArrayList([]const u8).init(arena.allocator());
+    defer queue.deinit();
+
+    const std_modules = @import("core/type_checker/infer_decl.zig").std_modules;
+
+    const resolved_entry_path = try std.fs.path.relative(arena.allocator(), ".", filename);
+    try queue.append(resolved_entry_path);
+
+    var queue_idx: usize = 0;
+    var ast_root: *ast.ASTNode = undefined;
+    while (queue_idx < queue.items.len) : (queue_idx += 1) {
+        const cur_path = queue.items[queue_idx];
+        if (registry.modules.contains(cur_path)) continue;
+
+        var source_content: []const u8 = undefined;
+        var is_std = false;
+
+        if (std.mem.startsWith(u8, cur_path, "std/")) {
+            const pkg_name = cur_path[4..];
+            if (std_modules.get(pkg_name)) |src| {
+                source_content = src;
+                is_std = true;
+            } else {
+                std.debug.print("Error: Unknown standard library package 'std.{s}'\n", .{pkg_name});
+                std.process.exit(1);
+            }
+        } else if (std.mem.eql(u8, cur_path, "synthetic_test.ae")) {
+            source_content = source;
+        } else {
+            source_content = std.fs.cwd().readFileAlloc(arena.allocator(), cur_path, 1024 * 1024) catch |err| {
+                std.debug.print("Error: Failed to read module file '{s}': {}\n", .{ cur_path, err });
+                std.process.exit(1);
+            };
+        }
+
+        var p = parser.Parser.init(arena.allocator(), source_content);
+        const ast_root_mod = p.parse() catch |err| {
+            std.debug.print("Failed to parse module '{s}'. Error: {}\n", .{ cur_path, err });
+            std.process.exit(1);
+        };
+        if (p.had_error) {
+            std.process.exit(1);
+        }
+
+        if (queue_idx == 0) {
+            ast_root = ast_root_mod;
+        }
+
+        const basename = std.fs.path.basename(cur_path);
+        const ext_idx = std.mem.lastIndexOf(u8, basename, ".") orelse basename.len;
+        const prefix = basename[0..ext_idx];
+
+        var checker = try arena.allocator().create(@import("core/type_checker/core.zig").TypeChecker);
+        checker.* = @import("core/type_checker/core.zig").TypeChecker.init(arena.allocator(), source_content, cur_path);
+        checker.module_prefix = if (queue_idx == 0) null else prefix;
+        checker.is_test_mode = is_test;
+        checker.registry = &registry;
+
+        try checker.injectImplicitImports(ast_root_mod);
+
+        try registry.modules.put(try arena.allocator().dupe(u8, cur_path), .{
+            .filename = try arena.allocator().dupe(u8, cur_path),
+            .source = source_content,
+            .ast_root = ast_root_mod,
+            .checker = checker,
+            .module_prefix = if (queue_idx == 0) "" else prefix,
+        });
+        try registry.ordered_modules.append(try arena.allocator().dupe(u8, cur_path));
+
+        // Scan for imports
+        if (ast_root_mod.data == .program) {
+            const dir_path = std.fs.path.dirname(cur_path) orelse ".";
+            for (ast_root_mod.data.program.statements) |stmt| {
+                if (stmt.data == .import_stmt) {
+                    const i = &stmt.data.import_stmt;
+                    var actual_module_path = i.module_path;
+                    if (!std.mem.endsWith(u8, actual_module_path, ".ae")) {
+                        actual_module_path = try std.fmt.allocPrint(arena.allocator(), "{s}.ae", .{actual_module_path});
+                    }
+                    var import_resolved_path: []const u8 = undefined;
+                    if (std.mem.startsWith(u8, actual_module_path, "std.")) {
+                        const pkg_name = actual_module_path[4..];
+                        import_resolved_path = try std.fmt.allocPrint(arena.allocator(), "std/{s}", .{pkg_name});
+                    } else {
+                        import_resolved_path = try std.fs.path.join(arena.allocator(), &.{ dir_path, actual_module_path });
+                    }
+                    try queue.append(import_resolved_path);
+                }
+            }
+        }
     }
 
-    // Semantic Type Checking (Enforcement)
-    var type_checker = @import("core/type_checker/core.zig").TypeChecker.init(arena.allocator(), source, filename);
-    type_checker.is_test_mode = is_test;
-    defer type_checker.deinit();
-    type_checker.validate(ast_root) catch {
-        std.process.exit(1);
-    };
+    // Pass 2a: Declare Class and Object Types
+    for (registry.ordered_modules.items) |path| {
+        const mod = registry.modules.get(path).?;
+        try mod.checker.declareTypes(mod.ast_root);
+    }
+
+    // Pass 2b: Declare Signatures (constructors, methods, functions, libraries)
+    for (registry.ordered_modules.items) |path| {
+        const mod = registry.modules.get(path).?;
+        try mod.checker.declareSignatures(mod.ast_root);
+    }
+
+    // Pass 2c: Resolve Imports (link/copy symbols between modules)
+    for (registry.ordered_modules.items) |path| {
+        const mod = registry.modules.get(path).?;
+        try mod.checker.resolveImports(mod.ast_root);
+    }
+
+    // Pass 3: Validate Bodies
+    for (registry.ordered_modules.items) |path| {
+        const mod = registry.modules.get(path).?;
+        mod.checker.validate(mod.ast_root) catch {
+            std.process.exit(1);
+        };
+    }
+
+    // Consolidate classes, objects, and aliases for the CTranspiler
+    var global_classes_ast = std.StringHashMap(*ast.ASTNode).init(arena.allocator());
+    var global_objects_ast = std.StringHashMap(*ast.ASTNode).init(arena.allocator());
+    var global_alias_map = std.StringHashMap([]const u8).init(arena.allocator());
+
+    for (registry.ordered_modules.items) |path| {
+        const mod = registry.modules.get(path).?;
+        var class_it = mod.checker.classes_ast.iterator();
+        while (class_it.next()) |entry| {
+            try global_classes_ast.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+        var object_it = mod.checker.objects_ast.iterator();
+        while (object_it.next()) |entry| {
+            try global_objects_ast.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+        var alias_it = mod.checker.alias_map.iterator();
+        while (alias_it.next()) |entry| {
+            try global_alias_map.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+    }
 
     var transpiler = c_transpiler.CTranspiler.init(allocator);
     transpiler.is_test_mode = is_test;
-    transpiler.classes_ast = &type_checker.classes_ast;
-    transpiler.objects_ast = &type_checker.objects_ast;
-    transpiler.alias_map = &type_checker.alias_map;
+    transpiler.classes_ast = &global_classes_ast;
+    transpiler.objects_ast = &global_objects_ast;
+    transpiler.alias_map = &global_alias_map;
     transpiler.source_file = filename; // used for #line directives in C output
     defer transpiler.deinit();
 

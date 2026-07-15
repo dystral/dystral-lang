@@ -59,6 +59,7 @@ pub const CTranspiler = struct {
     link_libraries: std.StringHashMap(void),
     emitted_functions: std.StringHashMap(void),
     emitted_variables: std.StringHashMap(void),
+    emitted_modules: std.AutoHashMap(*ASTNode, void),
     is_test_mode: bool = false,
     test_names: std.ArrayList([]const u8),
     test_count: usize = 0,
@@ -174,6 +175,7 @@ pub const CTranspiler = struct {
             .link_libraries = std.StringHashMap(void).init(allocator),
             .emitted_functions = std.StringHashMap(void).init(allocator),
             .emitted_variables = std.StringHashMap(void).init(allocator),
+            .emitted_modules = std.AutoHashMap(*ASTNode, void).init(allocator),
             .is_test_mode = false,
             .test_names = std.ArrayList([]const u8).init(allocator),
             .test_count = 0,
@@ -191,6 +193,7 @@ pub const CTranspiler = struct {
         self.link_libraries.deinit();
         self.emitted_functions.deinit();
         self.emitted_variables.deinit();
+        self.emitted_modules.deinit();
         self.test_names.deinit();
         self.static_initializers.deinit();
     }
@@ -292,7 +295,10 @@ pub const CTranspiler = struct {
                 for (p.statements) |stmt| {
                     if (stmt.data == .import_stmt) {
                         if (stmt.data.import_stmt.module_ast) |mod_ast| {
-                            try self.transpileNode(mod_ast, false);
+                            if (!self.emitted_modules.contains(mod_ast)) {
+                                try self.emitted_modules.put(mod_ast, {});
+                                try self.transpileNode(mod_ast, false);
+                            }
                         }
                     } else if (stmt.data == .class_decl) {
                         if (stmt.data.class_decl.generic_params.len == 0) {

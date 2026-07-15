@@ -8,7 +8,7 @@ const TypeChecker = core.TypeChecker;
 const Scope = core.Scope;
 const AetherType = core.AetherType;
 
-const std_modules = std.StaticStringMap([]const u8).initComptime(.{
+pub const std_modules = std.StaticStringMap([]const u8).initComptime(.{
     .{ "core.ae", @embedFile("../../std/core.ae") },
     .{ "time.ae", @embedFile("../../std/time.ae") },
     .{ "math.ae", @embedFile("../../std/math.ae") },
@@ -21,6 +21,11 @@ const std_modules = std.StaticStringMap([]const u8).initComptime(.{
 
 pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     _ = scope;
+    if (self.pass == .validation) {
+        t.* = .Void;
+        return;
+    }
+
     var i = &node.data.import_stmt;
     const dir_path = std.fs.path.dirname(self.filename) orelse ".";
     var actual_module_path: []const u8 = i.module_path;
@@ -42,24 +47,46 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
         }
     } else {
         mod_path = try std.fs.path.join(self.allocator, &.{ dir_path, actual_module_path });
-        mod_source = std.fs.cwd().readFileAlloc(self.allocator, mod_path, 1024 * 1024) catch |err| {
-            self.reportError(node.line, node.column, "ImportError: Failed to read module file '{s}': {}", .{ mod_path, err });
-            return error.ImportError;
-        };
+        if (self.registry == null) {
+            mod_source = std.fs.cwd().readFileAlloc(self.allocator, mod_path, 1024 * 1024) catch |err| {
+                self.reportError(node.line, node.column, "ImportError: Failed to read module file '{s}': {}", .{ mod_path, err });
+                return error.ImportError;
+            };
+        }
     }
 
-    var p = parser_mod.Parser.init(self.allocator, mod_source);
-    const mod_ast = try p.parse();
+    var mod_ast: *ASTNode = undefined;
+    var prefix: []const u8 = undefined;
+    var tc_opt: ?*TypeChecker = null;
+    var fallback_tc: TypeChecker = undefined;
+    var has_fallback = false;
+
+    if (self.registry) |reg| {
+        if (reg.modules.get(mod_path)) |m| {
+            mod_ast = m.ast_root;
+            prefix = m.module_prefix;
+            tc_opt = m.checker;
+        } else {
+            self.reportError(node.line, node.column, "ImportError: Module '{s}' not found in registry.", .{mod_path});
+            return error.ImportError;
+        }
+    } else {
+        var p = parser_mod.Parser.init(self.allocator, mod_source);
+        mod_ast = try p.parse();
+
+        const basename = std.fs.path.basename(mod_path);
+        const ext_idx = std.mem.lastIndexOf(u8, basename, ".") orelse basename.len;
+        prefix = basename[0..ext_idx];
+
+        fallback_tc = TypeChecker.init(self.allocator, mod_source, mod_path);
+        fallback_tc.module_prefix = prefix;
+        fallback_tc.is_test_mode = self.is_test_mode;
+        try fallback_tc.validate(mod_ast);
+        tc_opt = &fallback_tc;
+        has_fallback = true;
+    }
     i.module_ast = mod_ast;
-
-    const basename = std.fs.path.basename(mod_path);
-    const ext_idx = std.mem.lastIndexOf(u8, basename, ".") orelse basename.len;
-    const prefix = basename[0..ext_idx];
-
-    var tc = TypeChecker.init(self.allocator, mod_source, mod_path);
-    tc.module_prefix = prefix;
-    tc.is_test_mode = self.is_test_mode;
-    try tc.validate(mod_ast);
+    const tc = tc_opt.?;
 
     if (i.destructured.len == 0) {
         var it = tc.global_scope.symbols.iterator();
@@ -150,7 +177,9 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
         try self.functions_ast.put(entry.key_ptr.*, entry.value_ptr.*);
     }
 
-    tc.deinit();
+    if (has_fallback) {
+        fallback_tc.deinit();
+    }
 
     t.* = .Void;
 }
@@ -305,11 +334,13 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
         prop.resolved_type = param_type;
 
         if (prop.initializer) |init_node| {
-            const cloned_init = try self.cloneNode(init_node);
-            const init_type = try self.inferNode(cloned_init, scope);
-            if (!self.isCompatible(param_type, init_type)) {
-                self.reportError(node.line, node.column, "TypeError: Default value type {} is incompatible with property type {}.", .{ init_type.*, param_type.* });
-                return error.TypeError;
+            if (self.pass == .validation) {
+                const cloned_init = try self.cloneNode(init_node);
+                const init_type = try self.inferNode(cloned_init, scope);
+                if (!self.isCompatible(param_type, init_type)) {
+                    self.reportError(node.line, node.column, "TypeError: Default value type {} is incompatible with property type {}.", .{ init_type.*, param_type.* });
+                    return error.TypeError;
+                }
             }
         }
 
@@ -389,11 +420,13 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         }
 
         if (p.initializer) |init_node| {
-            const cloned_init = try self.cloneNode(init_node);
-            const init_type = try self.inferNode(cloned_init, scope);
-            if (!self.isCompatible(param_type, init_type)) {
-                self.reportError(node.line, node.column, "TypeError: Default value type {} is incompatible with parameter type {}.", .{ init_type.*, param_type.* });
-                return error.TypeError;
+            if (self.pass == .validation) {
+                const cloned_init = try self.cloneNode(init_node);
+                const init_type = try self.inferNode(cloned_init, scope);
+                if (!self.isCompatible(param_type, init_type)) {
+                    self.reportError(node.line, node.column, "TypeError: Default value type {} is incompatible with parameter type {}.", .{ init_type.*, param_type.* });
+                    return error.TypeError;
+                }
             }
         }
 
@@ -433,6 +466,11 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     } };
 
     try scope.define(f.name, fn_type, false, true);
+
+    if (self.pass == .declaration) {
+        t.* = fn_type.*;
+        return;
+    }
 
     if (!body_inferred) {
         _ = try self.inferNode(f.body, &fun_scope);

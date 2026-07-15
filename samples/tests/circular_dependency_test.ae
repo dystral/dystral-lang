@@ -1,0 +1,13 @@
+import { CircularUser } from "../circular_user"
+import { CircularGroup } from "../circular_group"
+import { assert } from "std.core"
+
+test "circular dependency class instantiation" {
+    val group = CircularGroup("Admins", null)
+    val user = CircularUser("Alice", group)
+    group.owner = user
+
+    assert(user.name == "Alice")
+    assert(group.name == "Admins")
+    assert(group.owner?.name == "Alice")
+}

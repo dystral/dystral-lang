@@ -1,0 +1,9 @@
+import { CircularUser } from "circular_user"
+import { CircularGroup } from "circular_group"
+
+val group = CircularGroup("Admins", null)
+val user = CircularUser("Alice", group)
+group.owner = user
+
+user.show()
+group.show()

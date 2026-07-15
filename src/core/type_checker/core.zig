@@ -14,6 +14,39 @@ const infer_when_mod = @import("infer_when.zig");
 pub const isNullable = type_system.isNullable;
 pub const extractBaseType = type_system.extractBaseType;
 pub const isBool = type_system.isBool;
+
+pub const ModuleRegistry = struct {
+    allocator: std.mem.Allocator,
+    modules: std.StringHashMap(ModuleState),
+    ordered_modules: std.ArrayList([]const u8),
+
+    pub const ModuleState = struct {
+        filename: []const u8,
+        source: []const u8,
+        ast_root: *ASTNode,
+        checker: *TypeChecker,
+        module_prefix: []const u8,
+    };
+
+    pub fn init(allocator: std.mem.Allocator) ModuleRegistry {
+        return .{
+            .allocator = allocator,
+            .modules = std.StringHashMap(ModuleState).init(allocator),
+            .ordered_modules = std.ArrayList([]const u8).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *ModuleRegistry) void {
+        var it = self.modules.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.checker.deinit();
+            self.allocator.destroy(entry.value_ptr.checker);
+        }
+        self.modules.deinit();
+        self.ordered_modules.deinit();
+    }
+};
+
 pub const TypeChecker = struct {
     allocator: std.mem.Allocator,
     global_scope: Scope,
@@ -28,6 +61,19 @@ pub const TypeChecker = struct {
     functions_ast: std.StringHashMap(*ASTNode),
     monomorphized_nodes: std.ArrayList(*ASTNode),
     current_class_name: ?[]const u8 = null,
+    registry: ?*ModuleRegistry = null,
+    pass: enum { declaration, validation } = .validation,
+    status: enum {
+        unvisited,
+        declaring_types,
+        declared_types,
+        declaring_signatures,
+        declared_signatures,
+        resolving_imports,
+        resolved_imports,
+        validating,
+        validated
+    } = .unvisited,
 
     pub const inferNode = core_inferNode;
     pub const reportError = core_reportError;
@@ -37,6 +83,9 @@ pub const TypeChecker = struct {
     pub const monomorphizeClass = @import("monomorphize.zig").monomorphizeClass;
     pub const cloneNode = @import("clone.zig").cloneNode;
     pub const validate = core_validate;
+    pub const declareTypes = core_declareTypes;
+    pub const declareSignatures = core_declareSignatures;
+    pub const resolveImports = core_resolveImports;
     pub const checkBlock = infer_stmt_mod.checkBlock;
     pub const isCompatible = core_isCompatible;
     pub const isSubclassOf = core_isSubclassOf;
@@ -57,6 +106,9 @@ pub const TypeChecker = struct {
             .functions_ast = std.StringHashMap(*ASTNode).init(allocator),
             .monomorphized_nodes = std.ArrayList(*ASTNode).init(allocator),
             .current_class_name = null,
+            .registry = null,
+            .pass = .validation,
+            .status = .unvisited,
         };
 
         return checker;
@@ -261,11 +313,41 @@ fn core_injectImplicitImports(self: *TypeChecker, node: *ASTNode) anyerror!void 
     node.data.program.statements = new_stmts;
 }
 
-fn core_validate(self: *TypeChecker, node: *ASTNode) anyerror!void {
+fn core_declareTypes(self: *TypeChecker, node: *ASTNode) anyerror!void {
+    if (self.status == .declaring_types or self.status == .declared_types or 
+        self.status == .declaring_signatures or self.status == .declared_signatures or 
+        self.status == .resolving_imports or self.status == .resolved_imports or 
+        self.status == .validating or self.status == .validated) return;
+
+    self.status = .declaring_types;
+
     if (node.data == .program) {
         try self.injectImplicitImports(node);
-    }
-    if (node.data == .program) {
+
+        // Trigger declareTypes on all dependencies first
+        for (node.data.program.statements) |stmt| {
+            if (stmt.data == .import_stmt) {
+                if (self.registry) |reg| {
+                    const dir_path = std.fs.path.dirname(self.filename) orelse ".";
+                    var actual_module_path = stmt.data.import_stmt.module_path;
+                    if (!std.mem.endsWith(u8, actual_module_path, ".ae")) {
+                        actual_module_path = try std.fmt.allocPrint(self.allocator, "{s}.ae", .{actual_module_path});
+                    }
+                    var mod_path: []const u8 = undefined;
+                    if (std.mem.startsWith(u8, actual_module_path, "std.")) {
+                        const pkg_name = actual_module_path[4..];
+                        mod_path = try std.fmt.allocPrint(self.allocator, "std/{s}", .{pkg_name});
+                    } else {
+                        mod_path = try std.fs.path.join(self.allocator, &.{ dir_path, actual_module_path });
+                    }
+                    if (reg.modules.get(mod_path)) |m| {
+                        try m.checker.declareTypes(m.ast_root);
+                    }
+                }
+            }
+        }
+
+        // Declare local types
         for (node.data.program.statements) |stmt| {
             if (stmt.data == .class_decl) {
                 var c = &stmt.data.class_decl;
@@ -323,7 +405,132 @@ fn core_validate(self: *TypeChecker, node: *ASTNode) anyerror!void {
             }
         }
     }
+
+    self.status = .declared_types;
+}
+
+fn core_declareSignatures(self: *TypeChecker, node: *ASTNode) anyerror!void {
+    if (self.status == .declaring_signatures or self.status == .declared_signatures or 
+        self.status == .resolving_imports or self.status == .resolved_imports or 
+        self.status == .validating or self.status == .validated) return;
+
+    try self.declareTypes(node);
+
+    self.status = .declaring_signatures;
+    self.pass = .declaration;
+
+    if (node.data == .program) {
+        // Trigger declareSignatures on all dependencies first
+        for (node.data.program.statements) |stmt| {
+            if (stmt.data == .import_stmt) {
+                if (self.registry) |reg| {
+                    const dir_path = std.fs.path.dirname(self.filename) orelse ".";
+                    var actual_module_path = stmt.data.import_stmt.module_path;
+                    if (!std.mem.endsWith(u8, actual_module_path, ".ae")) {
+                        actual_module_path = try std.fmt.allocPrint(self.allocator, "{s}.ae", .{actual_module_path});
+                    }
+                    var mod_path: []const u8 = undefined;
+                    if (std.mem.startsWith(u8, actual_module_path, "std.")) {
+                        const pkg_name = actual_module_path[4..];
+                        mod_path = try std.fmt.allocPrint(self.allocator, "std/{s}", .{pkg_name});
+                    } else {
+                        mod_path = try std.fs.path.join(self.allocator, &.{ dir_path, actual_module_path });
+                    }
+                    if (reg.modules.get(mod_path)) |m| {
+                        try m.checker.declareSignatures(m.ast_root);
+                    }
+                }
+            }
+        }
+
+        // Copy imported symbols into self (resolve imports)
+        for (node.data.program.statements) |stmt| {
+            if (stmt.data == .import_stmt) {
+                _ = try self.inferNode(stmt, &self.global_scope);
+            }
+        }
+
+        // Declare local signatures
+        for (node.data.program.statements) |stmt| {
+            if (stmt.data == .lib_decl or stmt.data == .class_decl or stmt.data == .object_decl or stmt.data == .fun_decl) {
+                _ = try self.inferNode(stmt, &self.global_scope);
+            }
+        }
+    }
+
+    self.status = .declared_signatures;
+}
+
+fn core_resolveImports(self: *TypeChecker, node: *ASTNode) anyerror!void {
+    if (self.status == .resolving_imports or self.status == .resolved_imports or 
+        self.status == .validating or self.status == .validated) return;
+
+    try self.declareSignatures(node);
+
+    self.status = .resolving_imports;
+    self.pass = .declaration;
+
+    if (node.data == .program) {
+        // Trigger resolveImports on all dependencies first
+        for (node.data.program.statements) |stmt| {
+            if (stmt.data == .import_stmt) {
+                if (self.registry) |reg| {
+                    const dir_path = std.fs.path.dirname(self.filename) orelse ".";
+                    var actual_module_path = stmt.data.import_stmt.module_path;
+                    if (!std.mem.endsWith(u8, actual_module_path, ".ae")) {
+                        actual_module_path = try std.fmt.allocPrint(self.allocator, "{s}.ae", .{actual_module_path});
+                    }
+                    var mod_path: []const u8 = undefined;
+                    if (std.mem.startsWith(u8, actual_module_path, "std.")) {
+                        const pkg_name = actual_module_path[4..];
+                        mod_path = try std.fmt.allocPrint(self.allocator, "std/{s}", .{pkg_name});
+                    } else {
+                        mod_path = try std.fs.path.join(self.allocator, &.{ dir_path, actual_module_path });
+                    }
+                    if (reg.modules.get(mod_path)) |m| {
+                        try m.checker.resolveImports(m.ast_root);
+                    }
+                }
+            }
+        }
+
+        // Resolve local imports
+        for (node.data.program.statements) |stmt| {
+            if (stmt.data == .import_stmt) {
+                _ = try self.inferNode(stmt, &self.global_scope);
+            }
+        }
+    }
+
+    self.status = .resolved_imports;
+}
+
+fn core_validate(self: *TypeChecker, node: *ASTNode) anyerror!void {
+    if (self.status == .validating or self.status == .validated) return;
+
+    if (self.registry == null) {
+        // Fallback: run all passes sequentially on this single checker/file
+        if (node.data == .program) {
+            try self.injectImplicitImports(node);
+        }
+        try self.declareTypes(node);
+        try self.declareSignatures(node);
+        try self.resolveImports(node);
+    } else {
+        try self.resolveImports(node);
+    }
+
+    self.status = .validating;
+    self.pass = .validation;
     _ = try self.inferNode(node, &self.global_scope);
+
+    // Validate all dynamically monomorphized classes
+    var mono_idx: usize = 0;
+    while (mono_idx < self.monomorphized_nodes.items.len) : (mono_idx += 1) {
+        const mono_node = self.monomorphized_nodes.items[mono_idx];
+        const class_type = try self.allocator.create(AetherType);
+        try infer_decl_mod.inferClassDecl(self, mono_node, &self.global_scope, class_type);
+    }
 
     // Append any dynamically monomorphized classes to the AST
     if (node.data == .program and self.monomorphized_nodes.items.len > 0) {
@@ -336,11 +543,24 @@ fn core_validate(self: *TypeChecker, node: *ASTNode) anyerror!void {
         }
         node.data.program.statements = final_stmts;
     }
+
+    self.status = .validated;
 }
 
 fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*const AetherType {
-    if (node.resolved_type) |rt| {
-        return rt;
+    if (self.pass == .validation) {
+        switch (node.data) {
+            .program, .class_decl, .object_decl, .fun_decl => {},
+            else => {
+                if (node.resolved_type) |rt| {
+                    return rt;
+                }
+            },
+        }
+    } else {
+        if (node.resolved_type) |rt| {
+            return rt;
+        }
     }
     const t = try self.allocator.create(AetherType);
     switch (node.data) {

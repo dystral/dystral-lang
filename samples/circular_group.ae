@@ -1,0 +1,9 @@
+import { CircularUser } from "circular_user"
+import { print } from "std.core"
+
+class CircularGroup(val name: String, var owner: CircularUser?) {
+    fun show() {
+        val ownerName = owner?.name ?: "No Owner"
+        print("Group: " + name + ", Owner: " + ownerName)
+    }
+}

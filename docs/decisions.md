@@ -165,4 +165,15 @@ Se o `when` retornar um valor não-Void, o compilador exige a presença de um ra
 6. Executar o auto-loading automático do `.env` na primeira chamada de leitura (`get`, `exists`) caso `Env.load()` não tenha sido invocado previamente.
 **Razão:** Centraliza o acesso à configuração do processo sob uma única API consistente, facilitando inicialização de servidores e scripts que dependem de configurações dinâmicas de infraestrutura sem poluir a saída de erros na inicialização.
 
+## ADR 23: Arquitetura de Compilador Multi-Pass (Kotlin/Crystal Style)
+**Data:** Fase 40
+**Contexto:** O compilador Aether operava por análise semântica e resolução de imports recursivas na mesma passagem (single-pass sob demanda). Essa estrutura gerava recursão infinita ou falha por falta de símbolos caso houvesse dependência circular entre classes/módulos do usuário (ex: Classe A referenciando Classe B e vice-versa), além de causar redundância na transpilação final em C.
+**Decisão:** Refatorar o pipeline em três passes ordenados e centralizados sob um driver/orquestrador (Opção A):
+1. **Parsing Pass:** Carrega e analisa recursivamente todos os arquivos a partir do ponto de entrada (incluindo implicit imports e explicit imports), armazenando as ASTs brutas em um registro global mapeado pelo caminho físico absoluto do arquivo.
+2. **Declaration Pass:** Varre todas as ASTs cadastradas para registrar as assinaturas públicas de todos os tipos (classes, construtores, objetos, funções, bibliotecas FFI) nos respectivos escopos locais e globais, resolvendo namespaces e imports de assinaturas de forma estática sem validar corpos.
+3. **Semantic Body Validation Pass:** Executa a validação semântica profunda e verificação de tipos de expressões, corpos de métodos/funções, inicializadores padrões e statements soltos em todos os arquivos no registro unificado.
+Além disso, atualizar o `CTranspiler` para verificar se um arquivo físico (incluindo o core da stdlib) já foi transpiled através de um mapa de controle `emitted_modules`, garantindo deduplicação total de símbolos em C.
+**Razão:** Permite dependências circulares de tipos completas no nível de linguagem de forma transparente, garante clareza de passes no compilador, elimina redundâncias no backend CTranspiler e fornece a base de dados ideal (ASTs pré-resolvidas de escopo) para a futura geração nativa de LLVM IR.
+
+
 
