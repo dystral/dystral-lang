@@ -173,6 +173,16 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             try self.emitExpression(a.value);
         },
         .get_expr => |g| {
+            if (self.objects_ast) |oa| {
+                if (g.object.data == .identifier) {
+                    const class_name = g.object.data.identifier.name;
+                    const actual_class_name = if (self.alias_map) |am| (am.get(class_name) orelse class_name) else class_name;
+                    if (oa.contains(actual_class_name)) {
+                        try self.writer.writer().print("{s}_{s}", .{actual_class_name, g.name});
+                        return;
+                    }
+                }
+            }
             const rt = g.object.resolved_type.?;
             const base_type = ts.extractBaseType(rt);
             if (base_type.* == .Custom) {
@@ -214,6 +224,18 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             }
         },
         .set_expr => |s| {
+            if (self.objects_ast) |oa| {
+                if (s.object.data == .identifier) {
+                    const class_name = s.object.data.identifier.name;
+                    const actual_class_name = if (self.alias_map) |am| (am.get(class_name) orelse class_name) else class_name;
+                    if (oa.contains(actual_class_name)) {
+                        try self.writer.writer().print("({s}_{s} = ", .{actual_class_name, s.name});
+                        try self.emitExpression(s.value);
+                        try self.writer.appendSlice(")");
+                        return;
+                    }
+                }
+            }
             const rt = s.object.resolved_type.?;
             const base_type = ts.extractBaseType(rt);
             if (base_type.* == .Custom) {

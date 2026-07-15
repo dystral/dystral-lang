@@ -113,6 +113,7 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, text, "catch")) return .kw_catch;
         if (std.mem.eql(u8, text, "throw")) return .kw_throw;
         if (std.mem.eql(u8, text, "when")) return .kw_when;
+        if (std.mem.eql(u8, text, "object")) return .kw_object;
         if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return .bool_literal;
         return .identifier;
     }

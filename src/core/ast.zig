@@ -30,6 +30,7 @@ pub const TokenType = enum {
     kw_catch,
     kw_throw,
     kw_when,
+    kw_object,
 
     // Symbols and Operators
     eq,         // =
@@ -149,6 +150,7 @@ pub const ASTNodeType = union(enum) {
         type_ref: ?*const ASTTypeRef, // Optional due to inference
         initializer: ?*ASTNode,
         is_boxed: bool = false,
+        resolved_c_name: ?[]const u8 = null,
     },
     fun_decl: struct {
         annotations: []const Annotation,
@@ -179,6 +181,12 @@ pub const ASTNodeType = union(enum) {
         annotations: []const Annotation,
         name: []const u8,
         functions: []const *ASTNode,
+    },
+    object_decl: struct {
+        annotations: []const Annotation,
+        name: ?[]const u8,
+        members: []const *ASTNode,
+        resolved_c_name: ?[]const u8,
     },
     
     // Literals

@@ -62,14 +62,22 @@ pub const CTranspiler = struct {
     test_names: std.ArrayList([]const u8),
     test_count: usize = 0,
     classes_ast: ?*std.StringHashMap(*ASTNode) = null,
+    objects_ast: ?*std.StringHashMap(*ASTNode) = null,
     alias_map: ?*std.StringHashMap([]const u8) = null,
     source_file: []const u8 = "<unknown>", // path to the .ae source file being transpiled
+    static_initializers: std.ArrayList(StaticInitializer),
+
+    pub const StaticInitializer = struct {
+        name: []const u8,
+        init: *ASTNode,
+    };
 
     pub const emitClassDecl = decl_mod.emitClassDecl;
     pub const emitMethodDecl = decl_mod.emitMethodDecl;
     pub const emitFunDecl = decl_mod.emitFunDecl;
     pub const emitTestDecl = decl_mod.emitTestDecl;
     pub const emitLibDecl = decl_mod.emitLibDecl;
+    pub const emitObjectDecl = decl_mod.emitObjectDecl;
 
     pub const emitStatement = stmt_mod.emitStatement;
     pub const emitExpression = expr_mod.emitExpression;
@@ -167,6 +175,7 @@ pub const CTranspiler = struct {
             .is_test_mode = false,
             .test_names = std.ArrayList([]const u8).init(allocator),
             .test_count = 0,
+            .static_initializers = std.ArrayList(StaticInitializer).init(allocator),
         };
     }
 
@@ -180,6 +189,7 @@ pub const CTranspiler = struct {
         self.link_libraries.deinit();
         self.emitted_functions.deinit();
         self.test_names.deinit();
+        self.static_initializers.deinit();
     }
 
     pub fn transpile(self: *CTranspiler, node: *ASTNode) ![]const u8 {
@@ -295,6 +305,8 @@ pub const CTranspiler = struct {
                     if (stmt.data == .fun_decl) {
                         if (std.mem.eql(u8, stmt.data.fun_decl.name, "main")) has_main = true;
                         try self.emitFunDecl(stmt);
+                    } else if (stmt.data == .object_decl) {
+                        try self.emitObjectDecl(stmt);
                     } else if (stmt.data == .test_decl and self.is_test_mode) {
                         try self.emitTestDecl(stmt);
                     }
@@ -304,7 +316,7 @@ pub const CTranspiler = struct {
                 var top_level_stmts = std.ArrayList(*ASTNode).init(self.allocator);
                 defer top_level_stmts.deinit();
                 for (p.statements) |stmt| {
-                    if (stmt.data != .fun_decl and stmt.data != .class_decl and stmt.data != .import_stmt and stmt.data != .test_decl and stmt.data != .lib_decl) {
+                    if (stmt.data != .fun_decl and stmt.data != .class_decl and stmt.data != .import_stmt and stmt.data != .test_decl and stmt.data != .lib_decl and stmt.data != .object_decl) {
                         try top_level_stmts.append(stmt);
                     }
                 }
@@ -316,7 +328,13 @@ pub const CTranspiler = struct {
                     }
 
                     if (self.is_test_mode) {
-                        try self.writer.appendSlice("int main() {\n    GC_init();\n    int __failed = 0;\n");
+                        try self.writer.appendSlice("int main() {\n    GC_init();\n");
+                        for (self.static_initializers.items) |si| {
+                            try self.writer.writer().print("    {s} = ", .{si.name});
+                            try self.emitExpression(si.init);
+                            try self.writer.appendSlice(";\n");
+                        }
+                        try self.writer.appendSlice("    int __failed = 0;\n");
                         for (self.test_names.items, 0..) |tname, i| {
                             try self.writer.appendSlice("    {\n");
                             try self.writer.appendSlice("        AetherExceptionFrame __frame;\n");
@@ -348,6 +366,11 @@ pub const CTranspiler = struct {
                         try self.writer.appendSlice("int main(int argc, char** argv) {\n    GC_init();\n");
                         try self.writer.appendSlice("    (void)argc;\n");
                         try self.writer.appendSlice("    (void)argv;\n");
+                        for (self.static_initializers.items) |si| {
+                            try self.writer.writer().print("    {s} = ", .{si.name});
+                            try self.emitExpression(si.init);
+                            try self.writer.appendSlice(";\n");
+                        }
                         
                         for (top_level_stmts.items) |stmt| {
                             try self.emitStatement(stmt);

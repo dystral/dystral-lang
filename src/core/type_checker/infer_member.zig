@@ -42,12 +42,37 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     }
 
     const obj_type = try self.inferNode(g.object, scope);
-    if (isNullable(obj_type) and !g.is_safe) {
-        self.reportError(node.line, node.column, "TypeError: Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type {}.", .{obj_type.*});
-        return error.TypeError;
+    var prop_type: ?*const AetherType = null;
+    var is_static = false;
+    if (g.object.data == .identifier) {
+        const class_name = g.object.data.identifier.name;
+        const actual_class_name = self.alias_map.get(class_name) orelse class_name;
+        if (self.objects_ast.contains(actual_class_name)) {
+            is_static = true;
+            const obj_node = self.objects_ast.get(actual_class_name).?;
+            const obj = obj_node.data.object_decl;
+            for (obj.members) |member| {
+                if (member.data == .var_decl and std.mem.eql(u8, member.data.var_decl.name, g.name)) {
+                    prop_type = member.resolved_type;
+                    break;
+                } else if (member.data == .fun_decl and std.mem.eql(u8, member.data.fun_decl.name, g.name)) {
+                    prop_type = member.resolved_type;
+                    break;
+                }
+            }
+            if (prop_type == null) {
+                self.reportError(node.line, node.column, "TypeError: Static member '{s}' not found in object '{s}'.", .{g.name, class_name});
+                return error.TypeError;
+            }
+        }
     }
 
-    var prop_type: ?*const AetherType = null;
+    if (!is_static) {
+        if (isNullable(obj_type) and !g.is_safe) {
+            self.reportError(node.line, node.column, "TypeError: Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type {}.", .{obj_type.*});
+            return error.TypeError;
+        }
+    }
     const base_type = extractBaseType(obj_type);
     var lookup_name: ?[]const u8 = null;
     var base_name: ?[]const u8 = null;
@@ -166,6 +191,38 @@ pub fn inferSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     const s = node.data.set_expr;
     const obj_type = try self.inferNode(s.object, scope);
     const assigned_type = try self.inferNode(s.value, scope);
+
+    if (s.object.data == .identifier) {
+        const class_name = s.object.data.identifier.name;
+        const actual_class_name = self.alias_map.get(class_name) orelse class_name;
+        if (self.objects_ast.contains(actual_class_name)) {
+            const obj_node = self.objects_ast.get(actual_class_name).?;
+            const obj = obj_node.data.object_decl;
+            var found_prop = false;
+            for (obj.members) |member| {
+                if (member.data == .var_decl and std.mem.eql(u8, member.data.var_decl.name, s.name)) {
+                    found_prop = true;
+                    const v = member.data.var_decl;
+                    if (!v.is_mut) {
+                        self.reportError(node.line, node.column, "TypeError: Cannot assign to constant property '{s}' of object '{s}'.", .{ s.name, class_name });
+                        return error.TypeError;
+                    }
+                    const prop_type = member.resolved_type.?;
+                    if (!self.isCompatible(prop_type, assigned_type)) {
+                        self.reportError(node.line, node.column, "TypeError: Expected {} but found {} when setting static property '{s}'.", .{ prop_type.*, assigned_type.*, s.name });
+                        return error.TypeError;
+                    }
+                    break;
+                }
+            }
+            if (!found_prop) {
+                self.reportError(node.line, node.column, "TypeError: Unresolved static property '{s}' on object '{s}'.", .{ s.name, class_name });
+                return error.TypeError;
+            }
+            t.* = assigned_type.*;
+            return;
+        }
+    }
 
     const base_type = extractBaseType(obj_type);
     var lookup_name: ?[]const u8 = null;

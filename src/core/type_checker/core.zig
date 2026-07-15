@@ -24,8 +24,10 @@ pub const TypeChecker = struct {
     is_test_mode: bool = false,
     current_class_props: ?*std.StringHashMap(void) = null,
     classes_ast: std.StringHashMap(*ASTNode),
+    objects_ast: std.StringHashMap(*ASTNode),
     functions_ast: std.StringHashMap(*ASTNode),
     monomorphized_nodes: std.ArrayList(*ASTNode),
+    current_class_name: ?[]const u8 = null,
 
 
     pub const inferNode = core_inferNode;
@@ -51,8 +53,10 @@ pub const TypeChecker = struct {
             .is_test_mode = false,
             .current_class_props = null,
             .classes_ast = std.StringHashMap(*ASTNode).init(allocator),
+            .objects_ast = std.StringHashMap(*ASTNode).init(allocator),
             .functions_ast = std.StringHashMap(*ASTNode).init(allocator),
             .monomorphized_nodes = std.ArrayList(*ASTNode).init(allocator),
+            .current_class_name = null,
         };
 
         return checker;
@@ -62,6 +66,7 @@ pub const TypeChecker = struct {
         self.global_scope.deinit();
         self.alias_map.deinit();
         self.classes_ast.deinit();
+        self.objects_ast.deinit();
         self.functions_ast.deinit();
         self.monomorphized_nodes.deinit();
     }
@@ -243,6 +248,64 @@ fn core_validate(self: *TypeChecker, node: *ASTNode) anyerror!void {
                 node.data.program.statements = new_stmts;
         }
     }
+    if (node.data == .program) {
+        for (node.data.program.statements) |stmt| {
+            if (stmt.data == .class_decl) {
+                var c = &stmt.data.class_decl;
+                if (c.resolved_c_name == null) {
+                    if (self.module_prefix) |prefix| {
+                        c.resolved_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ prefix, c.name });
+                        if (!std.mem.eql(u8, c.name, "Int") and !std.mem.eql(u8, c.name, "Bool") and !std.mem.eql(u8, c.name, "Pointer") and !std.mem.eql(u8, c.name, "OpaquePointer")) {
+                            try self.alias_map.put(c.name, c.resolved_c_name.?);
+                        }
+                    } else {
+                        c.resolved_c_name = c.name;
+                    }
+                }
+                const actual_c_name = c.resolved_c_name.?;
+                const class_type = try self.allocator.create(AetherType);
+                if (std.mem.eql(u8, c.name, "Int")) {
+                    class_type.* = .Int;
+                } else if (std.mem.eql(u8, c.name, "Bool")) {
+                    class_type.* = .Bool;
+                } else if (std.mem.eql(u8, c.name, "String")) {
+                    class_type.* = .{ .Custom = actual_c_name };
+                } else if (std.mem.eql(u8, c.name, "OpaquePointer") or std.mem.eql(u8, c.name, "Pointer")) {
+                    class_type.* = .{ .Pointer = try self.allocator.create(AetherType) };
+                    @constCast(class_type.Pointer).* = .Void;
+                } else {
+                    class_type.* = .{ .Custom = actual_c_name };
+                }
+                _ = self.global_scope.define(c.name, class_type, false, false) catch {};
+                if (!std.mem.eql(u8, c.name, actual_c_name)) {
+                    _ = self.global_scope.define(actual_c_name, class_type, false, false) catch {};
+                }
+                try self.classes_ast.put(actual_c_name, stmt);
+            } else if (stmt.data == .object_decl) {
+                var o = &stmt.data.object_decl;
+                if (o.name) |o_name| {
+                    if (o.resolved_c_name == null) {
+                        if (self.module_prefix) |prefix| {
+                            o.resolved_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ prefix, o_name });
+                            try self.alias_map.put(o_name, o.resolved_c_name.?);
+                        } else {
+                            o.resolved_c_name = o_name;
+                        }
+                    }
+                    const actual_c_name = o.resolved_c_name.?;
+                    const obj_type = try self.allocator.create(AetherType);
+                    obj_type.* = .{ .Custom = actual_c_name };
+                    try self.objects_ast.put(actual_c_name, stmt);
+                    if (self.global_scope.lookupVariable(o_name) == null) {
+                        _ = self.global_scope.define(o_name, obj_type, false, false) catch {};
+                        if (!std.mem.eql(u8, o_name, actual_c_name)) {
+                            _ = self.global_scope.define(actual_c_name, obj_type, false, false) catch {};
+                        }
+                    }
+                }
+            }
+        }
+    }
     _ = try self.inferNode(node, &self.global_scope);
     
     // Append any dynamically monomorphized classes to the AST
@@ -278,6 +341,7 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
         .import_stmt => try infer_decl_mod.inferImportStmt(self, node, scope, t),
         .lib_decl => try infer_decl_mod.inferLibDecl(self, node, scope, t),
         .class_decl => try infer_decl_mod.inferClassDecl(self, node, scope, t),
+        .object_decl => try infer_decl_mod.inferObjectDecl(self, node, scope, t),
         .fun_decl => try infer_decl_mod.inferFunDecl(self, node, scope, t),
         .var_decl => try infer_decl_mod.inferVarDecl(self, node, scope, t),
         .assignment => try infer_expr_mod.inferAssignment(self, node, scope, t),

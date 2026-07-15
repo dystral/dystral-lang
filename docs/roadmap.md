@@ -196,17 +196,17 @@ This document tracks the historical progress, current status, and future roadmap
 - [x] **Task 37.2:** Implement default parameter injection and validation in the Type Checker.
 - [x] **Verify:** Call functions and instantiate classes (`Server()`) using default constructor properties.
 
-### Phase 38: Companion Objects & Boundless Namespaces (PENDING)
-- [ ] **Task 38.1:** Update the Lexer and AST to support the companion `object` keyword both as a named block (`object File { ... }`) and an anonymous block (`object { ... }`).
-- [ ] **Task 38.2:** Implement Companion Binding in the Parser:
+### Phase 38: Companion Objects & Boundless Namespaces (COMPLETED)
+- [x] **Task 38.1:** Update the Lexer and AST to support the companion `object` keyword both as a named block (`object File { ... }`) and an anonymous block (`object { ... }`).
+- [x] **Task 38.2:** Implement Companion Binding in the Parser:
   - If an anonymous `object { ... }` immediately follows a `class Name`, bind the object's contents to the namespace `Name`.
   - If an anonymous `class (...) { ... }` immediately follows an `object Name`, bind the class definition and primary constructor to the namespace `Name`.
-- [ ] **Task 38.3:** Update the TypeChecker to merge both definitions into a single joint scope:
+- [x] **Task 38.3:** Update the TypeChecker to merge both definitions into a single joint scope:
   - Methods and properties inside `class` belong to instances (implicitly injecting the `self` / `this` pointer).
   - Methods and properties inside `object` are static and bound to the type's static namespace (accessible directly via `Type.member`).
-- [ ] **Task 38.4:** Support Two-Pass Semantic Analysis to ensure compilation order independence (i.e., resolving `File(path)` inside `object File` even if the `class` definition appears later in the file).
-- [ ] **Task 38.5:** Update the CTranspiler to emit correct C symbols using static name mangling (e.g., `class File` methods transpile to `File_member(File* self)`, while `object File` methods transpile to static global functions like `File_member(...)` without instance pointer overhead).
-- [ ] **Verify:** Compile and run a hybrid `File` module where the static factory `File.read(path)` and the instance method `file.read()` coexist seamlessly.
+- [x] **Task 38.4:** Support Two-Pass Semantic Analysis to ensure compilation order independence (i.e., resolving `File(path)` inside `object File` even if the `class` definition appears later in the file).
+- [x] **Task 38.5:** Update the CTranspiler to emit correct C symbols using static name mangling (e.g., `class File` methods transpile to `File_member(File* self)`, while `object File` methods transpile to static global functions like `File_member(...)` without instance pointer overhead).
+- [x] **Verify:** Compile and run a hybrid `File` module where the static factory `File.read(path)` and the instance method `file.read()` coexist seamlessly.
 
 ### Phase 39: Standard Library Environment Configuration (`std.env`) (PENDING)
 - [ ] **Task 39.1:** Implement `std.env` using `std.fs.File` to read `.env` files or environment variables. `Env.load()`, `Env.get(key)`, `Env.set(key, value)`, `Env.unset(key)`, `Env.exists(key)`. If `path` is not provided, `Env.load()` should read `.env` in the current directory. If `Env.get()` is called without `Env.load()` being called first, `Env.load()` should be called automatically.

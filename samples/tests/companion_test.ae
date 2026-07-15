@@ -1,0 +1,64 @@
+// Test suite for Companion Objects & Boundless Namespaces
+
+class Config(val name: String) {
+    fun getFormatted(): String {
+        return "Config:" + this.name
+    }
+} object {
+    val defaultPrefix = "SYS_"
+    var loadCount = 0
+    
+    fun createSystem(name: String): Config {
+        Config.loadCount = Config.loadCount + 1
+        return Config(Config.defaultPrefix + name)
+    }
+}
+
+// Test out-of-order compilation: Object declared before Class
+object Logger {
+    var logs = ""
+    
+    fun info(msg: String) {
+        Logger.logs = Logger.logs + msg + ";"
+    }
+}
+
+// Test vice-versa companion object-class (Object first, anonymous Class second on same line)
+object Service {
+    val defaultPort = 8080
+    
+    fun create(host: String): Service {
+        return Service(host, Service.defaultPort)
+    }
+} class (val host: String, val port: Int) {
+    fun getUrl(): String {
+        return "http://" + this.host + ":" + this.port.toString()
+    }
+}
+
+
+test "companion: static variables and methods access on class namespace" {
+    assert(Config.defaultPrefix == "SYS_")
+    assert(Config.loadCount == 0)
+    
+    val cfg = Config.createSystem("DB")
+    assert(Config.loadCount == 1)
+    assert(cfg.name == "SYS_DB")
+    assert(cfg.getFormatted() == "Config:SYS_DB")
+}
+
+test "companion: named object acting as singleton module" {
+    assert(Logger.logs == "")
+    Logger.info("Starting")
+    Logger.info("Running")
+    assert(Logger.logs == "Starting;Running;")
+}
+
+test "companion: vice-versa object-class definition (object first, anonymous class second)" {
+    assert(Service.defaultPort == 8080)
+    val srv = Service.create("localhost")
+    assert(srv.host == "localhost")
+    assert(srv.port == 8080)
+    assert(srv.getUrl() == "http://localhost:8080")
+}
+

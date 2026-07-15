@@ -568,7 +568,7 @@ when {
     x < y -> print("y is greater")
     else -> print("they are equal")
 }
-
+```
 ---
 
 ## 14. Default Parameters
@@ -672,6 +672,91 @@ fun main() {
     assert(result == "<html><body>Hello Aether DSL!</body></html>")
 }
 ```
+
+## 16. Objects & Boundless Namespaces
+Objects allow grouping static variables and functions under a class namespace. In Aether, this is declared using the `object` keyword.
+
+### 16.1 Class-Bound Objects
+An anonymous `object` block that immediately follows or precedes a `class` definition binds its members to the class namespace.
+
+#### Same-Line Syntax Constraint
+To emphasize that the class-bound object/class definition is a continuation of the class/object scope, Aether enforces that the anonymous block **must start on the same line** as the closing brace `}` of the sibling block. Separating them with a newline will trigger a compile-time syntax error.
+
+#### Class-First Declaration
+When the class is declared first, the anonymous `object` block is declared immediately after the class closing brace `} object {`:
+
+```kotlin
+class File(val path: String) {
+    fun read(): String {
+        return "Content of " + this.path
+    }
+} object {
+    val defaultPath = "/tmp/aether.txt"
+    
+    fun create(path: String): File {
+        return File(path)
+    }
+}
+
+fun main() {
+    // Access static members directly on the class name
+    val path = File.defaultPath
+    val file = File.create(path)
+    
+    // Access instance methods on the instantiated class object
+    assert(file.read() == "Content of /tmp/aether.txt")
+}
+```
+
+#### Object-First Declaration (Vice-Versa)
+Alternatively, you can declare the named `object` first, followed immediately by the anonymous `class` definition on the same line `} class(...) {`:
+
+```kotlin
+object Configuration {
+    val defaultPrefix = "SYS_"
+    var loadCount = 0
+    
+    fun createSystem(name: String): Configuration {
+        Configuration.loadCount = Configuration.loadCount + 1
+        return Configuration(Configuration.defaultPrefix + name)
+    }
+} class (val name: String) {
+    fun getFormatted(): String {
+        return "Config:" + this.name
+    }
+}
+
+fun main() {
+    // Access static members on the object/class namespace
+    assert(Configuration.loadCount == 0)
+    val config = Configuration.createSystem("DB")
+    assert(Configuration.loadCount == 1)
+    
+    // Access instance methods on the created configuration instances
+    assert(config.getFormatted() == "Config:SYS_DB")
+}
+```
+
+### 16.2 Named Standalone Objects (Singletons)
+You can also declare standalone named `object` blocks which act as singletons or modules:
+
+```kotlin
+object Database {
+    var queryCount = 0
+    
+    fun execute(query: String): String {
+        this.queryCount = this.queryCount + 1
+        return "Result of: " + query
+    }
+}
+
+fun main() {
+    assert(Database.queryCount == 0)
+    val result = Database.execute("SELECT * FROM users")
+    assert(Database.queryCount == 1)
+}
+```
+
 
 
 

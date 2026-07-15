@@ -73,6 +73,10 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
         while (class_ast_it.next()) |entry| {
             try self.classes_ast.put(entry.key_ptr.*, entry.value_ptr.*);
         }
+        var object_ast_it = tc.objects_ast.iterator();
+        while (object_ast_it.next()) |entry| {
+            try self.objects_ast.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
     } else {
         for (i.destructured) |sym| {
             var found = false;
@@ -119,6 +123,10 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
         var class_ast_it = tc.classes_ast.iterator();
         while (class_ast_it.next()) |entry| {
             try self.classes_ast.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+        var object_ast_it = tc.objects_ast.iterator();
+        while (object_ast_it.next()) |entry| {
+            try self.objects_ast.put(entry.key_ptr.*, entry.value_ptr.*);
         }
         // Also register generic template symbols so that method bodies referencing
         // sibling classes (e.g. List.mut() returns MutableList) can resolve them.
@@ -349,6 +357,9 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         const base_t = core.extractBaseType(this_t);
         const class_name = if (base_t.* == .Custom) base_t.Custom else (if (base_t.* == .Pointer and base_t.Pointer.* == .Custom) base_t.Pointer.Custom else f.name);
         try mangled_name.writer().print("{s}_{s}", .{class_name, f.name});
+    } else if (self.current_class_name) |class_name| {
+        const actual_class = self.alias_map.get(class_name) orelse class_name;
+        try mangled_name.writer().print("{s}_{s}", .{actual_class, f.name});
     } else if (self.module_prefix) |prefix| {
         try mangled_name.writer().print("{s}_{s}", .{prefix, f.name});
     } else {
@@ -437,6 +448,10 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
 
 pub fn inferVarDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const v = &node.data.var_decl;
+    if (self.current_class_name) |class_name| {
+        const actual_class = self.alias_map.get(class_name) orelse class_name;
+        @constCast(v).resolved_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{actual_class, v.name});
+    }
     var declared: ?*const AetherType = null;
     if (v.type_ref) |tr| {
         declared = try self.resolveTypeRef(tr);
@@ -499,6 +514,45 @@ pub fn inferLibDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         }
         try scope.define(full_name, ret_type, false, true);
         try self.alias_map.put(full_name, c_name);
+    }
+    t.* = .Void;
+}
+
+pub fn inferObjectDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
+    var o = &node.data.object_decl;
+    const name = o.name orelse {
+        self.reportError(node.line, node.column, "TypeError: Companion object must have a resolved bound name.", .{});
+        return error.TypeError;
+    };
+    
+    if (o.resolved_c_name == null) {
+        if (self.module_prefix) |prefix| {
+            o.resolved_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ prefix, name });
+            try self.alias_map.put(name, o.resolved_c_name.?);
+        } else {
+            o.resolved_c_name = name;
+        }
+    }
+    const actual_c_name = o.resolved_c_name.?;
+    const obj_type = try self.allocator.create(AetherType);
+    obj_type.* = .{ .Custom = actual_c_name };
+    try scope.define(name, obj_type, false, false);
+    if (!std.mem.eql(u8, name, actual_c_name)) {
+        try scope.define(actual_c_name, obj_type, false, false);
+    }
+    
+    try self.objects_ast.put(actual_c_name, node);
+    
+    // Set static block context
+    const old_class_name = self.current_class_name;
+    self.current_class_name = name;
+    defer self.current_class_name = old_class_name;
+    
+    var obj_scope = Scope.init(self.allocator, scope);
+    defer obj_scope.deinit();
+    
+    for (o.members) |member| {
+        _ = try self.inferNode(member, &obj_scope);
     }
     t.* = .Void;
 }

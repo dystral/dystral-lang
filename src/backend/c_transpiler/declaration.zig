@@ -334,7 +334,13 @@ pub fn emitFunDecl(self: *CTranspiler, node: *ASTNode) !void {
     try self.writer.appendSlice("}\n\n");
     
     if (is_main) {
-        try self.writer.appendSlice("int main() {\n    GC_init();\n    return aether_main();\n}\n\n");
+        try self.writer.appendSlice("int main() {\n    GC_init();\n");
+        for (self.static_initializers.items) |si| {
+            try self.writer.writer().print("    {s} = ", .{si.name});
+            try self.emitExpression(si.init);
+            try self.writer.appendSlice(";\n");
+        }
+        try self.writer.appendSlice("    return aether_main();\n}\n\n");
     }
 }
 
@@ -378,4 +384,30 @@ pub fn emitLibDecl(self: *CTranspiler, node: *ASTNode) !void {
         }
     }
     try self.writer.appendSlice("\n");
+}
+
+pub fn emitObjectDecl(self: *CTranspiler, node: *ASTNode) anyerror!void {
+    const obj = node.data.object_decl;
+    for (obj.members) |member| {
+        if (member.data == .fun_decl) {
+            try self.emitFunDecl(member);
+        } else if (member.data == .var_decl) {
+            const v = member.data.var_decl;
+            const var_name = v.resolved_c_name orelse v.name;
+            var type_str: []const u8 = "int";
+            if (member.resolved_type) |rt| {
+                type_str = try core.getCTypeStr(self.allocator, rt);
+            }
+            // Declarations in header
+            try self.header_writer.writer().print("extern {s} {s};\n", .{type_str, var_name});
+            
+            // Definitions in writer initialized to zero / default
+            try self.writer.writer().print("{s} {s} = 0;\n", .{type_str, var_name});
+            
+            // Queue static initializer
+            if (v.initializer) |init_node| {
+                try self.static_initializers.append(.{ .name = var_name, .init = init_node });
+            }
+        }
+    }
 }

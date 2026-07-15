@@ -1,14 +1,14 @@
-import { removeFile, readFile, writeFile } from "std.fs"
+import { File } from "std.fs"
 
 test "fs.ae: should write and read file correctly" {
     val path = "temp_test.txt"
     val content = "Hello, Aether Filesystem!"
-    assert(writeFile(path, content))
+    assert(File.write(path, content))
 
-    val result = readFile(path)
+    val result = File.read(path)
     assert(result == content)
 
-    removeFile(path)
+    File.delete(path)
 }
 
 test "fs.ae: should support generic pointer types" {

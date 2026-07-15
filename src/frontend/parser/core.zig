@@ -16,6 +16,7 @@ pub const Parser = struct {
     current: Token,
     previous: Token,
     had_error: bool,
+    last_r_brace_line: usize = 0,
 
     const expression_mod = @import("expression.zig");
     const statement_mod = @import("statement.zig");
@@ -65,6 +66,7 @@ pub const Parser = struct {
     pub const classDeclaration = declaration_mod.classDeclaration;
     pub const libDeclaration = declaration_mod.libDeclaration;
     pub const parseAnnotations = declaration_mod.parseAnnotations;
+    pub const objectDeclaration = declaration_mod.objectDeclaration;
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Parser {
         var p = Parser{
@@ -214,7 +216,37 @@ fn core_parse(self: *Parser) anyerror!*ASTNode {
     defer statements.deinit();
 
     while (!self.check(.eof)) {
+        const prev_r_brace = self.last_r_brace_line;
         const stmt = try self.declaration();
+
+        if (stmt.data == .object_decl and stmt.data.object_decl.name == null) {
+            if (statements.items.len > 0) {
+                const prev = statements.items[statements.items.len - 1];
+                if (prev.data == .class_decl and stmt.line == prev_r_brace) {
+                    @constCast(&stmt.data.object_decl).name = prev.data.class_decl.name;
+                } else {
+                    self.reportLexerError(stmt.line, stmt.column, "Syntax Error: Anonymous object must immediately follow a class declaration on the same line (e.g. '}} object {{').", .{});
+                    return error.ParseError;
+                }
+            } else {
+                self.reportLexerError(stmt.line, stmt.column, "Syntax Error: Anonymous object must immediately follow a class declaration on the same line (e.g. '}} object {{').", .{});
+                return error.ParseError;
+            }
+        } else if (stmt.data == .class_decl and stmt.data.class_decl.name.len == 0) {
+            if (statements.items.len > 0) {
+                const prev = statements.items[statements.items.len - 1];
+                if (prev.data == .object_decl and prev.data.object_decl.name != null and stmt.line == prev_r_brace) {
+                    @constCast(&stmt.data.class_decl).name = prev.data.object_decl.name.?;
+                } else {
+                    self.reportLexerError(stmt.line, stmt.column, "Syntax Error: Anonymous class must immediately follow an object declaration on the same line (e.g. '}} class (...) {{').", .{});
+                    return error.ParseError;
+                }
+            } else {
+                self.reportLexerError(stmt.line, stmt.column, "Syntax Error: Anonymous class must immediately follow an object declaration on the same line (e.g. '}} class (...) {{').", .{});
+                return error.ParseError;
+            }
+        }
+
         try statements.append(stmt);
     }
 
@@ -223,6 +255,9 @@ fn core_parse(self: *Parser) anyerror!*ASTNode {
 
 fn core_advance(self: *Parser) void {
     self.previous = self.current;
+    if (self.previous.token_type == .r_brace) {
+        self.last_r_brace_line = self.previous.line;
+    }
     while (true) {
         self.current = self.lexer.scanToken();
         if (self.current.token_type == .invalid) {

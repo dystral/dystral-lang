@@ -38,6 +38,10 @@ pub fn declaration(self: *Parser) anyerror!*ASTNode {
         }
         return try self.classDeclaration(annotations, is_open);
     }
+    if (self.match(.kw_object)) {
+        if (modifiers.items.len > 0) { self.errorAtCurrent("Modifiers not allowed on object"); return error.ParseError; }
+        return try self.objectDeclaration(annotations);
+    }
     
     if (modifiers.items.len > 0) {
         self.errorAtCurrent("Modifiers must precede a function declaration");
@@ -256,8 +260,10 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation, is_open: b
     const line = self.previous.line;
     const col = self.previous.column;
     
-    try self.consume(.identifier, "Expected class name.");
-    const name = self.previous.lexeme;
+    var name: []const u8 = "";
+    if (self.match(.identifier)) {
+        name = self.previous.lexeme;
+    }
     
     var generic_params = std.ArrayList([]const u8).init(self.allocator);
     if (self.match(.less)) {
@@ -356,5 +362,49 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation, is_open: b
         .is_open = is_open,
         .superclass_name = superclass_name,
         .superclass_args = try superclass_args.toOwnedSlice(),
+    } }, line, col);
+}
+
+pub fn objectDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*ASTNode {
+    const line = self.previous.line;
+    const col = self.previous.column;
+    
+    var name: ?[]const u8 = null;
+    if (self.match(.identifier)) {
+        name = self.previous.lexeme;
+    }
+    
+    try self.consume(.l_brace, "Expected '{' before object body.");
+    var members = std.ArrayList(*ASTNode).init(self.allocator);
+    while (!self.check(.r_brace) and !self.check(.eof)) {
+        const member_annotations = try self.parseAnnotations();
+        var modifiers = std.ArrayList(TokenType).init(self.allocator);
+        while (self.match(.kw_override) or self.match(.kw_operator) or self.match(.kw_open)) {
+            try modifiers.append(self.previous.token_type);
+        }
+        
+        if (self.match(.kw_fun)) {
+            const func = try self.funDeclaration(member_annotations, try modifiers.toOwnedSlice(), false);
+            try members.append(func);
+        } else if (self.match(.kw_val)) {
+            if (modifiers.items.len > 0) { self.errorAtCurrent("Modifiers not allowed on val"); return error.ParseError; }
+            const v = try self.varDeclaration(false);
+            try members.append(v);
+        } else if (self.match(.kw_var)) {
+            if (modifiers.items.len > 0) { self.errorAtCurrent("Modifiers not allowed on var"); return error.ParseError; }
+            const v = try self.varDeclaration(true);
+            try members.append(v);
+        } else {
+            self.errorAtCurrent("Expected function or variable declaration inside object.");
+            return error.ParseError;
+        }
+    }
+    try self.consume(.r_brace, "Expected '}' after object body.");
+    
+    return try self.createNodeAt(.{ .object_decl = .{
+        .annotations = annotations,
+        .name = name,
+        .members = try members.toOwnedSlice(),
+        .resolved_c_name = null,
     } }, line, col);
 }
