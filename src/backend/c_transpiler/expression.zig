@@ -264,9 +264,36 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             }
         },
         .call_expr => |c| {
-            const is_closure_var = (c.callee.data == .identifier and c.callee.resolved_type != null and ts.extractBaseType(c.callee.resolved_type.?).* == .Function);
-            const is_other_closure = (c.callee.data != .identifier and c.callee.data != .get_expr and c.callee.resolved_type != null and ts.extractBaseType(c.callee.resolved_type.?).* == .Function);
-            if (is_closure_var or is_other_closure) {
+            var is_closure = (c.callee.data == .identifier and c.callee.resolved_type != null and ts.extractBaseType(c.callee.resolved_type.?).* == .Function);
+            if (!is_closure and c.callee.data == .get_expr and c.callee.resolved_type != null and ts.extractBaseType(c.callee.resolved_type.?).* == .Function) {
+                const g = c.callee.data.get_expr;
+                if (g.object.resolved_type) |rt| {
+                    var class_name: ?[]const u8 = null;
+                    if (rt.* == .Custom) {
+                        class_name = rt.Custom;
+                    } else if (rt.* == .Union and rt.Union.left.* == .Custom) {
+                        class_name = rt.Union.left.Custom;
+                    }
+                    if (class_name) |cn| {
+                        const actual_cn = if (self.alias_map) |am| am.get(cn) orelse cn else cn;
+                        if (self.classes_ast) |ca| {
+                            if (ca.get(actual_cn)) |class_node| {
+                                const cd = class_node.data.class_decl;
+                                for (cd.primary_constructor) |prop| {
+                                    if (std.mem.eql(u8, prop.name, g.name)) {
+                                        is_closure = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (!is_closure and c.callee.data != .identifier and c.callee.data != .get_expr and c.callee.resolved_type != null and ts.extractBaseType(c.callee.resolved_type.?).* == .Function) {
+                is_closure = true;
+            }
+            if (is_closure) {
                 const f = ts.extractBaseType(c.callee.resolved_type.?).Function;
                 const ret_type_str = try core.getCTypeStr(self.allocator, f.return_type);
                 

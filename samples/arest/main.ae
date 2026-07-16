@@ -1,0 +1,29 @@
+import { arest } from "./arest.ae"
+
+fun main() {
+    print("--- Starting Arest Web Server Sample ---")
+    
+    arest(8082) {
+        routing {
+            get("/") {
+                val body = "{\¨message`: Welcome to Arest DSL Server!}"
+                respond(200, "application/json", body)
+            }
+            
+            get("/hello") {
+                val name = request.queries["name"] ?: "Guest"
+                respondText("Hello, " + name + "!")
+            }
+            
+            post("/echo") {
+                val contentType = request.headers["Content-Type"] ?: "text/plain"
+                respond(200, contentType, request.body)
+            }
+            
+            get("/shutdown") {
+                app.running = false
+                respondText("Server is shutting down...")
+            }
+        }
+    }
+}

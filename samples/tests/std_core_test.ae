@@ -47,3 +47,13 @@ test "should convert Bool to string" {
     assert(t.toString() == "true")
     assert(f.toString() == "false")
 }
+
+test "should support string escape sequences and count length correctly" {
+    val escapedQuote = "Ele disse \"Ola\""
+    val backslash = "Barra invertida \\ caminho"
+    val standardEscapes = "Linha1\nLinha2\tTabulado\rRetorno\bRetrocesso\'AspaSimples"
+    
+    assert(escapedQuote.length == 15)
+    assert(backslash.length == 25)
+    assert(standardEscapes.length == 53)
+}

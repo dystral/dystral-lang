@@ -1,4 +1,5 @@
 import { Socket, TCPServer } from "std.net"
+import { List, MutableList, Map, MutableMap, Node } from "std.collections"
 
 @Link("curl")
 @Header("<curl/curl.h>")
@@ -113,7 +114,18 @@ class Client() {
     }
 }
 
-class Request(val method: String, val path: String, val body: String)
+fun emptyMap(): MutableMap<String, String> {
+    val dummy: Node<String, String>? = null
+    val bucketBuilder = MutableList([dummy])
+    var i = 0
+    while (i < 16) {
+        bucketBuilder.add(null)
+        i = i + 1
+    }
+    return MutableMap(bucketBuilder.list)
+}
+
+class Request(val method: String, val path: String, val body: String, val headers: Map<String, String>, val queries: Map<String, String>)
 
 class ServerConnection(val sock: Socket) {
     fun readRequest(): Request {
@@ -140,7 +152,82 @@ class ServerConnection(val sock: Socket) {
             body = raw.substring(bodyStart + 4, raw.length)
         }
         
-        return Request(method, path, body)
+        // Parse actual path and queries
+        var actualPath = path
+        var queryStr = ""
+        val qMark = path.indexOf("?")
+        if (qMark >= 0) {
+            actualPath = path.substring(0, qMark)
+            queryStr = path.substring(qMark + 1, path.length)
+        }
+        
+        val queriesMap = emptyMap()
+        if (queryStr.length > 0) {
+            var rest = queryStr
+            var searching = true
+            while (searching) {
+                val ampIdx = rest.indexOf("&")
+                var pair = ""
+                if (ampIdx >= 0) {
+                    pair = rest.substring(0, ampIdx)
+                    rest = rest.substring(ampIdx + 1, rest.length)
+                } else {
+                    pair = rest
+                    searching = false
+                }
+                
+                val eqIdx = pair.indexOf("=")
+                if (eqIdx >= 0) {
+                    val key = pair.substring(0, eqIdx)
+                    val value = pair.substring(eqIdx + 1, pair.length)
+                    queriesMap.put(key, value)
+                } else if (pair.length > 0) {
+                    queriesMap.put(pair, "")
+                }
+                
+                if (rest.length == 0) {
+                    searching = false
+                }
+            }
+        }
+        
+        // Parse headers
+        val headersMap = emptyMap()
+        val firstLineEnd = raw.indexOf("\r\n")
+        if (firstLineEnd > 0 && bodyStart > firstLineEnd) {
+            var headersPart = raw.substring(firstLineEnd + 2, bodyStart)
+            var searching = true
+            while (searching) {
+                val lineEnd = headersPart.indexOf("\r\n")
+                var line = ""
+                if (lineEnd >= 0) {
+                    line = headersPart.substring(0, lineEnd)
+                    headersPart = headersPart.substring(lineEnd + 2, headersPart.length)
+                } else {
+                    line = headersPart
+                    searching = false
+                }
+                
+                if (line.length > 0) {
+                    val colonIdx = line.indexOf(":")
+                    if (colonIdx > 0) {
+                        val key = line.substring(0, colonIdx)
+                        var valStart = colonIdx + 1
+                        while (valStart < line.length && line.substring(valStart, valStart + 1) == " ") {
+                            valStart = valStart + 1
+                        }
+                        val value = line.substring(valStart, line.length)
+                        headersMap.put(key, value)
+                    }
+                }
+                
+                if (headersPart.length == 0) {
+                    searching = false
+                }
+            }
+        }
+        
+        return Request(method, actualPath, body, headersMap.freeze(), queriesMap.freeze())
     }
     
     fun writeResponse(status: Int, contentType: String, body: String): Void {

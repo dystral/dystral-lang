@@ -175,5 +175,14 @@ Se o `when` retornar um valor não-Void, o compilador exige a presença de um ra
 Além disso, atualizar o `CTranspiler` para verificar se um arquivo físico (incluindo o core da stdlib) já foi transpiled através de um mapa de controle `emitted_modules`, garantindo deduplicação total de símbolos em C.
 **Razão:** Permite dependências circulares de tipos completas no nível de linguagem de forma transparente, garante clareza de passes no compilador, elimina redundâncias no backend CTranspiler e fornece a base de dados ideal (ASTs pré-resolvidas de escopo) para a futura geração nativa de LLVM IR.
 
+## ADR 24: Suporte a Escape de Aspas e Caracteres Especiais em Strings
+**Data:** Fase de Estabilização (Julho 2026)
+**Contexto:** O Aether não suportava escape de aspas em literais de String, o que impedia construções básicas como `"Ele disse \"Olá\""`. Qualquer aspa dupla `"` encontrada dentro de uma string fechava o literal prematuramente no Lexer.
+**Decisão:**
+1. **Tratamento no Lexer:** Modificar o analisador léxico (`lexer.zig`) no método `string` para ignorar aspas de fechamento se forem precedidas por um caractere de escape (barra invertida `\\`), e também consumir a própria sequência de escape (e o caractere seguinte) para permitir outros escapes padrão do Kotlin/C (como `\\`, `\n`, `\t`, `\r`, `\'`, `\b`).
+2. **Cálculo de Tamanho no Type Checker:** Modificar a inferência de tipo de literais de string em `core.zig` para calcular o comprimento correto da string descontando os caracteres de barra invertida (`\\`) usados como escape. Isso garante que a propriedade `length` das Strings geradas em C represente a quantidade correta de bytes de dados.
+3. **Transpilação:** As sequências de escape em C coincidem exatamente com as do Kotlin, portanto o backend do transpiler pode ejetar a string diretamente sem a necessidade de re-mapeamento complexo em tempo de transpilação.
+**Razão:** Traz conformidade com o padrão do Kotlin e de outras linguagens modernas de forma extremamente simples e robusta, com impacto mínimo no parser e garantia de consistência de tamanho e integridade de memória.
+
 
 

@@ -315,6 +315,8 @@ pub fn inferTernaryExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *A
 
 pub fn inferLambdaExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const l = &node.data.lambda_expr;
+    const old_props = self.current_class_props;
+    defer self.current_class_props = old_props;
     
     var expected_params: ?[]const *const AetherType = null;
     var expected_receiver: ?*const AetherType = null;
@@ -414,6 +416,30 @@ pub fn inferLambdaExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
                 try param_types.append(it_type);
             }
         }
+    }
+    
+    var lambda_class_props = std.StringHashMap(void).init(self.allocator);
+    defer lambda_class_props.deinit();
+    if (expected_receiver) |rec| {
+        const rec_base = extractBaseType(rec);
+        if (rec_base.* == .Custom) {
+            var curr_class: ?[]const u8 = rec_base.Custom;
+            while (curr_class) |c_name| {
+                const actual_name = self.alias_map.get(c_name) orelse c_name;
+                if (self.classes_ast.get(actual_name)) |cn| {
+                    const class_decl = cn.data.class_decl;
+                    for (class_decl.primary_constructor) |prop| {
+                        if (prop.is_property) {
+                            try lambda_class_props.put(prop.name, {});
+                        }
+                    }
+                    curr_class = class_decl.superclass_name;
+                } else {
+                    break;
+                }
+            }
+        }
+        self.current_class_props = &lambda_class_props;
     }
     
     var body_type: *const AetherType = undefined;

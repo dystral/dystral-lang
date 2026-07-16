@@ -604,7 +604,18 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
         .int_literal => t.* = .Int,
         .string_literal => {
             const literal_str = node.data.string_literal;
-            const len = literal_str.len;
+            
+            // Calculate correct string length in bytes, accounting for escape sequences
+            var len: usize = 0;
+            var i: usize = 0;
+            while (i < literal_str.len) {
+                if (literal_str[i] == '\\' and i + 1 < literal_str.len) {
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+                len += 1;
+            }
 
             const ptr_node = try self.allocator.create(ASTNode);
             ptr_node.* = .{

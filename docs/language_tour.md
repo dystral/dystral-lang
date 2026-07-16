@@ -818,6 +818,33 @@ fun main() {
 }
 ```
 
+---
+
+## 18. String Escape Sequences
+
+Aether supports Kotlin-style backslash escape sequences inside double-quoted string literals. The following escape sequences are recognized and processed by the compiler:
+
+* `\"` – Double quote
+* `\\` – Backslash
+* `\n` – Newline
+* `\r` – Carriage return
+* `\t` – Tab
+* `\b` – Backspace
+* `\'` – Single quote
+
+```kotlin
+fun main() {
+    val escapedQuote = "Ele disse \"Ola\""
+    val backslash = "C:\\aether\\bin"
+    val multiline = "Primeira Linha\nSegunda Linha"
+    
+    assert(escapedQuote.length == 15) // counts exact characters (excluding the backslash escape character)
+}
+```
+
+The compiler's Type Checker automatically calculates the correct length of string literals in bytes after resolving these escape sequences, ensuring complete compatibility with standard library functions and C runtime operations.
+
+
 
 
 

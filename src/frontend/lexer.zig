@@ -128,6 +128,13 @@ pub const Lexer = struct {
 
     fn string(self: *Lexer) Token {
         while (!self.isAtEnd() and self.peek() != '"') {
+            if (self.peek() == '\\') {
+                _ = self.advance(); // consume '\'
+                if (!self.isAtEnd()) {
+                    _ = self.advance(); // consume the escaped character
+                }
+                continue;
+            }
             if (self.peek() == '\n') {
                 self.line += 1;
                 self.column = 1;
@@ -241,6 +248,25 @@ test "Lexer base cases" {
     try std.testing.expectEqual(TokenType.identifier, lexer.scanToken().token_type);
     try std.testing.expectEqual(TokenType.plus, lexer.scanToken().token_type);
     try std.testing.expectEqual(TokenType.identifier, lexer.scanToken().token_type);
+    
+    try std.testing.expectEqual(TokenType.eof, lexer.scanToken().token_type);
+}
+
+test "Lexer string escape cases" {
+    const source = 
+        \\"Ele disse \"Olá\""
+        \\"Barra invertida \\ caminho"
+    ;
+    
+    var lexer = Lexer.init(source);
+    
+    const tok1 = lexer.scanToken();
+    try std.testing.expectEqual(TokenType.string_literal, tok1.token_type);
+    try std.testing.expectEqualStrings("Ele disse \\\"Olá\\\"", tok1.lexeme[1..tok1.lexeme.len - 1]);
+    
+    const tok2 = lexer.scanToken();
+    try std.testing.expectEqual(TokenType.string_literal, tok2.token_type);
+    try std.testing.expectEqualStrings("Barra invertida \\\\ caminho", tok2.lexeme[1..tok2.lexeme.len - 1]);
     
     try std.testing.expectEqual(TokenType.eof, lexer.scanToken().token_type);
 }
