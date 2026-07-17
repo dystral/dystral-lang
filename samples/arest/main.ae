@@ -6,8 +6,11 @@ fun main() {
     arest(8082) {
         routing {
             get("/") {
-                val body = "{\¨message`: Welcome to Arest DSL Server!}"
-                respond(200, "application/json", body)
+                val body = [
+                    "welcome" of "Welcome json!",
+                    "description" of "Arest is a Web Framework for Aether!"
+                ]
+                respond(200, "application/json", toJson(body))
             }
             
             get("/hello") {

@@ -48,16 +48,16 @@ class List<T>(val items: NativeArray<T>) {
 
 class Node<K, V>(val key: K, var value: V, var next: Node<K, V>?)
 
-class MutableMap<K, V>(val bucketList: List<Node<K, V>?>) {
+class MutableMap<K, V>(val list: List<Node<K, V>?>) {
     fun put(key: K, value: V): Void {
         var hash = key.hashCode()
-        var capacity = this.bucketList.size()
+        var capacity = this.list.size()
         var index = hash - (hash / capacity) * capacity
         if (index < 0) {
             index = index + capacity
         }
 
-        var curr = this.bucketList.items[index]
+        var curr = this.list.items[index]
         while (curr != null) {
             if (curr!!.key == key) {
                 curr!!.value = value
@@ -66,17 +66,17 @@ class MutableMap<K, V>(val bucketList: List<Node<K, V>?>) {
             curr = curr!!.next
         }
         
-        val newNode = Node(key, value, this.bucketList.items[index])
-        this.bucketList.items[index] = newNode
+        val newNode = Node(key, value, this.list.items[index])
+        this.list.items[index] = newNode
     }
 
     fun get(key: K): V? {
         var hash = key.hashCode()
-        var capacity = this.bucketList.size()
+        var capacity = this.list.size()
         var index = hash - (hash / capacity) * capacity
         if (index < 0) index = index + capacity
         
-        var curr = this.bucketList.items[index]
+        var curr = this.list.items[index]
         while (curr != null) {
             if (curr!!.key == key) {
                 return curr!!.value
@@ -91,18 +91,18 @@ class MutableMap<K, V>(val bucketList: List<Node<K, V>?>) {
     }
 
     fun freeze(): Map<K, V> {
-        return Map(this.bucketList)
+        return Map(this.list)
     }
 }
 
-class Map<K, V>(val bucketList: List<Node<K, V>?>) {
+class Map<K, V>(val list: List<Node<K, V>?>) {
     fun get(key: K): V? {
         var hash = key.hashCode()
-        var capacity = this.bucketList.size()
+        var capacity = this.list.size()
         var index = hash - (hash / capacity) * capacity
         if (index < 0) index = index + capacity
         
-        var curr = this.bucketList.items[index]
+        var curr = this.list.items[index]
         while (curr != null) {
             if (curr!!.key == key) {
                 return curr!!.value
@@ -117,7 +117,7 @@ class Map<K, V>(val bucketList: List<Node<K, V>?>) {
     }
 
     fun mut(): MutableMap<K, V> {
-        return MutableMap(this.bucketList)
+        return MutableMap(this.list)
     }
 }
 
@@ -144,3 +144,30 @@ class Set<T>(val map: Map<T, Bool>) {
         return MutableSet(this.map.mut())
     }
 }
+
+fun escapeJsonString(s: String): String {
+    return s.replace("\\", "\\\\").replace("\"", "\\\"")
+}
+
+fun toJson(map: Map<String, String>): String {
+    var result = "{"
+    var first = true
+    var i = 0
+    val capacity = map.list.size()
+    while (i < capacity) {
+        var curr = map.list.get(i)
+        while (curr != null) {
+            if (first == false) {
+                result = result + ", "
+            }
+            val key = escapeJsonString(curr!!.key)
+            val value = escapeJsonString(curr!!.value)
+            result = result + "\"" + key + "\": \"" + value + "\""
+            first = false
+            curr = curr!!.next
+        }
+        i = i + 1
+    }
+    return result + "}"
+}
+

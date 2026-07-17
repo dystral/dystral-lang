@@ -90,9 +90,18 @@ This document tracks the historical progress, current status, and future roadmap
 - [x] **Task 19.3:** Map Exceptions and non-local unwinding in the C Transpiler via `<setjmp.h>` (setjmp/longjmp).
 
 ### Phase 20: LLVM Native Emitter & Release Pipeline (PENDING / LATER)
+Replacing the temporary C code generation (`temp_out.c` ──> `zig cc`) with a direct LLVM IR emitter constructed in-memory. This eliminates C transpilation overhead and enables advanced low-level control.
 - [ ] **Task 20.1:** Add support for the `--release` flag in the CLI (`aether build --release file.ae`).
-- [ ] **Task 20.2:** Build `llvm_emitter.zig`, bypassing the C backend, and translating the Resolved AST directly into **LLVM IR** using native bindings.
-- [ ] **Task 20.3:** Hook up LLVM optimization passes (O3) to generate native optimized binaries.
+- [ ] **Task 20.2:** Build `llvm_emitter.zig`, bypassing the C backend, and translating the Resolved AST directly into in-memory LLVM structures using LLVM-C API bindings (`@cImport` of LLVM-C headers in Zig) to construct modules directly in memory.
+- [ ] **Task 20.3:** Hook up LLVM optimization passes (`-O3` for release and `-O0` for development/run commands) to generate native optimized binaries.
+- [ ] **Task 20.4:** Build-Time Optimizations (Speed up Dev Loops):
+  - Avoid writing textual LLVM IR (`.ll`) files and invoking the `llc` command line tool, keeping all IR generation and assembly generation in-memory.
+  - Skip writing intermediate C code to disk and spawning child processes (`zig cc`/`clang`).
+  - Bypass Clang's parsing/typechecking stage of transpiled C code.
+- [ ] **Task 20.5:** Runtime Performance Enhancements:
+  - **Precise Garbage Collection (Stack Maps):** Emit stack map metadata so the GC knows exactly where references live, replacing the slow, conservative scans of Boehm GC.
+  - **Tail Call Optimization (TCO):** Use LLVM's `tail` or `musttail` markers to optimize recursive function calls and prevent stack overflows.
+  - **Custom Calling Conventions:** Optimize register allocation and parameters passing for the Aether runtime instead of complying with standard C ABI.
 
 ### Phase 21: Native Test System & CLI Refinements (COMPLETED)
 - [x] **Task 21.1:** Add native `test "name" { ... }` blocks in the AST and Parser.
