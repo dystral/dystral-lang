@@ -11,6 +11,13 @@ const AetherType = core.AetherType;
 pub fn inferArrayLiteral(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const a = node.data.array_literal;
     if (a.elements.len == 0) {
+        if (node.expected_type) |expected| {
+            const expected_base = type_system.extractBaseType(expected);
+            if (expected_base.* == .Array or expected_base.* == .Custom) {
+                t.* = expected_base.*;
+                return;
+            }
+        }
         self.reportError(node.line, node.column, "TypeError: Cannot infer type of empty array literal.", .{});
         return error.TypeError;
     }

@@ -53,6 +53,9 @@ pub fn monomorphizeClass(self: *TypeChecker, base_name: []const u8, type_args: [
     for (class_decl.primary_constructor, 0..) |prop, i| {
         new_props[i] = prop;
         new_props[i].type_ref = try self.cloneTypeRef(prop.type_ref);
+        if (prop.initializer) |init_node| {
+            new_props[i].initializer = try self.cloneNode(init_node);
+        }
     }
     
     var new_methods = try self.allocator.alloc(*ASTNode, class_decl.methods.len);
@@ -70,6 +73,9 @@ pub fn monomorphizeClass(self: *TypeChecker, base_name: []const u8, type_args: [
                     new_params[j] = p;
                     if (p.type_ref) |ptr| {
                         new_params[j].type_ref = try self.cloneTypeRef(ptr);
+                    }
+                    if (p.initializer) |init_node| {
+                        new_params[j].initializer = try self.cloneNode(init_node);
                     }
                 }
                 m_decl.params = new_params;

@@ -266,6 +266,7 @@ pub const CTranspiler = struct {
         try w.print("{s}* {s}_new() {{\n", .{struct_name, struct_name});
         try w.print("    {s}* arr = GC_MALLOC(sizeof({s}));\n", .{struct_name, struct_name});
         try w.print("    arr->data = GC_MALLOC(4 * sizeof({s}));\n", .{inner_c_type});
+        try w.print("    memset(arr->data, 0, 4 * sizeof({s}));\n", .{inner_c_type});
         try w.print("    arr->length = 0;\n", .{});
         try w.print("    arr->capacity = 4;\n", .{});
         try w.print("    return arr;\n", .{});
@@ -273,8 +274,10 @@ pub const CTranspiler = struct {
         
         try w.print("void {s}_push({s}* arr, {s} val) {{\n", .{struct_name, struct_name, inner_c_type});
         try w.print("    if (arr->length == arr->capacity) {{\n", .{});
+        try w.print("        size_t old_capacity = arr->capacity;\n", .{});
         try w.print("        arr->capacity *= 2;\n", .{});
         try w.print("        arr->data = GC_REALLOC(arr->data, arr->capacity * sizeof({s}));\n", .{inner_c_type});
+        try w.print("        memset(arr->data + old_capacity, 0, (arr->capacity - old_capacity) * sizeof({s}));\n", .{inner_c_type});
         try w.print("    }}\n", .{});
         try w.print("    arr->data[arr->length++] = val;\n", .{});
         try w.print("}}\n\n", .{});

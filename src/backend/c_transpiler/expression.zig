@@ -5,6 +5,21 @@ const ts = @import("../../core/type_system.zig");
 const ASTNode = core.ASTNode;
 const CTranspiler = core.CTranspiler;
 
+fn listItemType(self: *CTranspiler, t: *const ts.AetherType) ?*const ts.AetherType {
+    const base = ts.extractBaseType(t);
+    if (base.* != .Custom) return null;
+    const classes_ast = self.classes_ast orelse return null;
+    const class_node = classes_ast.get(base.Custom) orelse return null;
+    if (class_node.data != .class_decl) return null;
+    for (class_node.data.class_decl.primary_constructor) |prop| {
+        if (!std.mem.eql(u8, prop.name, "items")) continue;
+        const prop_type = prop.resolved_type orelse continue;
+        const prop_base = ts.extractBaseType(prop_type);
+        if (prop_base.* == .Array) return prop_base.Array;
+    }
+    return null;
+}
+
 pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
     switch (node.data) {
         .int_literal => |val| {
@@ -72,6 +87,13 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     var safe_inner_name = std.ArrayList(u8).init(self.allocator);
                     if (a.elements.len > 0) {
                         const inner_c_type = try core.getCTypeStr(self.allocator, a.elements[0].resolved_type.?);
+                        for (inner_c_type) |ch| {
+                            if (ch == '*') continue;
+                            if (ch == ' ') continue;
+                            try safe_inner_name.append(ch);
+                        }
+                    } else if (listItemType(self, rt)) |item_type| {
+                        const inner_c_type = try core.getCTypeStr(self.allocator, item_type);
                         for (inner_c_type) |ch| {
                             if (ch == '*') continue;
                             if (ch == ' ') continue;

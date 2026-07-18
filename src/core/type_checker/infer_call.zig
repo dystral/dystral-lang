@@ -38,6 +38,76 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
 
     if (c.callee.data == .identifier) {
         const name = c.callee.data.identifier.name;
+
+        if (c.type_args.len > 0) {
+            const class_name = self.alias_map.get(name) orelse name;
+            const class_node = self.classes_ast.get(class_name) orelse {
+                self.reportError(node.line, node.column, "TypeError: Generic class '{s}' not found.", .{name});
+                return error.TypeError;
+            };
+            const class_decl = class_node.data.class_decl;
+            if (class_decl.generic_params.len != c.type_args.len) {
+                self.reportError(node.line, node.column, "TypeError: Expected {} generic arguments for '{s}', got {}.", .{ class_decl.generic_params.len, name, c.type_args.len });
+                return error.TypeError;
+            }
+
+            var type_args = try self.allocator.alloc(*const AetherType, c.type_args.len);
+            for (c.type_args, 0..) |type_ref, i| {
+                type_args[i] = try self.resolveTypeRef(type_ref);
+            }
+
+            const base_name = class_decl.resolved_c_name orelse class_name;
+            var mangled = std.ArrayList(u8).init(self.allocator);
+            try mangled.appendSlice(base_name);
+            try mangled.appendSlice("_");
+            for (type_args, 0..) |type_arg, i| {
+                if (i > 0) try mangled.appendSlice("_");
+                try type_arg.formatSafe(mangled.writer());
+            }
+            const final_mangled = try mangled.toOwnedSlice();
+
+            try self.monomorphizeClass(base_name, type_args, final_mangled);
+            const mono_node = self.classes_ast.get(final_mangled).?;
+            const mono_decl = mono_node.data.class_decl;
+
+            if (c.arguments.len < mono_decl.primary_constructor.len) {
+                var new_args = try self.allocator.alloc(*ASTNode, mono_decl.primary_constructor.len);
+                for (c.arguments, 0..) |arg, arg_i| {
+                    new_args[arg_i] = arg;
+                }
+                var i = c.arguments.len;
+                while (i < mono_decl.primary_constructor.len) : (i += 1) {
+                    const prop = mono_decl.primary_constructor[i];
+                    if (prop.initializer) |init_node| {
+                        const cloned = try self.cloneNode(init_node);
+                        cloned.expected_type = prop.resolved_type;
+                        new_args[i] = cloned;
+                        _ = try self.inferNode(cloned, scope);
+                    } else {
+                        self.reportError(node.line, node.column, "TypeError: Missing argument for generic constructor parameter '{s}' of '{s}' which has no default value.", .{ prop.name, name });
+                        return error.TypeError;
+                    }
+                }
+                c.arguments = new_args;
+            } else if (c.arguments.len > mono_decl.primary_constructor.len) {
+                self.reportError(node.line, node.column, "TypeError: Expected at most {} arguments for generic constructor of '{s}', got {}.", .{ mono_decl.primary_constructor.len, name, c.arguments.len });
+                return error.TypeError;
+            }
+
+            for (c.arguments, 0..) |arg, arg_i| {
+                const expected = mono_decl.primary_constructor[arg_i].resolved_type orelse try self.resolveTypeRef(mono_decl.primary_constructor[arg_i].type_ref);
+                if (!self.isCompatible(expected, arg.resolved_type.?)) {
+                    self.reportError(arg.line, arg.column, "TypeError: Expected {} for argument {} of '{s}', got {}.", .{ expected.*, arg_i + 1, name, arg.resolved_type.?.* });
+                    return error.TypeError;
+                }
+            }
+
+            const actual_mangled = self.alias_map.get(final_mangled) orelse final_mangled;
+            t.* = .{ .Custom = actual_mangled };
+            c.callee.data.identifier.resolved_c_name = actual_mangled;
+            return;
+        }
+
         if (scope.lookupFunctions(name)) |overloads| {
             var best_match: ?*const AetherType = null;
             

@@ -56,9 +56,14 @@ pub fn cloneNode(self: *TypeChecker, node: *ASTNode) anyerror!*ASTNode {
             for (c.arguments, 0..) |arg, i| {
                 new_args[i] = try self.cloneNode(arg);
             }
+            var new_type_args = try self.allocator.alloc(*const ast.ASTTypeRef, c.type_args.len);
+            for (c.type_args, 0..) |type_arg, i| {
+                new_type_args[i] = try self.cloneTypeRef(type_arg);
+            }
             new_node.data = .{ .call_expr = .{
                 .callee = try self.cloneNode(c.callee),
                 .arguments = new_args,
+                .type_args = new_type_args,
             }};
         },
         .get_expr => |g| {

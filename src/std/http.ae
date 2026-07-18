@@ -1,5 +1,5 @@
 import { Socket, TCPServer } from "std.net"
-import { List, MutableList, Map, MutableMap, Node } from "std.collections"
+import { Map, MutableMap } from "std.collections"
 
 @Link("curl")
 @Header("<curl/curl.h>")
@@ -114,17 +114,6 @@ class Client() {
     }
 }
 
-fun emptyMap(): MutableMap<String, String> {
-    val dummy: Node<String, String>? = null
-    val bucketBuilder = MutableList([dummy])
-    var i = 0
-    while (i < 16) {
-        bucketBuilder.add(null)
-        i = i + 1
-    }
-    return MutableMap(bucketBuilder.list)
-}
-
 class Request(val method: String, val path: String, val body: String, val headers: Map<String, String>, val queries: Map<String, String>)
 
 class ServerConnection(val sock: Socket) {
@@ -161,7 +150,7 @@ class ServerConnection(val sock: Socket) {
             queryStr = path.substring(qMark + 1, path.length)
         }
         
-        val queriesMap = emptyMap()
+        val queriesMap = MutableMap<String, String>()
         if (queryStr.length > 0) {
             var rest = queryStr
             var searching = true
@@ -192,7 +181,7 @@ class ServerConnection(val sock: Socket) {
         }
         
         // Parse headers
-        val headersMap = emptyMap()
+        val headersMap = MutableMap<String, String>()
         val firstLineEnd = raw.indexOf("\r\n")
         if (firstLineEnd > 0 && bodyStart > firstLineEnd) {
             var headersPart = raw.substring(firstLineEnd + 2, bodyStart)

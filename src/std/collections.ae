@@ -1,7 +1,7 @@
 // std.collections
 // Powered by True Generics and Native Arrays!
 
-class MutableList<T>(val list: List<T>) {
+class MutableList<T>(val list: List<T> = []) {
     fun add(element: T): Void {
         this.list.items.push(element)
     }
@@ -27,12 +27,16 @@ class MutableList<T>(val list: List<T>) {
         return this.list.items.length
     }
 
+    fun isEmpty(): Bool = this.size() == 0
+
+    fun isNotEmpty(): Bool = this.size() > 0
+
     fun freeze(): List<T> {
         return this.list
     }
 }
 
-class List<T>(val items: NativeArray<T>) {
+class List<T>(val items: NativeArray<T> = []) {
     fun get(index: Int): T {
         return this.items[index]
     }
@@ -41,6 +45,10 @@ class List<T>(val items: NativeArray<T>) {
         return this.items.length
     }
 
+    fun isEmpty(): Bool = this.size() == 0
+
+    fun isNotEmpty(): Bool = this.size() > 0
+
     fun mut(): MutableList<T> {
         return MutableList(this)
     }
@@ -48,10 +56,19 @@ class List<T>(val items: NativeArray<T>) {
 
 class Node<K, V>(val key: K, var value: V, var next: Node<K, V>?)
 
-class MutableMap<K, V>(val list: List<Node<K, V>?>) {
+class MutableMap<K, V>(val list: List<Node<K, V>?> = []) {
     fun put(key: K, value: V): Void {
-        var hash = key.hashCode()
         var capacity = this.list.size()
+        if (capacity == 0) {
+            var i = 0
+            while (i < 16) {
+                this.list.items.push(null)
+                i = i + 1
+            }
+            capacity = this.list.size()
+        }
+
+        var hash = key.hashCode()
         var index = hash - (hash / capacity) * capacity
         if (index < 0) {
             index = index + capacity
@@ -71,8 +88,12 @@ class MutableMap<K, V>(val list: List<Node<K, V>?>) {
     }
 
     fun get(key: K): V? {
+        val capacity = this.list.size()
+        if (capacity == 0) {
+            return null
+        }
+
         var hash = key.hashCode()
-        var capacity = this.list.size()
         var index = hash - (hash / capacity) * capacity
         if (index < 0) index = index + capacity
         
@@ -90,15 +111,35 @@ class MutableMap<K, V>(val list: List<Node<K, V>?>) {
         return this.get(key) != null
     }
 
-    fun freeze(): Map<K, V> {
-        return Map(this.list)
+    fun size(): Int {
+        var count = 0
+        var i = 0
+        while (i < this.list.size()) {
+            var curr = this.list.items[i]
+            while (curr != null) {
+                count = count + 1
+                curr = curr!!.next
+            }
+            i = i + 1
+        }
+        return count
     }
+
+    fun isEmpty(): Bool = this.size() == 0
+
+    fun isNotEmpty(): Bool = this.size() > 0
+
+    fun freeze(): Map<K, V> = Map(this.list)
 }
 
-class Map<K, V>(val list: List<Node<K, V>?>) {
+class Map<K, V>(val list: List<Node<K, V>?> = []) {
     fun get(key: K): V? {
+        val capacity = this.list.size()
+        if (capacity == 0) {
+            return null
+        }
+
         var hash = key.hashCode()
-        var capacity = this.list.size()
         var index = hash - (hash / capacity) * capacity
         if (index < 0) index = index + capacity
         
@@ -116,12 +157,28 @@ class Map<K, V>(val list: List<Node<K, V>?>) {
         return this.get(key) != null
     }
 
-    fun mut(): MutableMap<K, V> {
-        return MutableMap(this.list)
+    fun size(): Int {
+        var count = 0
+        var i = 0
+        while (i < this.list.size()) {
+            var curr = this.list.items[i]
+            while (curr != null) {
+                count = count + 1
+                curr = curr!!.next
+            }
+            i = i + 1
+        }
+        return count
     }
+
+    fun isEmpty(): Bool = this.size() == 0
+
+    fun isNotEmpty(): Bool = this.size() > 0
+
+    fun mut(): MutableMap<K, V> = MutableMap(this.list)
 }
 
-class MutableSet<T>(val map: MutableMap<T, Bool>) {
+class MutableSet<T>(val map: MutableMap<T, Bool> = MutableMap<T, Bool>()) {
     fun add(element: T): Void {
         this.map.put(element, true)
     }
@@ -130,19 +187,31 @@ class MutableSet<T>(val map: MutableMap<T, Bool>) {
         return this.map.containsKey(element)
     }
 
-    fun freeze(): Set<T> {
-        return Set(this.map.freeze())
+    fun size(): Int {
+        return this.map.size()
     }
+
+    fun isEmpty(): Bool = this.size() == 0
+
+    fun isNotEmpty(): Bool = this.size() > 0
+
+    fun freeze(): Set<T> = Set(this.map.freeze())
 }
 
-class Set<T>(val map: Map<T, Bool>) {
+class Set<T>(val map: Map<T, Bool> = Map<T, Bool>()) {
     fun contains(element: T): Bool {
         return this.map.containsKey(element)
     }
 
-    fun mut(): MutableSet<T> {
-        return MutableSet(this.map.mut())
+    fun size(): Int {
+        return this.map.size()
     }
+
+    fun isEmpty(): Bool = this.size() == 0
+
+    fun isNotEmpty(): Bool = this.size() > 0
+
+    fun mut(): MutableSet<T> = MutableSet(this.map.mut())
 }
 
 fun escapeJsonString(s: String): String {

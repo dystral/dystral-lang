@@ -223,6 +223,7 @@ pub const ASTNodeType = union(enum) {
     call_expr: struct {
         callee: *ASTNode,
         arguments: []const *ASTNode,
+        type_args: []const *const ASTTypeRef = &.{},
     },
     if_expr: struct {
         condition: *ASTNode,

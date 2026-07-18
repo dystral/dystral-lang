@@ -189,54 +189,54 @@ test "should serialize Map to JSON string" {
     assert(json.indexOf("\"backslash\": \"a\\\\b\"") != -1)
 }
 
-// test "should create a empty map" {
-//     val map = Map<String, Int>()
-//     assert(map.size() == 0)
-//     assert(map.isEmpty() == true)
-//     assert(map.isNotEmpty() == false)
-//     assert(map.get("test") == null)
-//     assert(map.containsKey("test") == false)
+test "should create a empty map" {
+    val map = Map<String, Int>()
+    assert(map.size() == 0)
+    assert(map.isEmpty() == true)
+    assert(map.isNotEmpty() == false)
+    assert(map.get("test") == null)
+    assert(map.containsKey("test") == false)
 
-//     val mutableMap = MutableMap<String, Int>()
-//     mutableMap.put("test", 1)
-//     assert(mutableMap.size() == 1)
-//     assert(mutableMap.isEmpty() == false)
-//     assert(mutableMap.isNotEmpty() == true)
-//     assert(mutableMap.get("test") == 1)
-//     assert(mutableMap.containsKey("test") == true)
-// }
+    val mutableMap = MutableMap<String, Int>()
+    mutableMap.put("test", 1)
+    assert(mutableMap.size() == 1)
+    assert(mutableMap.isEmpty() == false)
+    assert(mutableMap.isNotEmpty() == true)
+    assert(mutableMap.get("test") == 1)
+    assert(mutableMap.containsKey("test") == true)
+}
 
-// test "should create a empty list" {
-//     val list = List<Int>()
-//     assert(list.size() == 0)
-//     assert(list.isEmpty() == true)
-//     assert(list.isNotEmpty() == false)
+test "should create a empty list" {
+    val list = List<Int>()
+    assert(list.size() == 0)
+    assert(list.isEmpty() == true)
+    assert(list.isNotEmpty() == false)
 
-//     val mutableList = MutableList<Int>()
-//     mutableList.add(1)
-//     assert(mutableList.size() == 1)
-//     assert(mutableList.isEmpty() == false)
-//     assert(mutableList.isNotEmpty() == true)
-//     assert(mutableList.get(0) == 1)
+    val mutableList = MutableList<Int>()
+    mutableList.add(1)
+    assert(mutableList.size() == 1)
+    assert(mutableList.isEmpty() == false)
+    assert(mutableList.isNotEmpty() == true)
+    assert(mutableList.get(0) == 1)
 
-//     val suggarList: List<Int> = []
-//     assert(suggarList.size() == 0)
-//     assert(suggarList.isEmpty() == true)
-//     assert(suggarList.isNotEmpty() == false)
-// }
+    val suggarList: List<Int> = []
+    assert(suggarList.size() == 0)
+    assert(suggarList.isEmpty() == true)
+    assert(suggarList.isNotEmpty() == false)
+}
 
-// test "should create a empty set" {
-//     val set = Set<String>()
-//     assert(set.size() == 0)
-//     assert(set.isEmpty() == true)
-//     assert(set.isNotEmpty() == false)
-//     assert(set.contains("test") == false)
+test "should create a empty set" {
+    val set = Set<String>()
+    assert(set.size() == 0)
+    assert(set.isEmpty() == true)
+    assert(set.isNotEmpty() == false)
+    assert(set.contains("test") == false)
 
-//     val mutableSet = MutableSet<String>()
-//     mutableSet.add("test")
-//     assert(mutableSet.size() == 1)
-//     assert(mutableSet.isEmpty() == false)
-//     assert(mutableSet.isNotEmpty() == true)
-//     assert(mutableSet.contains("test") == true)
-// }
+    val mutableSet = MutableSet<String>()
+    mutableSet.add("test")
+    assert(mutableSet.size() == 1)
+    assert(mutableSet.isEmpty() == false)
+    assert(mutableSet.isNotEmpty() == true)
+    assert(mutableSet.contains("test") == true)
+}
 

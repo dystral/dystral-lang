@@ -336,6 +336,7 @@ pub fn inferClassDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
         if (prop.initializer) |init_node| {
             if (self.pass == .validation) {
                 const cloned_init = try self.cloneNode(init_node);
+                cloned_init.expected_type = param_type;
                 const init_type = try self.inferNode(cloned_init, scope);
                 if (!self.isCompatible(param_type, init_type)) {
                     self.reportError(node.line, node.column, "TypeError: Default value type {} is incompatible with property type {}.", .{ init_type.*, param_type.* });
@@ -422,6 +423,7 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         if (p.initializer) |init_node| {
             if (self.pass == .validation) {
                 const cloned_init = try self.cloneNode(init_node);
+                cloned_init.expected_type = param_type;
                 const init_type = try self.inferNode(cloned_init, scope);
                 if (!self.isCompatible(param_type, init_type)) {
                     self.reportError(node.line, node.column, "TypeError: Default value type {} is incompatible with parameter type {}.", .{ init_type.*, param_type.* });

@@ -239,9 +239,49 @@ pub fn unary(self: *Parser) anyerror!*ASTNode {
 pub fn call(self: *Parser) anyerror!*ASTNode {
     var expr = try self.primary();
 
+    if (expr.data == .identifier and self.check(.less)) {
+        const saved = self.*;
+        self.suppress_errors = true;
+        var type_args = std.ArrayList(*const ast.ASTTypeRef).init(self.allocator);
+        var ok = true;
+
+        _ = self.match(.less);
+        if (self.check(.greater)) {
+            ok = false;
+        } else {
+            while (true) {
+                const arg = self.parseType() catch {
+                    ok = false;
+                    break;
+                };
+                try type_args.append(arg);
+                if (!self.match(.comma)) break;
+            }
+        }
+
+        if (ok and self.match(.greater) and self.check(.l_paren)) {
+            self.suppress_errors = saved.suppress_errors;
+            _ = self.match(.l_paren);
+            expr = try self.finishCall(expr, try type_args.toOwnedSlice());
+            if (self.match(.l_brace)) {
+                const line = self.previous.line;
+                const col = self.previous.column;
+                const lambda = try parseLambdaLiteral(self, line, col);
+                if (expr.data == .call_expr) {
+                    var new_args = std.ArrayList(*ASTNode).init(self.allocator);
+                    try new_args.appendSlice(expr.data.call_expr.arguments);
+                    try new_args.append(lambda);
+                    expr.data.call_expr.arguments = try new_args.toOwnedSlice();
+                }
+            }
+        } else {
+            self.* = saved;
+        }
+    }
+
     while (true) {
         if (self.match(.l_paren)) {
-            expr = try self.finishCall(expr);
+            expr = try self.finishCall(expr, &.{});
             if (self.match(.l_brace)) {
                 const line = self.previous.line;
                 const col = self.previous.column;
@@ -282,7 +322,7 @@ pub fn call(self: *Parser) anyerror!*ASTNode {
     return expr;
 }
 
-pub fn finishCall(self: *Parser, callee: *ASTNode) anyerror!*ASTNode {
+pub fn finishCall(self: *Parser, callee: *ASTNode, type_args: []const *const ast.ASTTypeRef) anyerror!*ASTNode {
     const line = self.previous.line;
     const col = self.previous.column;
     var args = std.ArrayList(*ASTNode).init(self.allocator);
@@ -293,7 +333,7 @@ pub fn finishCall(self: *Parser, callee: *ASTNode) anyerror!*ASTNode {
         }
     }
     try self.consume(.r_paren, "Expected ')' after arguments.");
-    return try self.createNodeAt(.{ .call_expr = .{ .callee = callee, .arguments = try args.toOwnedSlice() } }, line, col);
+    return try self.createNodeAt(.{ .call_expr = .{ .callee = callee, .arguments = try args.toOwnedSlice(), .type_args = type_args } }, line, col);
 }
 
 pub fn parseLambdaLiteral(self: *Parser, line: usize, col: usize) anyerror!*ASTNode {

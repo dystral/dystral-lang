@@ -16,6 +16,7 @@ pub const Parser = struct {
     current: Token,
     previous: Token,
     had_error: bool,
+    suppress_errors: bool = false,
     last_r_brace_line: usize = 0,
 
     const expression_mod = @import("expression.zig");
@@ -271,33 +272,35 @@ fn core_advance(self: *Parser) void {
 }
 
 fn core_reportLexerError(self: *Parser, line: usize, column: usize, comptime message: []const u8, args: anytype) void {
-    std.debug.print("\n\x1b[31mError\x1b[0m at line {}, column {}:\n", .{ line, column });
+    if (!self.suppress_errors) {
+        std.debug.print("\n\x1b[31mError\x1b[0m at line {}, column {}:\n", .{ line, column });
 
-    var current_line: usize = 1;
-    var start_idx: usize = 0;
-    var end_idx: usize = 0;
-    const src = self.lexer.source;
+        var current_line: usize = 1;
+        var start_idx: usize = 0;
+        var end_idx: usize = 0;
+        const src = self.lexer.source;
 
-    while (end_idx < src.len) : (end_idx += 1) {
-        if (src[end_idx] == '\n') {
-            if (current_line == line) break;
-            current_line += 1;
-            start_idx = end_idx + 1;
+        while (end_idx < src.len) : (end_idx += 1) {
+            if (src[end_idx] == '\n') {
+                if (current_line == line) break;
+                current_line += 1;
+                start_idx = end_idx + 1;
+            }
         }
-    }
-    if (end_idx > src.len) end_idx = src.len;
+        if (end_idx > src.len) end_idx = src.len;
 
-    const line_str = src[start_idx..end_idx];
-    std.debug.print("    {s}\n", .{line_str});
+        const line_str = src[start_idx..end_idx];
+        std.debug.print("    {s}\n", .{line_str});
 
-    std.debug.print("    ", .{});
-    var i: usize = 1;
-    while (i < column) : (i += 1) {
-        std.debug.print(" ", .{});
+        std.debug.print("    ", .{});
+        var i: usize = 1;
+        while (i < column) : (i += 1) {
+            std.debug.print(" ", .{});
+        }
+        std.debug.print("\x1b[31m^-- ", .{});
+        std.debug.print(message, args);
+        std.debug.print("\x1b[0m\n\n", .{});
     }
-    std.debug.print("\x1b[31m^-- ", .{});
-    std.debug.print(message, args);
-    std.debug.print("\x1b[0m\n\n", .{});
     self.had_error = true;
 }
 
@@ -327,6 +330,8 @@ fn core_consume(self: *Parser, token_type: TokenType, message: []const u8) anyer
 }
 
 fn core_errorAtCurrent(self: *Parser, message: []const u8) void {
-    std.debug.print("Error at line {}, column {}: {s}\n", .{self.current.line, self.current.column, message});
+    if (!self.suppress_errors) {
+        std.debug.print("Error at line {}, column {}: {s}\n", .{self.current.line, self.current.column, message});
+    }
     self.had_error = true;
 }
