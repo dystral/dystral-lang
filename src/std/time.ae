@@ -136,6 +136,9 @@ class Time(val sec: Int) {
     operator fun minus(other: Time): Duration {
         return Duration(this.sec - other.sec)
     }
+
+    fun toString() = this.format("YYYY-MM-DD HH:mm:ss")
+
 }
 
 fun now(): Time {

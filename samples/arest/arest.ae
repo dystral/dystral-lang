@@ -3,7 +3,7 @@ import { List, MutableList, Map, MutableMap, Node } from "std.collections"
 
 class Route(val method: String, val path: String, val handler: ApplicationCall.() -> Void)
 
-class RoutingBuilder(val routes: MutableList<Route?>) {
+class RoutingBuilder(val routes: MutableList<Route?> = MutableList<Route?>()) {
     fun get(path: String, handler: ApplicationCall.() -> Void) {
         this.routes.add(Route("GET", path, handler))
     }
@@ -21,26 +21,24 @@ class RoutingBuilder(val routes: MutableList<Route?>) {
     }
 }
 
-fun createRoutingBuilder(): RoutingBuilder {
-    val dummy: Route? = null
-    val routes = MutableList([dummy])
-    return RoutingBuilder(routes)
-}
-
 class ArestBuilder(
     val port: Int,
     var running: Bool = true,
-    val routingBuilder: RoutingBuilder = createRoutingBuilder()
+    val routingBuilder: RoutingBuilder = RoutingBuilder()
 ) {
     fun routing(init: RoutingBuilder.() -> Void) {
         init(this.routingBuilder)
+    }
+
+    fun shutdown() {
+        this.running = false
     }
 }
 
 class ApplicationCall(
     val conn: ServerConnection,
     val request: Request,
-    val app: ArestBuilder
+    val server: ArestBuilder
 ) {
     fun respond(status: Int, contentType: String, body: String) {
         this.conn.writeResponse(status, contentType, body)
@@ -64,32 +62,34 @@ fun arest(port: Int, init: ArestBuilder.() -> Void) {
         print("[Arest] Server listening on port " + port.toString() + "...")
         
         while (builder.running) {
-            val conn = server.accept()
-            if (conn != null) {
-                val req = conn!!.readRequest()
-                
-                // Match route
-                var found = false
-                var i = 0
-                val routes = builder.routingBuilder.routes
-                while (i < routes.size()) {
-                    val route = routes.get(i)
-                    if (route != null) {
-                        val r = route!!
-                        if (r.method == req.method && r.path == req.path) {
-                            val call = ApplicationCall(conn!!, req, builder)
-                            r.handler(call)
-                            found = true
+            try {
+                val conn = server.accept()
+                if (conn != null) {
+                    val req = conn!!.readRequest()
+                    
+                    // Match route
+                    var found = false
+                    var i = 0
+                    val routes = builder.routingBuilder.routes
+                    while (i < routes.size()) {
+                        val route = routes.get(i)
+                        if (route != null) {
+                            val r = route!!
+                            if (r.method == req.method && r.path == req.path) {
+                                val call = ApplicationCall(conn!!, req, builder)
+                                r.handler(call)
+                                found = true
+                            }
                         }
+                        i = i + 1
                     }
-                    i = i + 1
+                    
+                    if (found == false) {
+                        conn!!.writeResponse(404, "text/plain", "Not Found")
+                    }
+                    
+                    conn!!.close()
                 }
-                
-                if (found == false) {
-                    conn!!.writeResponse(404, "text/plain", "Not Found")
-                }
-                
-                conn!!.close()
             }
         }
         

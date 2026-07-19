@@ -7,7 +7,15 @@ class Box<T>(val item: T) {
 test "should create generic classes" {
     val boxInt: Box<Int> = Box(10)
     assert(boxInt.get() == 10)
-    
+
     val boxString = Box("Aether")
     assert(boxString.get() == "Aether")
 }
+
+//  test "should union types works in generic classes" {
+//      val boxUnion: Box<Int | String> = Box(10)
+//      assert(boxUnion.get() == 10)
+
+//      val boxUnionString: Box<Int | String> = Box("Aether")
+//      assert(boxUnionString.get() == "Aether")
+//  }

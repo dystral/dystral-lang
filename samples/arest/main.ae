@@ -6,9 +6,12 @@ fun main() {
     arest(8082) {
         routing {
             get("/") {
-                val body = [
+                val body: Map<String, String | Int | Boolean> = [
                     "welcome" of "Welcome json!",
-                    "description" of "Arest is a Web Framework for Aether!"
+                    "description" of "Arest is a Web Framework for Aether!",
+                    "date" of now().toString(),
+                    "isRunning" of true,
+                    "version" of 1.0,
                 ]
                 respond(200, "application/json", toJson(body))
             }
@@ -24,7 +27,7 @@ fun main() {
             }
             
             get("/shutdown") {
-                app.running = false
+                server.shutdown()
                 respondText("Server is shutting down...")
             }
         }

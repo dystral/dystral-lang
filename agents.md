@@ -33,16 +33,27 @@ zig build test
 ---
 
 ## 🏛️ Codebase Map & Entry Points
-* [src/main.zig](file:///home/leodouglas/Projects/aether/src/main.zig): CLI entry point. Parses commands (`run`, `build`, `test`) and drives the pipeline.
-* [src/frontend/lexer.zig](file:///home/leodouglas/Projects/aether/src/frontend/lexer.zig): Tokenizer. Converts source into token streams.
-* [src/frontend/parser.zig](file:///home/leodouglas/Projects/aether/src/frontend/parser.zig): Recursive Descent Parser. Generates the AST.
-* [src/core/ast.zig](file:///home/leodouglas/Projects/aether/src/core/ast.zig): Defines AST data structures (`ASTNode`, `TokenType`). Tracks positions (`line`, `column`).
-* [src/core/types.zig](file:///home/leodouglas/Projects/aether/src/core/types.zig): Type Checker and Scope Resolver. Resolves types, desugars operators (`+` to `.plus()`), and manages symbols.
-* [src/backend/c_transpiler.zig](file:///home/leodouglas/Projects/aether/src/backend/c_transpiler.zig): Generates the C output.
-* [src/backend/c_transpiler/aether_runtime.h](file:///home/leodouglas/Projects/aether/src/backend/c_transpiler/aether_runtime.h): Core runtime definitions, structures (e.g., `AetherString`), and GC integration.
-* [src/std/](file:///home/leodouglas/Projects/aether/src/std/): The Aether Standard Library package (written in Aether). Includes `std/core.ae` and `std/time.ae`.
-* [samples/](file:///home/leodouglas/Projects/aether/samples/): Example scripts and syntax tests.
-* [tests/](file:///home/leodouglas/Projects/aether/tests/): Automated toolchain test cases.
+* [src/main.zig](src/main.zig): CLI entry point. Parses commands (`run`, `build`, `test`) and drives the pipeline.
+* [src/frontend/lexer.zig](src/frontend/lexer.zig): Tokenizer. Converts source into token streams.
+* [src/frontend/parser.zig](src/frontend/parser.zig): Recursive Descent Parser. Generates the AST.
+* [src/core/ast.zig](src/core/ast.zig): Defines AST data structures (`ASTNode`, `TokenType`). Tracks positions (`line`, `column`).
+* [src/core/types.zig](src/core/types.zig): Type Checker and Scope Resolver. Resolves types, desugars operators (`+` to `.plus()`), and manages symbols.
+* [src/backend/c_transpiler.zig](src/backend/c_transpiler.zig): Generates the C output.
+* [src/backend/c_transpiler/aether_runtime.h](src/backend/c_transpiler/aether_runtime.h): Core runtime definitions, structures (e.g., `AetherString`), and GC integration.
+* [src/std/](src/std/): The Aether Standard Library package (written in Aether). Includes `std/core.ae` and `std/time.ae`.
+* [samples/](samples/): Example scripts and syntax tests.
+* [tests/](tests/): Automated toolchain test cases.
+
+---
+
+## 📚 Documentation Index
+> Consult these files **on-demand**, not necessarily at the start of every session.
+
+* [docs/architecture.md](docs/architecture.md): Compiler module layout and architectural decisions. Read when understanding the compilation pipeline or reorganizing modules.
+* [docs/decisions.md](docs/decisions.md): ADRs (Architecture Decision Records). **Read before introducing new patterns or changing existing decisions** to avoid rework.
+* [docs/language_tour.md](docs/language_tour.md): Full Aether syntax reference. Use when writing samples, tests, or `.ae` code examples.
+* [docs/roadmap.md](docs/roadmap.md): Phase history, completed tasks, and pending features. Read to identify the current project state.
+* [docs/setup.md](docs/setup.md): Dependency installation and environment setup. Only needed during initial setup.
 
 ---
 
@@ -52,4 +63,4 @@ zig build test
 3. **Boehm GC Integration:** Memory allocation in the transpiled C code must use GC-managed hooks (like `GC_MALLOC` or `GC_MALLOC_ATOMIC`) via runtime definitions. Do not use raw malloc/free.
 4. **Name Mangling:** Classes, functions, and standard library methods use Name Mangling (e.g., `system_Int` instead of raw `Int`) in the C backend to avoid naming collisions.
 5. **No Placeholders:** When writing Aether examples or test cases, write complete, working assertions.
-6. **Task Status Tracking:** Refer to [docs/roadmap.md](file:///home/leodouglas/Projects/aether/docs/roadmap.md) for the historic roadmap, completed phases, and pending features.
+6. **Task Status Tracking:** Refer to [docs/roadmap.md](docs/roadmap.md) for the historic roadmap, completed phases, and pending features.
