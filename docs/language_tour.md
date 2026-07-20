@@ -1016,3 +1016,115 @@ test "should add two numbers correctly" {
 ```
 
 Then, run `aether test` in your terminal. The compiler will automatically discover, group, and run all your tests in an isolated native binary.
+
+## 20. Serialization (JSON & YAML)
+
+Aether offers compile-time serialization without runtime reflection (ADR 27). You opt in by implementing the `Serializable` contract, then compose format skills (`+ Json`, `+ Yaml`) to add `toJson()`/`toYaml()` methods.
+
+### 20.1 Basic Usage
+
+```kotlin
+import { print } from "std.core"
+
+type User(val name: String, val age: Int) : Serializable + Json + Yaml
+
+fun main() {
+    val u = User("Ana", 30)
+    print(u.toJson())   // {"name": "Ana", "age": 30}
+    print(u.toYaml())   // name: "Ana"\nage: 30
+}
+```
+
+### 20.2 How It Works
+
+The compiler generates `serdeFields(): List<SerdeField>` for every type marked `: Serializable`. This is a plain method with direct field access — no runtime introspection.
+
+```
+type User(val name: String, val age: Int) : Serializable
+// compiler generates:
+//   implement fun serdeFields(): List<SerdeField> = [
+//       SerdeField("name", SerdeString(name)),
+//       SerdeField("age",  SerdeInt(age)),
+//   ]
+```
+
+The format skills (`Json`, `Yaml`) are pure Aether code in `std.serde` that walk this list using `when (v) { is SerdeInt -> ... }` with smart casts.
+
+### 20.3 Nested Objects
+
+Any field whose type also implements `Serializable` is wrapped in `SerdeObject` and serialized recursively.
+
+```kotlin
+type Address(val city: String) : Serializable + Json
+
+type Person(val name: String, val addr: Address) : Serializable + Json
+
+fun main() {
+    val p = Person("Bob", Address("SP"))
+    print(p.toJson())
+    // {"name": "Bob", "addr": {"city": "SP"}}
+}
+```
+
+### 20.4 Fields with Lists
+
+`List<T>` fields where `T` is serializable are serialized as JSON arrays / YAML sequences.
+
+```kotlin
+type Team(val name: String, val members: List<String>) : Serializable + Json
+
+fun main() {
+    val t = Team("A-Team", ["Alice", "Bob"])
+    print(t.toJson())
+    // {"name": "A-Team", "members": ["Alice", "Bob"]}
+}
+```
+
+### 20.5 Fields Are Filtered
+
+Only serializable types (primitives, `: Serializable` types, and `List<T>` of these) appear in the output. Other fields are silently skipped — no annotations needed.
+
+```kotlin
+type NotSerializable(val x: Int)
+
+type WithIgnored(val label: String, val ignored: NotSerializable) : Serializable + Json
+
+fun main() {
+    val w = WithIgnored("visible", NotSerializable(42))
+    print(w.toJson())
+    // {"label": "visible"}    -- ignored field is absent
+}
+```
+
+### 20.6 Custom `serdeFields()`
+
+You can override `serdeFields()` manually to rename, reorder, or omit fields — no annotation system needed.
+
+```kotlin
+type User(val fullName: String, val age: Int) : Serializable + Json {
+    implement fun serdeFields(): List<SerdeField> = [
+        SerdeField("name", SerdeString(fullName)),
+        SerdeField("age", SerdeInt(age)),
+    ]
+}
+```
+
+### 20.7 Adding a New Format
+
+New formats (Toml, XML, binary) are skills written in pure Aether — zero compiler changes.
+
+```kotlin
+skill Toml : Serializable {
+    fun toToml(): String = writeToml(this.serdeFields())
+}
+
+// Then use: type Config : Serializable + Toml
+```
+
+### 20.8 Limitations (v1)
+
+- **Serialization only** — deserialization (`fromJson`/`fromYaml`) is a future phase.
+- **No `Map<K,V>` support** — only primitive fields, nested `: Serializable` objects, and `List<T>`.
+- **No nullable field support** — nullable fields are skipped.
+- **No field customization** — rename/skip/format annotations are future work (override `serdeFields` as a workaround).
+- **Boxing overhead** — each field is boxed into `SerdeInt`/`SerdeString`/etc. at the point of `serdeFields()` construction. This is a one-time cost per call; the encoders themselves are pure function calls that walk the list with contract dispatch.
