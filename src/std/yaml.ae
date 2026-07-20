@@ -1,0 +1,61 @@
+import { List } from "std.collections"
+import { Serializable, SerdeField, SerdeValue, SerdeInt, SerdeBool, SerdeString, SerdeObject, SerdeListValue, SerdeList } from "std.serde"
+
+skill Yaml : Serializable {
+    fun toYaml(): String {
+        val fields = this.serdeFields()
+        if (fields.size() == 1) {
+            val first = fields.get(0)
+            if (first.name == "__list__" || first.name == "value" || first.name == "time") {
+                return this.writeYamlScalar(first.value)
+            }
+        }
+        return this.writeYaml(fields)
+    }
+
+    fun writeYaml(fields: List<SerdeField>): String = this.writeYamlBlock(fields, "")
+
+    fun writeYamlBlock(fields: List<SerdeField>, indent: String): String {
+        var out = ""
+        var i = 0
+        while (i < fields.size()) {
+            val f = fields.get(i)
+            out = out + indent + f.name + ":" + this.writeYamlValueSuffix(f.value, indent)
+            i = i + 1
+        }
+        return out
+    }
+
+    fun writeYamlValueSuffix(v: SerdeValue, indent: String): String = when (v) {
+        is SerdeInt -> " " + v.v.toString() + "\n"
+        is SerdeBool -> " " + v.v.toString() + "\n"
+        is SerdeString -> " \"" + v.v + "\"\n"
+        is SerdeObject -> v.obj.serdeFields().size() == 1 ? this.writeYamlValueSuffix(v.obj.serdeFields()[0].value, indent) : "\n" + this.writeYamlBlock(v.obj.serdeFields(), indent + "  ")
+        is SerdeListValue -> "\n" + this.writeYamlList(v.list, indent + "  ")
+        else -> " null\n"
+    }
+
+    fun writeYamlList(list: SerdeList, indent: String): String {
+        var out = ""
+        var i = 0
+        while (i < list.size()) {
+            val v = list.getAt(i)
+            out = out + indent + this.writeYamlListItem(v, indent)
+            i = i + 1
+        }
+        return out
+    }
+
+    fun writeYamlListItem(v: SerdeValue, indent: String): String = when (v) {
+        is SerdeObject -> "-\n" + this.writeYamlBlock(v.obj.serdeFields(), indent + "  ")
+        is SerdeListValue -> "-\n" + this.writeYamlList(v.list, indent + "  ")
+        else -> "- " + this.writeYamlScalar(v) + "\n"
+    }
+
+    fun writeYamlScalar(v: SerdeValue): String = when (v) {
+        is SerdeInt -> v.v.toString()
+        is SerdeBool -> v.v.toString()
+        is SerdeString -> "\"" + v.v + "\""
+        else -> "null"
+    }
+}

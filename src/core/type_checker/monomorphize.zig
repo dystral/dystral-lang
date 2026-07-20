@@ -11,8 +11,21 @@ const AetherType = type_system.AetherType;
 pub fn monomorphizeClass(self: *TypeChecker, base_name: []const u8, type_args: []*const AetherType, mangled_name: []const u8) !void {
     if (self.classes_ast.get(mangled_name) != null) return;
     
-    const actual_base_name = self.alias_map.get(base_name) orelse base_name;
-    const base_node = self.classes_ast.get(actual_base_name);
+    var actual_base_name = self.alias_map.get(base_name) orelse base_name;
+    var base_node = self.classes_ast.get(actual_base_name);
+    if (base_node == null and self.registry != null) {
+        var mod_it = self.registry.?.modules.iterator();
+        while (mod_it.next()) |entry| {
+            const mod_actual = entry.value_ptr.checker.alias_map.get(base_name) orelse base_name;
+            if (entry.value_ptr.checker.classes_ast.get(mod_actual)) |bn| {
+                base_node = bn;
+                actual_base_name = mod_actual;
+                try self.alias_map.put(base_name, mod_actual);
+                try self.classes_ast.put(mod_actual, bn);
+                break;
+            }
+        }
+    }
     if (base_node == null) {
         self.reportError(0, 0, "TypeError: Generic class '{s}' not found.", .{base_name});
         return error.TypeError;

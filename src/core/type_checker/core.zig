@@ -353,6 +353,39 @@ fn core_declareTypes(self: *TypeChecker, node: *ASTNode) anyerror!void {
                     }
                     if (reg.modules.get(mod_path)) |m| {
                         try m.checker.declareTypes(m.ast_root);
+                        var class_ast_it = m.checker.classes_ast.iterator();
+                        while (class_ast_it.next()) |entry| {
+                            try self.classes_ast.put(entry.key_ptr.*, entry.value_ptr.*);
+                        }
+                        var contract_ast_it = m.checker.contracts_ast.iterator();
+                        while (contract_ast_it.next()) |entry| {
+                            try self.contracts_ast.put(entry.key_ptr.*, entry.value_ptr.*);
+                        }
+                        var skill_ast_it = m.checker.skills_ast.iterator();
+                        while (skill_ast_it.next()) |entry| {
+                            try self.skills_ast.put(entry.key_ptr.*, entry.value_ptr.*);
+                        }
+                        var alias_it = m.checker.alias_map.iterator();
+                        while (alias_it.next()) |entry| {
+                            if (!self.alias_map.contains(entry.key_ptr.*)) {
+                                try self.alias_map.put(entry.key_ptr.*, entry.value_ptr.*);
+                            }
+                        }
+                        var sym_it = m.checker.global_scope.symbols.iterator();
+                        while (sym_it.next()) |entry| {
+                            if (self.global_scope.symbols.get(entry.key_ptr.*) == null) {
+                                switch (entry.value_ptr.*.*) {
+                                    .Variable => |vs| {
+                                        _ = self.global_scope.define(entry.key_ptr.*, vs.aether_type, vs.is_mut, false) catch {};
+                                    },
+                                    .Overloads => |ov_list| {
+                                        for (ov_list.items) |ov_type| {
+                                            _ = self.global_scope.define(entry.key_ptr.*, ov_type, false, true) catch {};
+                                        }
+                                    },
+                                }
+                            }
+                        }
                     }
                 }
             }

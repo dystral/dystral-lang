@@ -48,6 +48,8 @@ type OpaquePointer {}
 type Pointer<T> {}
 
 type String(val ptr: OpaquePointer, val length: Int) {
+    fun toString(): String = this
+
     operator fun equals(other: String): Bool {
         return NativeString.strcmp(this.ptr, other.ptr) == 0
     }

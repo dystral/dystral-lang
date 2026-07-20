@@ -175,6 +175,16 @@ Se o `when` retornar um valor não-Void, o compilador exige a presença de um ra
 Além disso, atualizar o `CTranspiler` para verificar se um arquivo físico (incluindo o core da stdlib) já foi transpiled através de um mapa de controle `emitted_modules`, garantindo deduplicação total de símbolos em C.
 **Razão:** Permite dependências circulares de tipos completas no nível de linguagem de forma transparente, garante clareza de passes no compilador, elimina redundâncias no backend CTranspiler e fornece a base de dados ideal (ASTs pré-resolvidas de escopo) para a futura geração nativa de LLVM IR.
 
+## ADR 25: Sistema de Tipos por Composição — Types, Contracts & Skills (Substitui Herança)
+**Data:** Fase 41
+**Contexto:** A experiência com herança de implementação (ADR 15, Fase 30) revelou os problemas clássicos do modelo: acoplamento frágil entre classes base e derivadas, hierarquias de exceção artificiais, e structs com ponteiros de função remapeados em cadeias de construtores. A linguagem precisava de um modelo de reúso de comportamento e polimorfismo que mantivesse cada abstração com responsabilidade única.
+**Decisão:** Substituir completamente o modelo OO por herança por um sistema de composição baseado em cinco declarações:
+1. **`type`** — única declaração que possui estado e identidade. Pode implementar contracts (`:`) e compor skills (`+`).
+2. **`object`** — singleton (mantém a semântica do ADR 21).
+3. **`contract`** — define apenas API comportamental: métodos sem corpo, sem estado, sem construtores, não instanciável.
+4. **`skill`** — comportamento reutilizável com implementação: sem estado, sem construtores, não instanciável. Pode *requerer* contracts via `:`, mas **não os implementa** — os métodos requeridos são resolvidos contra o `type` consumidor (ex: `skill Shadow : Drawable` pode chamar `draw()`).
+5. **`enum`** — mantida como está; seu alinhamento formal com o novo modelo fica para uma fase futura.
+
 ## ADR 26: Imports Não-Desestruturados Não Re-Exportam Símbolos Transitivos
 **Data:** Pós-Fase 41 (Julho 2026)
 **Contexto:** Imports não-desestruturados (`import {} from "mod"`, incluindo os imports implícitos de `std.core`/`std.env`/`std.collections`/`std.time`) copiavam **todo** o escopo global do módulo importado — incluindo símbolos que esse módulo tinha, por sua vez, importado de terceiros. Como `std.env` importa `{ File }` de `std.fs`, todo arquivo de usuário recebia `File → fs_File` no escopo global. Qualquer tipo local chamado `File` (ou `List`, `Map`, `Time`...) colidia com o símbolo vazado e falhava com `SymbolAlreadyDefined` (ex: `samples/companion_sample.ae`).
@@ -192,16 +202,6 @@ Além disso, atualizar o `CTranspiler` para verificar se um arquivo físico (inc
 5. **Regra de campos:** só entram na lista gerada campos de tipos serializáveis — primitivos (`Int`, `Bool`, `String`), `type`s que implementam `Serializable` (recursivo via `SerdeObject`) e `List<T>` com `T` serializável (via `SerdeXList` + `SerdeListValue`). Campos de qualquer outro tipo são **ignorados silenciosamente**. Campos `Map<K,V>` e nullable ficam para uma fase futura.
 6. **Somente serialização:** `fromJson`/`fromYaml` ficam para fase futura — exigem alocador, erros de parse e semântica de construção, dobrando o escopo.
 **Razão:** Restringir o codegen do compilador a um único método (`serdeFields()`) minimiza a superfície de manutenção do backend e mantém os formatos como biblioteca pura, na filosofia de composição do ADR 25. O custo de boxing + dispatch de contract por campo é aceito na v1 em troca de extensibilidade (qualquer usuário pode escrever um encoder em `.ae`) e pode ser otimizado depois sem mudar a API pública. Comparado a reflexão Java, os metadados são resolvidos em compile-time: nomes de campos e acessos viram código gerado, não lookup em runtime.
-
-## ADR 25: Sistema de Tipos por Composição — Types, Contracts & Skills (Substitui Herança)
-**Data:** Fase 41
-**Contexto:** A experiência com herança de implementação (ADR 15, Fase 30) revelou os problemas clássicos do modelo: acoplamento frágil entre classes base e derivadas, hierarquias de exceção artificiais, e structs com ponteiros de função remapeados em cadeias de construtores. A linguagem precisava de um modelo de reúso de comportamento e polimorfismo que mantivesse cada abstração com responsabilidade única.
-**Decisão:** Substituir completamente o modelo OO por herança por um sistema de composição baseado em cinco declarações:
-1. **`type`** — única declaração que possui estado e identidade. Pode implementar contracts (`:`) e compor skills (`+`).
-2. **`object`** — singleton (mantém a semântica do ADR 21).
-3. **`contract`** — define apenas API comportamental: métodos sem corpo, sem estado, sem construtores, não instanciável.
-4. **`skill`** — comportamento reutilizável com implementação: sem estado, sem construtores, não instanciável. Pode *requerer* contracts via `:`, mas **não os implementa** — os métodos requeridos são resolvidos contra o `type` consumidor (ex: `skill Shadow : Drawable` pode chamar `draw()`).
-5. **`enum`** — mantida como está; seu alinhamento formal com o novo modelo fica para uma fase futura.
 
 Regras centrais:
 - **Hard break:** as palavras-chave `class`, `open`, `abstract` e a sintaxe de herança (`class Sub : Super()`) são removidas da linguagem. Não há alias nem modo de compatibilidade.

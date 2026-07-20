@@ -1,4 +1,11 @@
-import { arest } from "./arest.ae"
+import { arest } from "./arest"
+
+import { date } from "std.time"
+import { Json } from "std.json"
+import { Yaml } from "std.yaml"
+
+type Address(val city: String, val zip: String) : Serializable
+type Person(val name: String, val age: Int, val address: Address, val birthday: Time, val tags: List<String>) : Serializable + Json + Yaml
 
 fun main() {
     print("--- Starting Arest Web Server Sample ---")
@@ -9,11 +16,22 @@ fun main() {
                 val body: Map<String, String> = [
                     "welcome" of "Welcome json!",
                     "description" of "Arest is a Web Framework for Aether!",
-                    "date" of now().toString(),
-                    "isRunning" of "true",
-                    "version" of "1.0"
+                    "date" of now().toString()
                 ]
-                respond(200, "application/json", toJson(body))
+
+                respond(200, "application/json", body.toJson())
+            }
+
+            get("/json") {
+                val addr = Address("Sao Paulo", "01000-000")
+                val person = Person("Ana", 30, addr, date(1987, 10, 10), ["friend", "coder"])
+                respond(200, "application/json", person.toJson())
+            }
+
+            get("/yaml") {
+                val addr = Address("Sao Paulo", "01000-000")
+                val person = Person("Ana", 30, addr, date(1987, 10, 10), ["friend", "coder"])
+                respond(200, "text/yaml", person.toYaml())
             }
 
             get("/hello") {

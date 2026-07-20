@@ -1,4 +1,7 @@
 import { mod } from "std.math"
+import { Serializable } from "std.serde"
+import { Json } from "std.json"
+import { Yaml } from "std.yaml"
 
 @Header("<time.h>")
 lib NativeTime {
@@ -33,7 +36,7 @@ fun hours(h: Int): Duration = Duration(h * 3600)
 fun minutes(m: Int): Duration = Duration(m * 60)
 fun seconds(s: Int): Duration = Duration(s)
 
-type Time(val sec: Int) {
+type Time(val sec: Int) : Serializable {
     fun second(): Int = mod(this.sec, 60)
     fun minute(): Int = mod(this.sec / 60, 60)
     fun hour(): Int = mod(this.sec / 3600, 24)
@@ -135,6 +138,10 @@ type Time(val sec: Int) {
 
     operator fun minus(other: Time): Duration {
         return Duration(this.sec - other.sec)
+    }
+
+    implement fun serdeFields(): List<SerdeField> {
+        return [SerdeField("time", SerdeString(this.toString()))]
     }
 
     fun toString() = this.format("YYYY-MM-DD HH:mm:ss")

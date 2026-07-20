@@ -18,6 +18,8 @@ pub const std_modules = std.StaticStringMap([]const u8).initComptime(.{
     .{ "http.ae", @embedFile("../../std/http.ae") },
     .{ "env.ae", @embedFile("../../std/env.ae") },
     .{ "serde.ae", @embedFile("../../std/serde.ae") },
+    .{ "json.ae", @embedFile("../../std/json.ae") },
+    .{ "yaml.ae", @embedFile("../../std/yaml.ae") },
 });
 
 pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
@@ -263,6 +265,7 @@ pub fn inferTypeDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
 
     if (!c.serde_generated) {
         c.serde_generated = true;
+        try generateDefaultToString(self, node, c);
         try generateSerdeFields(self, node, c);
     }
 
@@ -348,7 +351,18 @@ fn composeSkills(self: *TypeChecker, node: *ASTNode, c: anytype) anyerror!void {
 
     for (c.skills) |skill_src_name| {
         const skill_actual = self.alias_map.get(skill_src_name) orelse skill_src_name;
-        const skill_node = self.skills_ast.get(skill_actual) orelse {
+        var skill_node_opt = self.skills_ast.get(skill_actual);
+        if (skill_node_opt == null and self.registry != null) {
+            var mod_it = self.registry.?.modules.iterator();
+            while (mod_it.next()) |entry| {
+                const reg_actual = entry.value_ptr.checker.alias_map.get(skill_src_name) orelse skill_actual;
+                if (entry.value_ptr.checker.skills_ast.get(reg_actual)) |sn| {
+                    skill_node_opt = sn;
+                    break;
+                }
+            }
+        }
+        const skill_node = skill_node_opt orelse {
             self.reportError(node.line, node.column, "TypeError: Skill '{s}' not found.", .{skill_src_name});
             return error.TypeError;
         };
@@ -880,6 +894,42 @@ fn serdeBoxFor(self: *TypeChecker, line: usize, col: usize, tr: *const ast.ASTTy
     return null;
 }
 
+fn generateDefaultToString(self: *TypeChecker, node: *ASTNode, c: anytype) anyerror!void {
+    if (std.mem.eql(u8, c.name, "Int") or std.mem.eql(u8, c.name, "Bool") or std.mem.eql(u8, c.name, "String") or std.mem.eql(u8, c.name, "Pointer") or std.mem.eql(u8, c.name, "OpaquePointer")) return;
+
+    for (c.methods) |m| {
+        if (m.data == .fun_decl and std.mem.eql(u8, m.data.fun_decl.name, "toString")) return;
+    }
+
+    const str_node = try makeStringLiteral(self, node.line, node.column, c.name);
+    const method_node = try self.allocator.create(ASTNode);
+    method_node.* = .{
+        .line = node.line,
+        .column = node.column,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .fun_decl = .{
+                .annotations = &.{},
+                .modifiers = &.{},
+                .name = "toString",
+                .params = &.{},
+                .type_ref = null,
+                .body = str_node,
+                .is_expr_body = true,
+                .resolved_c_name = null,
+            },
+        },
+    };
+
+    var new_methods = try self.allocator.alloc(*ASTNode, c.methods.len + 1);
+    for (c.methods, 0..) |m, i| {
+        new_methods[i] = m;
+    }
+    new_methods[c.methods.len] = method_node;
+    c.methods = new_methods;
+}
+
 fn generateSerdeFields(self: *TypeChecker, node: *ASTNode, c: anytype) anyerror!void {
     if (!self.implementsContract(c.name, "Serializable")) return;
 
@@ -890,25 +940,69 @@ fn generateSerdeFields(self: *TypeChecker, node: *ASTNode, c: anytype) anyerror!
     var elems = std.ArrayList(*ASTNode).init(self.allocator);
     defer elems.deinit();
 
-    for (c.primary_constructor) |prop| {
-        if (!prop.is_property) continue;
-        if (prop.type_ref.is_nullable) continue;
+    if (std.mem.startsWith(u8, c.name, "collections_List_") or std.mem.startsWith(u8, c.name, "List_")) {
+        var wrapper_name: []const u8 = "SerdeObjectList";
+        if (std.mem.endsWith(u8, c.name, "_core_Int") or std.mem.endsWith(u8, c.name, "_Int")) {
+            wrapper_name = "SerdeIntList";
+        } else if (std.mem.endsWith(u8, c.name, "_core_Bool") or std.mem.endsWith(u8, c.name, "_Bool")) {
+            wrapper_name = "SerdeBoolList";
+        } else if (std.mem.endsWith(u8, c.name, "_core_String") or std.mem.endsWith(u8, c.name, "_String")) {
+            wrapper_name = "SerdeStringList";
+        }
 
-        const boxed = try serdeBoxFor(self, node.line, node.column, prop.type_ref, prop.name) orelse continue;
+        const this_ident = try self.allocator.create(ASTNode);
+        this_ident.* = .{
+            .line = node.line,
+            .column = node.column,
+            .resolved_type = null,
+            .data = .{ .identifier = .{ .name = "this", .resolved_c_name = "this", .is_class_property = false } },
+        };
+
+        const list_args = try self.allocator.alloc(*ASTNode, 1);
+        list_args[0] = this_ident;
+
+        const list_inner_call = try makeCall(self, node.line, node.column, wrapper_name, list_args, &.{});
+        const wrapper_args = try self.allocator.alloc(*ASTNode, 1);
+        wrapper_args[0] = list_inner_call;
+        const list_val = try makeCall(self, node.line, node.column, "SerdeListValue", wrapper_args, &.{});
+
         const field_args = try self.allocator.alloc(*ASTNode, 2);
-        field_args[0] = try makeStringLiteral(self, node.line, node.column, prop.name);
-        field_args[1] = boxed;
+        field_args[0] = try makeStringLiteral(self, node.line, node.column, "__list__");
+        field_args[1] = list_val;
 
         const serde_field_call = try makeCall(self, node.line, node.column, "SerdeField", field_args, &.{});
         try elems.append(serde_field_call);
+    } else {
+        for (c.primary_constructor) |prop| {
+            if (!prop.is_property) continue;
+            if (prop.type_ref.is_nullable) continue;
+
+            const boxed = try serdeBoxFor(self, node.line, node.column, prop.type_ref, prop.name) orelse continue;
+            const field_args = try self.allocator.alloc(*ASTNode, 2);
+            field_args[0] = try makeStringLiteral(self, node.line, node.column, prop.name);
+            field_args[1] = boxed;
+
+            const serde_field_call = try makeCall(self, node.line, node.column, "SerdeField", field_args, &.{});
+            try elems.append(serde_field_call);
+        }
     }
+
+    const serde_field_type = try self.resolveTypeName("SerdeField", false);
+    const list_c_name = self.alias_map.get("List") orelse "List";
+    var mangled = std.ArrayList(u8).init(self.allocator);
+    try mangled.appendSlice(list_c_name);
+    try mangled.appendSlice("_");
+    try serde_field_type.formatSafe(mangled.writer());
+    const mangled_name = try mangled.toOwnedSlice();
+    const list_serde_field_type = try self.allocator.create(AetherType);
+    list_serde_field_type.* = .{ .Custom = self.alias_map.get(mangled_name) orelse mangled_name };
 
     const arr_node = try self.allocator.create(ASTNode);
     arr_node.* = .{
         .line = node.line,
         .column = node.column,
         .resolved_type = null,
-        .expected_type = null,
+        .expected_type = list_serde_field_type,
         .data = .{
             .array_literal = .{
                 .elements = try elems.toOwnedSlice(),

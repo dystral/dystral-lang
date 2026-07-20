@@ -1,26 +1,45 @@
-import { print } from "std.core"
+import { Json } from "std.json"
+import { Yaml } from "std.yaml"
+import { Node, MutableList } from "std.collections"
+import { date } from "std.time"
 
 type Address(val city: String, val zip: String) : Serializable + Json + Yaml
-
 type Person(val name: String, val age: Int, val address: Address) : Serializable + Json
+type BirthDate(val bday: Time) : Serializable + Json
 
 type NotSerializable(val x: Int)
-
 type WithIgnored(val name: String, val extra: NotSerializable) : Serializable + Json
 
-test "serializacao: pessoa com endereco aninhado em JSON" {
+test "serialization: nested address in json" {
     val addr = Address("SP", "01000")
     val p = Person("Ana", 30, addr)
     assert(p.toJson() == "{\"name\": \"Ana\", \"age\": 30, \"address\": {\"city\": \"SP\", \"zip\": \"01000\"}}")
 }
 
-test "serializacao: yaml de endereco simples" {
+test "serialization: yaml simple address" {
     val addr = Address("RJ", "20000")
     val y = addr.toYaml()
     assert(y != "")
 }
 
-test "serializacao: campo nao serializavel ignorado" {
+test "serialization: field not serializable ignored" {
     val w = WithIgnored("test", NotSerializable(42))
     assert(w.toJson() == "{\"name\": \"test\"}")
+}
+
+test "serialization: json simple map" {
+    val map = [
+        "name" of "map",
+        "age" of "30"
+    ]
+    assert(map.toJson().indexOf("\"name\": \"map\"") != -1)
+}
+
+test "serialization: json simple list" {
+    assert([1, 2, 3].toJson() == "[1, 2, 3]")
+}
+
+test "serialization: single field type unwrapping (Time)" {
+    val birthday = BirthDate(date(1987, 10, 10))
+    assert(birthday.toJson() ==  "{\"bday\": \"1987-10-10 00:00:00\"}")
 }

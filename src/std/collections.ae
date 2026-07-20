@@ -1,7 +1,10 @@
 // std.collections
 // Powered by True Generics and Native Arrays!
 
-type MutableList<T>(val list: List<T> = []) {
+import { Json } from "std.json"
+import { Serializable, SerdeField, SerdeList, SerdeObjectList, SerdeValue, SerdeString } from "std.serde"
+
+type MutableList<T>(val list: List<T> = []) : Serializable + Json {
     fun add(element: T): Void {
         this.list.items.push(element)
     }
@@ -36,7 +39,7 @@ type MutableList<T>(val list: List<T> = []) {
     }
 }
 
-type List<T>(val items: NativeArray<T> = []) {
+type List<T>(val items: NativeArray<T> = []) : Serializable + Json {
     fun get(index: Int): T {
         return this.items[index]
     }
@@ -54,9 +57,11 @@ type List<T>(val items: NativeArray<T> = []) {
     }
 }
 
-type Node<K, V>(val key: K, var value: V, var next: Node<K, V>?)
+type Node<K, V>(val key: K, var value: V, var next: Node<K, V>?) {
+    fun toString(): String = ""
+}
 
-type MutableMap<K, V>(val list: List<Node<K, V>?> = []) {
+type MutableMap<K, V>(val list: List<Node<K, V>?> = []) : Serializable + Json {
     fun put(key: K, value: V): Void {
         var capacity = this.list.size()
         if (capacity == 0) {
@@ -82,7 +87,7 @@ type MutableMap<K, V>(val list: List<Node<K, V>?> = []) {
             }
             curr = curr!!.next
         }
-        
+
         val newNode = Node(key, value, this.list.items[index])
         this.list.items[index] = newNode
     }
@@ -96,7 +101,7 @@ type MutableMap<K, V>(val list: List<Node<K, V>?> = []) {
         var hash = key.hashCode()
         var index = hash - (hash / capacity) * capacity
         if (index < 0) index = index + capacity
-        
+
         var curr = this.list.items[index]
         while (curr != null) {
             if (curr!!.key == key) {
@@ -130,9 +135,11 @@ type MutableMap<K, V>(val list: List<Node<K, V>?> = []) {
     fun isNotEmpty(): Bool = this.size() > 0
 
     fun freeze(): Map<K, V> = Map(this.list)
+
+    implement fun serdeFields(): List<SerdeField> = Map(this.list).serdeFields()
 }
 
-type Map<K, V>(val list: List<Node<K, V>?> = []) {
+type Map<K, V>(val list: List<Node<K, V>?> = []) : Serializable + Json {
     fun get(key: K): V? {
         val capacity = this.list.size()
         if (capacity == 0) {
@@ -142,7 +149,7 @@ type Map<K, V>(val list: List<Node<K, V>?> = []) {
         var hash = key.hashCode()
         var index = hash - (hash / capacity) * capacity
         if (index < 0) index = index + capacity
-        
+
         var curr = this.list.items[index]
         while (curr != null) {
             if (curr!!.key == key) {
@@ -176,6 +183,23 @@ type Map<K, V>(val list: List<Node<K, V>?> = []) {
     fun isNotEmpty(): Bool = this.size() > 0
 
     fun mut(): MutableMap<K, V> = MutableMap(this.list)
+
+    implement fun serdeFields(): List<SerdeField> {
+        val items: NativeArray<SerdeField> = []
+        var i = 0
+        val capacity = this.list.size()
+        while (i < capacity) {
+            var curr = this.list.get(i)
+            while (curr != null) {
+                val key = curr!!.key.toString()
+                val valStr = curr!!.value.toString()
+                items.push(SerdeField(key, SerdeString(valStr)))
+                curr = curr!!.next
+            }
+            i = i + 1
+        }
+        return List(items)
+    }
 }
 
 type MutableSet<T>(val map: MutableMap<T, Bool> = MutableMap<T, Bool>()) {
@@ -213,30 +237,3 @@ type Set<T>(val map: Map<T, Bool> = Map<T, Bool>()) {
 
     fun mut(): MutableSet<T> = MutableSet(this.map.mut())
 }
-
-fun escapeJsonString(s: String): String {
-    return s.replace("\\", "\\\\").replace("\"", "\\\"")
-}
-
-fun toJson(map: Map<String, String>): String {
-    var result = "{"
-    var first = true
-    var i = 0
-    val capacity = map.list.size()
-    while (i < capacity) {
-        var curr = map.list.get(i)
-        while (curr != null) {
-            if (first == false) {
-                result = result + ", "
-            }
-            val key = escapeJsonString(curr!!.key)
-            val value = escapeJsonString(curr!!.value)
-            result = result + "\"" + key + "\": \"" + value + "\""
-            first = false
-            curr = curr!!.next
-        }
-        i = i + 1
-    }
-    return result + "}"
-}
-
