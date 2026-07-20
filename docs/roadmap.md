@@ -250,6 +250,14 @@ Replace implementation inheritance entirely with the composition model defined i
 
 > **Known trade-offs (accepted):** skill methods are cloned per consuming type (C++ template-style code duplication in exchange for zero-cost static dispatch); contract-typed values are erased to `void*` in C (the TypeChecker is the only type-safety layer for dynamic dispatch). Follow-ups live in Phases 42–44.
 
+### Phase 45: Serialization — `Serializable` Contract + JSON/YAML Skills (IN PROGRESS)
+Compile-time serialization without runtime reflection (ADR 27): the compiler generates `serdeFields(): List<SerdeField>` per `type` marked `: Serializable`; formats are pure-Aether skills (`+ Json`, `+ Yaml`) in a new `std.serde` module that walk the field list. Serialization only; deserialization is a future phase.
+- [ ] **Task 45.1:** Create `src/std/serde.ae`: `contract Serializable`, `SerdeField`, `contract SerdeValue` + std boxes (`IntValue`, `FloatValue`, `BoolValue`, `StringValue`, `ObjectValue`, `ListValue`), and skills `Json`/`Yaml` with `toJson()`/`toYaml()` written 100% in Aether.
+- [ ] **Task 45.2:** TypeChecker: accept the marker contract and resolve the generated `serdeFields()` signature; treat a user-provided `implement fun serdeFields()` as an override of the generated body.
+- [ ] **Task 45.3:** Compiler codegen: for every `type` implementing `Serializable`, emit the `serdeFields()` body including only serializable fields — primitives, nested `Serializable` types (recursive via `ObjectValue`) and `List<T>` of serializable `T` (via `ListValue`); silently skip all other fields.
+- [ ] **Task 45.4:** Samples: `samples/serialization_sample.ae` (nested objects, lists, skipped fields) and `samples/tests/serialization_test.ae` covering JSON and YAML output.
+- [ ] **Verify:** Full suite passes (`zig build`, `zig build test`, `aether test samples/tests`); sample output matches expected JSON/YAML.
+
 ### Phase 42: Null Safety on Contract Receivers (PENDING)
 Contract-typed receivers are erased to `void*` and dispatch dynamically through `aether_find_vtable`. The safe-call path (`?.`) currently ignores the null check for contract method calls, and nullable contract types (`Drawable?`) are untested — a null receiver segfaults instead of short-circuiting.
 - [ ] **Task 42.1:** Emit the null short-circuit (`(obj) == 0 ? 0 : dispatch`) for `?.` calls on contract-typed receivers in the C Transpiler (`expression.zig` contract dispatch branch).
