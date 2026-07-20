@@ -174,6 +174,7 @@ pub const ASTNodeType = union(enum) {
         contracts: []const []const u8,
         skills: []const []const u8,
         skills_composed: bool = false,
+        serde_generated: bool = false,
     },
     contract_decl: struct {
         annotations: []const Annotation,

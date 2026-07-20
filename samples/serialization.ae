@@ -1,0 +1,14 @@
+import { print } from "std.core"
+import { List } from "std.collections"
+
+type Address(val city: String, val zip: String) : Serializable + Json + Yaml
+
+type Person(val name: String, val age: Int, val address: Address, val tags: List<String>) : Serializable + Json + Yaml
+
+fun main() {
+    val addr = Address("Sao Paulo", "01000-000")
+    val person = Person("Ana", 30, addr, ["friend", "coder"])
+    print(person.toJson())
+    print("---")
+    print(person.toYaml())
+}

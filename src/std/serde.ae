@@ -1,0 +1,131 @@
+import { List } from "std.collections"
+import { print } from "std.core"
+
+contract Serializable {
+    fun serdeFields(): List<SerdeField>
+}
+
+type SerdeField(val name: String, val value: SerdeValue)
+
+contract SerdeValue
+
+contract SerdeList {
+    fun size(): Int
+    fun getAt(index: Int): SerdeValue
+}
+
+type SerdeInt(val v: Int) : SerdeValue
+type SerdeBool(val v: Bool) : SerdeValue
+type SerdeString(val v: String) : SerdeValue
+type SerdeObject(val obj: Serializable) : SerdeValue
+type SerdeListValue(val list: SerdeList) : SerdeValue
+
+type SerdeIntList(val list: List<Int>) : SerdeList {
+    implement fun size(): Int = list.size()
+    implement fun getAt(index: Int): SerdeValue = SerdeInt(list.get(index))
+}
+
+type SerdeBoolList(val list: List<Bool>) : SerdeList {
+    implement fun size(): Int = list.size()
+    implement fun getAt(index: Int): SerdeValue = SerdeBool(list.get(index))
+}
+
+type SerdeStringList(val list: List<String>) : SerdeList {
+    implement fun size(): Int = list.size()
+    implement fun getAt(index: Int): SerdeValue = SerdeString(list.get(index))
+}
+
+type SerdeObjectList<T>(val list: List<T>) : SerdeList {
+    implement fun size(): Int = list.size()
+    implement fun getAt(index: Int): SerdeValue = SerdeObject(list.get(index))
+}
+
+skill Json : Serializable {
+    fun toJson(): String = writeJson(this.serdeFields())
+}
+
+skill Yaml : Serializable {
+    fun toYaml(): String = writeYaml(this.serdeFields())
+}
+
+fun writeJson(fields: List<SerdeField>): String {
+    var out = "{"
+    var i = 0
+    while (i < fields.size()) {
+        if (i > 0) {
+            out = out + ", "
+        }
+        val f = fields.get(i)
+        out = out + "\"" + f.name + "\": " + writeJsonValue(f.value)
+        i = i + 1
+    }
+    return out + "}"
+}
+
+fun writeJsonValue(v: SerdeValue): String = when (v) {
+    is SerdeInt -> v.v.toString()
+    is SerdeBool -> v.v.toString()
+    is SerdeString -> "\"" + v.v + "\""
+    is SerdeObject -> writeJson(v.obj.serdeFields())
+    is SerdeListValue -> writeJsonList(v.list)
+    else -> "null"
+}
+
+fun writeJsonList(list: SerdeList): String {
+    var out = "["
+    var i = 0
+    while (i < list.size()) {
+        if (i > 0) {
+            out = out + ", "
+        }
+        out = out + writeJsonValue(list.getAt(i))
+        i = i + 1
+    }
+    return out + "]"
+}
+
+fun writeYaml(fields: List<SerdeField>): String = writeYamlBlock(fields, "")
+
+fun writeYamlBlock(fields: List<SerdeField>, indent: String): String {
+    var out = ""
+    var i = 0
+    while (i < fields.size()) {
+        val f = fields.get(i)
+        out = out + indent + f.name + ":" + writeYamlValueSuffix(f.value, indent)
+        i = i + 1
+    }
+    return out
+}
+
+fun writeYamlValueSuffix(v: SerdeValue, indent: String): String = when (v) {
+    is SerdeInt -> " " + v.v.toString() + "\n"
+    is SerdeBool -> " " + v.v.toString() + "\n"
+    is SerdeString -> " \"" + v.v + "\"\n"
+    is SerdeObject -> "\n" + writeYamlBlock(v.obj.serdeFields(), indent + "  ")
+    is SerdeListValue -> "\n" + writeYamlList(v.list, indent + "  ")
+    else -> " null\n"
+}
+
+fun writeYamlList(list: SerdeList, indent: String): String {
+    var out = ""
+    var i = 0
+    while (i < list.size()) {
+        val v = list.getAt(i)
+        out = out + indent + writeYamlListItem(v, indent)
+        i = i + 1
+    }
+    return out
+}
+
+fun writeYamlListItem(v: SerdeValue, indent: String): String = when (v) {
+    is SerdeObject -> "-\n" + writeYamlBlock(v.obj.serdeFields(), indent + "  ")
+    is SerdeListValue -> "-\n" + writeYamlList(v.list, indent + "  ")
+    else -> "- " + writeYamlScalar(v) + "\n"
+}
+
+fun writeYamlScalar(v: SerdeValue): String = when (v) {
+    is SerdeInt -> v.v.toString()
+    is SerdeBool -> v.v.toString()
+    is SerdeString -> "\"" + v.v + "\""
+    else -> "null"
+}

@@ -17,6 +17,7 @@ pub const std_modules = std.StaticStringMap([]const u8).initComptime(.{
     .{ "net.ae", @embedFile("../../std/net.ae") },
     .{ "http.ae", @embedFile("../../std/http.ae") },
     .{ "env.ae", @embedFile("../../std/env.ae") },
+    .{ "serde.ae", @embedFile("../../std/serde.ae") },
 });
 
 pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
@@ -258,6 +259,11 @@ pub fn inferTypeDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
     if (!c.skills_composed) {
         c.skills_composed = true;
         try composeSkills(self, node, c);
+    }
+
+    if (!c.serde_generated) {
+        c.serde_generated = true;
+        try generateSerdeFields(self, node, c);
     }
 
     var class_scope = Scope.init(self.allocator, scope);
@@ -757,4 +763,201 @@ pub fn inferObjectDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
         _ = try self.inferNode(member, &obj_scope);
     }
     t.* = .Void;
+}
+
+fn makeIdent(self: *TypeChecker, line: usize, col: usize, name: []const u8) !*ASTNode {
+    const node = try self.allocator.create(ASTNode);
+    node.* = .{
+        .line = line,
+        .column = col,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .identifier = .{
+                .name = name,
+                .resolved_c_name = null,
+            },
+        },
+    };
+    return node;
+}
+
+fn makeStringLiteral(self: *TypeChecker, line: usize, col: usize, val: []const u8) !*ASTNode {
+    const node = try self.allocator.create(ASTNode);
+    node.* = .{
+        .line = line,
+        .column = col,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{ .string_literal = val },
+    };
+    return node;
+}
+
+fn makeCall(self: *TypeChecker, line: usize, col: usize, callee_name: []const u8, args: []const *ASTNode, type_args: []const *const ast.ASTTypeRef) !*ASTNode {
+    const callee = try makeIdent(self, line, col, callee_name);
+    const node = try self.allocator.create(ASTNode);
+    node.* = .{
+        .line = line,
+        .column = col,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .call_expr = .{
+                .callee = callee,
+                .arguments = args,
+                .type_args = type_args,
+            },
+        },
+    };
+    return node;
+}
+
+fn serdeBoxFor(self: *TypeChecker, line: usize, col: usize, tr: *const ast.ASTTypeRef, field_name: []const u8) anyerror!?*ASTNode {
+    const field_ident = try makeIdent(self, line, col, field_name);
+    const name = tr.name;
+
+    if (std.mem.eql(u8, name, "Int")) {
+        const args = try self.allocator.alloc(*ASTNode, 1);
+        args[0] = field_ident;
+        return try makeCall(self, line, col, "SerdeInt", args, &.{});
+    } else if (std.mem.eql(u8, name, "Bool")) {
+        const args = try self.allocator.alloc(*ASTNode, 1);
+        args[0] = field_ident;
+        return try makeCall(self, line, col, "SerdeBool", args, &.{});
+    } else if (std.mem.eql(u8, name, "String")) {
+        const args = try self.allocator.alloc(*ASTNode, 1);
+        args[0] = field_ident;
+        return try makeCall(self, line, col, "SerdeString", args, &.{});
+    } else if (std.mem.eql(u8, name, "List") and tr.generic_args.len == 1) {
+        const elem_tr = tr.generic_args[0];
+        if (elem_tr.is_nullable) return null;
+
+        const elem_name = elem_tr.name;
+        var list_wrapper_name: ?[]const u8 = null;
+        var needs_generic = false;
+
+        if (std.mem.eql(u8, elem_name, "Int")) {
+            list_wrapper_name = "SerdeIntList";
+        } else if (std.mem.eql(u8, elem_name, "Bool")) {
+            list_wrapper_name = "SerdeBoolList";
+        } else if (std.mem.eql(u8, elem_name, "String")) {
+            list_wrapper_name = "SerdeStringList";
+        } else if (self.implementsContract(elem_name, "Serializable")) {
+            list_wrapper_name = "SerdeObjectList";
+            needs_generic = true;
+        }
+
+        if (list_wrapper_name) |wrapper| {
+            const list_args = try self.allocator.alloc(*ASTNode, 1);
+            list_args[0] = field_ident;
+
+            var call_type_args: []const *const ast.ASTTypeRef = &.{};
+            if (needs_generic) {
+                const mono_elem_tr = try self.allocator.create(ast.ASTTypeRef);
+                mono_elem_tr.* = .{
+                    .name = elem_name,
+                    .generic_args = &.{},
+                    .is_array = false,
+                    .is_nullable = false,
+                };
+                const t_args = try self.allocator.alloc(*const ast.ASTTypeRef, 1);
+                t_args[0] = mono_elem_tr;
+                call_type_args = t_args;
+            }
+
+            const list_inner_call = try makeCall(self, line, col, wrapper, list_args, call_type_args);
+            const wrapper_args = try self.allocator.alloc(*ASTNode, 1);
+            wrapper_args[0] = list_inner_call;
+            return try makeCall(self, line, col, "SerdeListValue", wrapper_args, &.{});
+        }
+    } else if (self.implementsContract(name, "Serializable")) {
+        const args = try self.allocator.alloc(*ASTNode, 1);
+        args[0] = field_ident;
+        return try makeCall(self, line, col, "SerdeObject", args, &.{});
+    }
+
+    return null;
+}
+
+fn generateSerdeFields(self: *TypeChecker, node: *ASTNode, c: anytype) anyerror!void {
+    if (!self.implementsContract(c.name, "Serializable")) return;
+
+    for (c.methods) |m| {
+        if (m.data == .fun_decl and std.mem.eql(u8, m.data.fun_decl.name, "serdeFields")) return;
+    }
+
+    var elems = std.ArrayList(*ASTNode).init(self.allocator);
+    defer elems.deinit();
+
+    for (c.primary_constructor) |prop| {
+        if (!prop.is_property) continue;
+        if (prop.type_ref.is_nullable) continue;
+
+        const boxed = try serdeBoxFor(self, node.line, node.column, prop.type_ref, prop.name) orelse continue;
+        const field_args = try self.allocator.alloc(*ASTNode, 2);
+        field_args[0] = try makeStringLiteral(self, node.line, node.column, prop.name);
+        field_args[1] = boxed;
+
+        const serde_field_call = try makeCall(self, node.line, node.column, "SerdeField", field_args, &.{});
+        try elems.append(serde_field_call);
+    }
+
+    const arr_node = try self.allocator.create(ASTNode);
+    arr_node.* = .{
+        .line = node.line,
+        .column = node.column,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .array_literal = .{
+                .elements = try elems.toOwnedSlice(),
+            },
+        },
+    };
+
+    const sf_type_ref = try self.allocator.create(ast.ASTTypeRef);
+    sf_type_ref.* = .{
+        .name = "SerdeField",
+        .generic_args = &.{},
+        .is_array = false,
+        .is_nullable = false,
+    };
+    const list_ret_type_args = try self.allocator.alloc(*const ast.ASTTypeRef, 1);
+    list_ret_type_args[0] = sf_type_ref;
+
+    const list_ret_type_ref = try self.allocator.create(ast.ASTTypeRef);
+    list_ret_type_ref.* = .{
+        .name = "List",
+        .generic_args = list_ret_type_args,
+        .is_array = false,
+        .is_nullable = false,
+    };
+
+    const method_node = try self.allocator.create(ASTNode);
+    method_node.* = .{
+        .line = node.line,
+        .column = node.column,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .fun_decl = .{
+                .annotations = &.{},
+                .modifiers = &[_]ast.TokenType{ .kw_implement },
+                .name = "serdeFields",
+                .params = &.{},
+                .type_ref = list_ret_type_ref,
+                .body = arr_node,
+                .is_expr_body = true,
+                .resolved_c_name = null,
+            },
+        },
+    };
+
+    var new_methods = try self.allocator.alloc(*ASTNode, c.methods.len + 1);
+    for (c.methods, 0..) |m, i| {
+        new_methods[i] = m;
+    }
+    new_methods[c.methods.len] = method_node;
+    c.methods = new_methods;
 }

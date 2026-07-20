@@ -296,7 +296,7 @@ fn core_injectImplicitImports(self: *TypeChecker, node: *ASTNode) anyerror!void 
     const implicit_imports = if (is_std_lib)
         &[_][]const u8{ "std.core" }
     else
-        &[_][]const u8{ "std.core", "std.env", "std.collections", "std.time" };
+        &[_][]const u8{ "std.core", "std.env", "std.collections", "std.time", "std.serde" };
     
     const import_count = implicit_imports.len;
     var new_stmts = try self.allocator.alloc(*ASTNode, node.data.program.statements.len + import_count);
