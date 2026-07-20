@@ -20,19 +20,35 @@ static inline void aether_terminate(char *str, int index) {
     str[index] = '\0';
 }
 
-typedef struct AetherClassDescriptor {
+typedef struct AetherContractDescriptor {
     const char* name;
-    const struct AetherClassDescriptor* super;
-} AetherClassDescriptor;
+} AetherContractDescriptor;
 
-static inline bool aether_is_instance(const AetherClassDescriptor* desc, const AetherClassDescriptor* target) {
+typedef struct AetherContractImpl {
+    const AetherContractDescriptor* contract;
+    void** vtable;
+} AetherContractImpl;
+
+typedef struct AetherTypeDescriptor {
+    const char* name;
+    const AetherContractImpl* impls;
+    int impl_count;
+} AetherTypeDescriptor;
+
+static inline bool aether_implements(const AetherTypeDescriptor* desc, const AetherContractDescriptor* target) {
     if (!desc || !target) return false;
-    const AetherClassDescriptor* curr = desc;
-    while (curr) {
-        if (curr == target) return true;
-        curr = curr->super;
+    for (int i = 0; i < desc->impl_count; i++) {
+        if (desc->impls[i].contract == target) return true;
     }
     return false;
+}
+
+static inline void** aether_find_vtable(const AetherTypeDescriptor* desc, const AetherContractDescriptor* target) {
+    if (!desc || !target) return 0;
+    for (int i = 0; i < desc->impl_count; i++) {
+        if (desc->impls[i].contract == target) return desc->impls[i].vtable;
+    }
+    return 0;
 }
 
 #include <setjmp.h>
@@ -60,7 +76,7 @@ static inline void aether_throw(void* exception) {
     if (!aether_exception_stack) {
         const char* name = "UnknownException";
         if (exception) {
-            const AetherClassDescriptor* desc = *(const AetherClassDescriptor**)exception;
+            const AetherTypeDescriptor* desc = *(const AetherTypeDescriptor**)exception;
             if (desc) name = desc->name;
         }
         fprintf(stderr, "Unhandled exception: %s occurred!\n", name);

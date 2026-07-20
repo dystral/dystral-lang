@@ -175,6 +175,31 @@ Se o `when` retornar um valor não-Void, o compilador exige a presença de um ra
 Além disso, atualizar o `CTranspiler` para verificar se um arquivo físico (incluindo o core da stdlib) já foi transpiled através de um mapa de controle `emitted_modules`, garantindo deduplicação total de símbolos em C.
 **Razão:** Permite dependências circulares de tipos completas no nível de linguagem de forma transparente, garante clareza de passes no compilador, elimina redundâncias no backend CTranspiler e fornece a base de dados ideal (ASTs pré-resolvidas de escopo) para a futura geração nativa de LLVM IR.
 
+## ADR 26: Imports Não-Desestruturados Não Re-Exportam Símbolos Transitivos
+**Data:** Pós-Fase 41 (Julho 2026)
+**Contexto:** Imports não-desestruturados (`import {} from "mod"`, incluindo os imports implícitos de `std.core`/`std.env`/`std.collections`/`std.time`) copiavam **todo** o escopo global do módulo importado — incluindo símbolos que esse módulo tinha, por sua vez, importado de terceiros. Como `std.env` importa `{ File }` de `std.fs`, todo arquivo de usuário recebia `File → fs_File` no escopo global. Qualquer tipo local chamado `File` (ou `List`, `Map`, `Time`...) colidia com o símbolo vazado e falhava com `SymbolAlreadyDefined` (ex: `samples/companion_sample.ae`).
+**Decisão:** Cada `TypeChecker` passa a registrar em `local_symbols` apenas os símbolos **declarados no próprio módulo** (types, contracts, skills, objects, funções top-level, libs). No import não-desestruturado, apenas símbolos pertencentes a `local_symbols` do módulo importado são copiados para o consumidor (escopo e aliases). As tabelas `classes_ast`/`contracts_ast`/`skills_ast`/`objects_ast` continuam copiadas integralmente, pois são indexadas por nome mangled (sem risco de colisão) e necessárias ao transpiler. Imports desestruturados (`import { X }`) não mudam: continuam explícitos e capazes de importar qualquer símbolo visível.
+**Razão:** Elimina o vazamento transitivo de símbolos pela cadeia de imports, restaurando o shadowing natural: o módulo local sempre pode declarar tipos com nomes que coincidem com dependências de dependências (ex: `type File` local convivendo com `fs.File`). Módulos continuam recebendo exatamente a API pública dos módulos que importam — nem mais, nem menos.
+
+## ADR 25: Sistema de Tipos por Composição — Types, Contracts & Skills (Substitui Herança)
+**Data:** Fase 41
+**Contexto:** A experiência com herança de implementação (ADR 15, Fase 30) revelou os problemas clássicos do modelo: acoplamento frágil entre classes base e derivadas, hierarquias de exceção artificiais, e structs com ponteiros de função remapeados em cadeias de construtores. A linguagem precisava de um modelo de reúso de comportamento e polimorfismo que mantivesse cada abstração com responsabilidade única.
+**Decisão:** Substituir completamente o modelo OO por herança por um sistema de composição baseado em cinco declarações:
+1. **`type`** — única declaração que possui estado e identidade. Pode implementar contracts (`:`) e compor skills (`+`).
+2. **`object`** — singleton (mantém a semântica do ADR 21).
+3. **`contract`** — define apenas API comportamental: métodos sem corpo, sem estado, sem construtores, não instanciável.
+4. **`skill`** — comportamento reutilizável com implementação: sem estado, sem construtores, não instanciável. Pode *requerer* contracts via `:`, mas **não os implementa** — os métodos requeridos são resolvidos contra o `type` consumidor (ex: `skill Shadow : Drawable` pode chamar `draw()`).
+5. **`enum`** — mantida como está; seu alinhamento formal com o novo modelo fica para uma fase futura.
+
+Regras centrais:
+- **Hard break:** as palavras-chave `class`, `open`, `abstract` e a sintaxe de herança (`class Sub : Super()`) são removidas da linguagem. Não há alias nem modo de compatibilidade.
+- **Validação de composição:** um `type` só pode compor uma skill se implementar *todos* os contracts requeridos por ela. Erro de compilação: `Skill 'Shadow' requires contract 'Drawable'. Type 'Button' does not implement it.`
+- **Conflitos de skills:** se duas skills compostas declaram o mesmo membro, o compilador reporta ambiguidade até que o `type` resolva explicitamente com `implement` e chamada qualificada (`MouseInput.click()`).
+- **Palavra-chave `implement`:** substitui `override` no novo modelo — sem herança não há "sobrescrita", apenas implementação de contracts e resolução de conflitos. `override` é removida junto com `class`.
+- **Exceções sem hierarquia:** qualquer `type` que implemente o contract `Throwable` pode ser lançado/capturado. A classe base `Exception` deixa de existir; as checagens de `throw`/`catch` passam a verificar conformidade com o contract.
+- **Representação em runtime:** valores de tipo contract (ex: `d: Drawable`, `e: Throwable`) são representados como *fat pointers* (ponteiro de dados + ponteiro de vtable), permitindo dispatch dinâmico e coleções heterogêneas (`List<Drawable>`). Chamadas com tipo estático concreto usam dispatch estático direto.
+**Razão:** A composição via skills elimina o acoplamento de hierarquias sem abrir mão do reúso de código; os contracts preservam polimorfismo dinâmico com custo explícito e localizado (apenas valores de tipo contract pagam o fat pointer). O modelo garante por construção que todo método invocado por uma skill existe no tipo consumidor, tornando inválidos estados que em linguagens com traits/interfaces só falham em tempo de linkagem ou runtime. A remoção total da herança simplifica o TypeChecker (sem resolução de cadeias de superclasses) e o backend (sem embutimento de structs e remapeamento de ponteiros de função do ADR 15). **Este ADR substitui o ADR 15 e torna a Phase 33 (Interfaces & Abstract Classes) obsoleta — interfaces e classes abstratas nunca existirão; `contract` e `skill` ocupam esses papéis.**
+
 ## ADR 24: Suporte a Escape de Aspas e Caracteres Especiais em Strings
 **Data:** Fase de Estabilização (Julho 2026)
 **Contexto:** O Aether não suportava escape de aspas em literais de String, o que impedia construções básicas como `"Ele disse \"Olá\""`. Qualquer aspa dupla `"` encontrada dentro de uma string fechava o literal prematuramente no Lexer.

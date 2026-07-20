@@ -42,12 +42,12 @@ lib Posix {
 }
 
 @Primitive("pointer")
-class OpaquePointer {}
+type OpaquePointer {}
 
 @Primitive("pointer")
-class Pointer<T> {}
+type Pointer<T> {}
 
-class String(val ptr: OpaquePointer, val length: Int) {
+type String(val ptr: OpaquePointer, val length: Int) {
     operator fun equals(other: String): Bool {
         return NativeString.strcmp(this.ptr, other.ptr) == 0
     }
@@ -135,8 +135,8 @@ class String(val ptr: OpaquePointer, val length: Int) {
 }
 
 @Primitive("int")
-class Int {
-    override fun toString(): String {
+type Int {
+    fun toString(): String {
         val buf = Standard.gcMalloc(32)
         Standard.sprintf(buf, "%d".ptr, this)
         return String(buf, NativeString.strlen(buf))
@@ -148,8 +148,8 @@ class Int {
 }
 
 @Primitive("bool")
-class Bool {
-    override fun toString(): String {
+type Bool {
+    fun toString(): String {
         return if (this) "true" else "false"
     }
 }
@@ -190,9 +190,15 @@ fun print(value: Bool?): Void {
     }
 }
 
-open class Exception(val message: String)
+contract Throwable {
+    fun message(): String
+}
 
-class AssertionException(message: String) : Exception(message)
+type AssertionException(val text: String) : Throwable {
+    implement fun message(): String {
+        return this.text
+    }
+}
 
 fun assert(condition: Bool): Void {
     if (condition == false) {
@@ -202,3 +208,4 @@ fun assert(condition: Bool): Void {
 
 fun sleep(seconds: Int) = Posix.sleep(seconds)
 fun sleepMs(ms: Int) = Posix.usleep(ms * 1000)
+fun exit(code: Int) = Standard.exit(code)

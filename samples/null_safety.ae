@@ -1,4 +1,4 @@
-class User(val name: String, var email: String?) {
+type User(val name: String, var email: String?) {
     fun greet() {
         // ...
     }

@@ -1,6 +1,6 @@
 // Test suite for Companion Objects & Boundless Namespaces
 
-class Config(val name: String) {
+type Config(val name: String) {
     fun getFormatted(): String {
         return "Config:" + this.name
     }
@@ -23,21 +23,21 @@ object Logger {
     }
 }
 
-// Test vice-versa companion object-class (Object first, anonymous Class second on same line)
+// Test vice-versa companion object-type (Object first, anonymous Class second on same line)
 object Service {
     val defaultPort = 8080
     
     fun create(host: String): Service {
         return Service(host, Service.defaultPort)
     }
-} class (val host: String, val port: Int) {
+} type (val host: String, val port: Int) {
     fun getUrl(): String {
         return "http://" + this.host + ":" + this.port.toString()
     }
 }
 
 
-test "companion: static variables and methods access on class namespace" {
+test "companion: static variables and methods access on type namespace" {
     assert(Config.defaultPrefix == "SYS_")
     assert(Config.loadCount == 0)
     
@@ -54,7 +54,7 @@ test "companion: named object acting as singleton module" {
     assert(Logger.logs == "Starting;Running;")
 }
 
-test "companion: vice-versa object-class definition (object first, anonymous class second)" {
+test "companion: vice-versa object-type definition (object first, anonymous type second)" {
     assert(Service.defaultPort == 8080)
     val srv = Service.create("localhost")
     assert(srv.host == "localhost")

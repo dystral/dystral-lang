@@ -20,7 +20,7 @@ fun daysInMonth(m: Int, isLeap: Bool): Int {
     else 31
 }
 
-class Duration(val seconds: Int) {
+type Duration(val seconds: Int) {
     fun minutes(): Int {
         return this.seconds / 60
     }
@@ -33,7 +33,7 @@ fun hours(h: Int): Duration = Duration(h * 3600)
 fun minutes(m: Int): Duration = Duration(m * 60)
 fun seconds(s: Int): Duration = Duration(s)
 
-class Time(val sec: Int) {
+type Time(val sec: Int) {
     fun second(): Int = mod(this.sec, 60)
     fun minute(): Int = mod(this.sec / 60, 60)
     fun hour(): Int = mod(this.sec / 3600, 24)

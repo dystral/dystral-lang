@@ -16,7 +16,7 @@ lib NativeNet {
     fun socketClose(fd: Int): Void
 }
 
-class Socket(val fd: Int) {
+type Socket(val fd: Int) {
     fun read(maxLen: Int): String {
         val buf = Standard.gcMalloc(maxLen + 1)
         val n = NativeNet.socketRead(this.fd, buf, maxLen)
@@ -36,7 +36,7 @@ class Socket(val fd: Int) {
     }
 }
 
-class TCPServer(var fd: Int = -1) {
+type TCPServer(var fd: Int = -1) {
     fun bind(port: Int): Bool {
         this.fd = NativeNet.tcpBind(port)
         return this.fd >= 0

@@ -1,9 +1,9 @@
 // Demonstration of the 'when' expression in Aether
 import { print } from "std.core"
 
-open class Vehicle
-class Car(val model: String) : Vehicle()
-class Bike(val cc: Int) : Vehicle()
+contract Vehicle
+type Car(val model: String) : Vehicle
+type Bike(val cc: Int) : Vehicle
 
 fun describeVehicle(v: Vehicle) {
     when (v) {

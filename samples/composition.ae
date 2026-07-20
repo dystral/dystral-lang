@@ -1,0 +1,89 @@
+// Composition Type System Demo (Phase 41 / ADR 25)
+// Demonstrates: contract, skill, type composition, conflict resolution,
+// singleton object, and hierarchy-free exceptions.
+
+contract Drawable {
+    fun draw()
+}
+
+contract Serializable {
+    fun serialize(): String
+}
+
+// A skill requires contracts but does NOT implement them.
+// draw() is provided by the consuming type.
+skill Shadow : Drawable {
+    fun drawShadow() {
+        print("[shadow drawn]")
+    }
+
+    fun render() {
+        draw()
+        drawShadow()
+    }
+}
+
+skill Clickable {
+    fun click() {
+        print("clicked via mouse")
+    }
+}
+
+skill Hoverable {
+    fun hover() {
+        print("hovered")
+    }
+}
+
+// Singleton object
+object Logger {
+    fun info(message: String) {
+        print("[INFO] " + message)
+    }
+}
+
+// A type owns state, implements contracts (:) and composes skills (+).
+type Button(val label: String): Drawable, Serializable + Shadow + Clickable + Hoverable {
+    implement fun draw() {
+        print("drawing button: " + label)
+    }
+
+    implement fun serialize(): String {
+        return "Button(" + label + ")"
+    }
+}
+
+// Hierarchy-free exceptions: any type implementing Throwable can be thrown.
+type IOException(val text: String, val path: String) : Throwable {
+    implement fun message(): String {
+        return text
+    }
+}
+
+fun readConfig(path: String): String {
+    throw IOException("cannot read file", path)
+}
+
+fun main() {
+    val button = Button("OK")
+
+    // Skill methods are available directly on the composing type
+    button.render()   // from Shadow
+    button.click()    // from Clickable
+    button.hover()    // from Hoverable
+
+    // Contract methods
+    Logger.info(button.serialize())
+
+    // Polymorphism through contracts
+    val d: Drawable = button
+    d.draw()
+
+    // Throwable contract
+    try {
+        readConfig("/etc/app.conf")
+    }
+    catch (e: Throwable) {
+        print(e.message())
+    }
+}

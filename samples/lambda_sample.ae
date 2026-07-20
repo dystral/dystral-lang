@@ -2,7 +2,7 @@ fun makeAdder(x: Int): (Int) -> Int {
     return { y: Int -> x + y }
 }
 
-class HTMLBuilder(var content: String = "") {
+type HTMLBuilder(var content: String = "") {
     fun body(init: () -> String) {
         this.content = this.content + "<body>" + init() + "</body>"
     }

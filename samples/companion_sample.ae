@@ -1,7 +1,7 @@
 // Companion Objects & Namespaces Sample
-// Demonstrates grouping static functions and variables under class namespaces.
+// Demonstrates grouping static functions and variables under type namespaces.
 
-class File(val path: String) {
+type File(val path: String) {
     fun getInfo(): String {
         return "File path: " + this.path
     }
@@ -16,9 +16,9 @@ class File(val path: String) {
 fun main() {
     // 1. Access static variable directly on File namespace
     val path = File.defaultPath
-    System.print("Default Path: " + path)
+    print("Default Path: " + path)
 
     // 2. Access static factory method on File namespace
     val file = File.createDefault()
-    System.print(file.getInfo())
+    print(file.getInfo())
 }

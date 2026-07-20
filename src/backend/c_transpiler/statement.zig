@@ -23,7 +23,7 @@ pub fn emitStatement(self: *CTranspiler, node: *ASTNode) anyerror!void {
         .var_decl => |v| {
             var type_str: []const u8 = "int";
             if (node.resolved_type) |rt| {
-                type_str = try core.getCTypeStr(self.allocator, rt);
+                type_str = try self.cType(rt);
             }
             if (v.is_boxed) {
                 const box_type = try getBoxTypeName(self.allocator, type_str);
@@ -161,11 +161,21 @@ pub fn emitStatement(self: *CTranspiler, node: *ASTNode) anyerror!void {
                         for (c.types, 0..) |tr, tr_i| {
                             if (tr_i > 0) try self.writer.appendSlice(" || ");
                             const actual_type_name = if (self.alias_map) |am| (am.get(tr.name) orelse tr.name) else tr.name;
-                            try self.writer.writer().print("aether_is_instance(*(const AetherClassDescriptor**)(__exc), &{s}_descriptor)", .{actual_type_name});
+                            if (self.isContract(actual_type_name)) {
+                                try self.writer.writer().print("aether_implements(*(const AetherTypeDescriptor**)(__exc), &{s}_contract)", .{actual_type_name});
+                            } else {
+                                try self.writer.writer().print("*(const AetherTypeDescriptor**)(__exc) == &{s}_descriptor", .{actual_type_name});
+                            }
                         }
                         try self.writer.appendSlice(")) {\n");
                         try self.writer.writer().print("                aether_active_exception = 0;\n", .{});
-                        try self.writer.writer().print("                core_Exception* {s} = (core_Exception*)__exc;\n", .{var_name});
+                        var var_c_type: []const u8 = "void*";
+                        if (c.types.len == 1) {
+                            if (c.types[0].resolved_type) |rt| {
+                                var_c_type = try self.cType(rt);
+                            }
+                        }
+                        try self.writer.writer().print("                {s} {s} = ({s})__exc;\n", .{ var_c_type, var_name, var_c_type });
                         
                         if (c.body.data == .block) {
                             for (c.body.data.block.statements) |stmt| {

@@ -8,13 +8,13 @@ const Parser = @import("core.zig").Parser;
 pub fn declaration(self: *Parser) anyerror!*ASTNode {
     const annotations = try self.parseAnnotations();
     var modifiers = std.ArrayList(TokenType).init(self.allocator);
-    
-    while (self.match(.kw_override) or self.match(.kw_operator) or self.match(.kw_open)) {
+
+    while (self.match(.kw_implement) or self.match(.kw_operator)) {
         try modifiers.append(self.previous.token_type);
     }
-    
+
     if (self.match(.kw_lib)) return try self.libDeclaration(annotations);
-    
+
     if (self.match(.kw_val)) {
         if (modifiers.items.len > 0) { self.errorAtCurrent("Modifiers not allowed on val"); return error.ParseError; }
         return try self.varDeclaration(false);
@@ -26,17 +26,17 @@ pub fn declaration(self: *Parser) anyerror!*ASTNode {
     if (self.match(.kw_fun)) {
         return try self.funDeclaration(annotations, try modifiers.toOwnedSlice(), false);
     }
-    if (self.match(.kw_class)) {
-        var is_open = false;
-        for (modifiers.items) |mod| {
-            if (mod == .kw_open) {
-                is_open = true;
-            } else {
-                self.errorAtCurrent("Modifier not allowed on class");
-                return error.ParseError;
-            }
-        }
-        return try self.classDeclaration(annotations, is_open);
+    if (self.match(.kw_type)) {
+        if (modifiers.items.len > 0) { self.errorAtCurrent("Modifiers not allowed on type"); return error.ParseError; }
+        return try self.typeDeclaration(annotations);
+    }
+    if (self.match(.kw_contract)) {
+        if (modifiers.items.len > 0) { self.errorAtCurrent("Modifiers not allowed on contract"); return error.ParseError; }
+        return try self.contractDeclaration(annotations);
+    }
+    if (self.match(.kw_skill)) {
+        if (modifiers.items.len > 0) { self.errorAtCurrent("Modifiers not allowed on skill"); return error.ParseError; }
+        return try self.skillDeclaration(annotations);
     }
     if (self.match(.kw_object)) {
         if (modifiers.items.len > 0) { self.errorAtCurrent("Modifiers not allowed on object"); return error.ParseError; }
@@ -256,10 +256,10 @@ pub fn funDeclaration(self: *Parser, annotations: []const ast.Annotation, modifi
     }}, line, col);
 }
 
-pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation, is_open: bool) anyerror!*ASTNode {
+pub fn typeDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*ASTNode {
     const line = self.previous.line;
     const col = self.previous.column;
-    
+
     if (self.check(.kw_default)) {
         self.reportLexerError(self.current.line, self.current.column, "Syntax Error: 'default' is a reserved keyword in Aether.", .{});
         return error.ParseError;
@@ -268,7 +268,7 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation, is_open: b
     if (self.match(.identifier)) {
         name = self.previous.lexeme;
     }
-    
+
     var generic_params = std.ArrayList([]const u8).init(self.allocator);
     if (self.match(.less)) {
         if (!self.check(.greater)) {
@@ -280,7 +280,7 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation, is_open: b
         }
         try self.consume(.greater, "Expected '>' after generic parameters.");
     }
-    
+
     var props = std.ArrayList(ast.ClassProp).init(self.allocator);
     if (self.match(.l_paren)) {
         if (!self.check(.r_paren)) {
@@ -294,15 +294,15 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation, is_open: b
                 } else {
                     is_property = false;
                 }
-                
+
                 try self.consume(.identifier, "Expected parameter or property name.");
                 const prop_name = self.previous.lexeme;
-                
+
                 const parsed_type = try self.parseTypeAnnotation() orelse {
                     self.errorAtCurrent("Expected parameter or property type.");
                     return error.ParseError;
                 };
-                
+
                 var initializer: ?*ASTNode = null;
                 if (self.match(.eq)) {
                     initializer = try self.expression();
@@ -315,57 +315,142 @@ pub fn classDeclaration(self: *Parser, annotations: []ast.Annotation, is_open: b
                     .is_property = is_property,
                     .initializer = initializer,
                 });
-                
+
                 if (!self.match(.comma)) break;
             }
         }
-        try self.consume(.r_paren, "Expected ')' after class primary constructor.");
+        try self.consume(.r_paren, "Expected ')' after type primary constructor.");
     }
-    
-    var superclass_name: ?[]const u8 = null;
-    var superclass_args = std.ArrayList(*ASTNode).init(self.allocator);
-    if (self.match(.colon)) {
-        try self.consume(.identifier, "Expected superclass name after ':'.");
-        superclass_name = self.previous.lexeme;
-        
-        try self.consume(.l_paren, "Expected '(' for superclass constructor arguments.");
-        if (!self.check(.r_paren)) {
+
+    var contracts = std.ArrayList([]const u8).init(self.allocator);
+    var skills = std.ArrayList([]const u8).init(self.allocator);
+    while (true) {
+        if (self.match(.colon)) {
             while (true) {
-                try superclass_args.append(try self.expression());
+                try self.consume(.identifier, "Expected contract name after ':'.");
+                try contracts.append(self.previous.lexeme);
                 if (!self.match(.comma)) break;
             }
+        } else if (self.match(.plus)) {
+            while (true) {
+                try self.consume(.identifier, "Expected skill name after '+'.");
+                try skills.append(self.previous.lexeme);
+                if (!self.match(.comma)) break;
+            }
+        } else {
+            break;
         }
-        try self.consume(.r_paren, "Expected ')' after superclass arguments.");
     }
-    
+
     var methods = std.ArrayList(*ASTNode).init(self.allocator);
     if (self.match(.l_brace)) {
         while (!self.check(.r_brace) and !self.check(.eof)) {
             var modifiers = std.ArrayList(TokenType).init(self.allocator);
-            while (self.match(.kw_override) or self.match(.kw_operator) or self.match(.kw_open)) {
+            while (self.match(.kw_implement) or self.match(.kw_operator)) {
                 try modifiers.append(self.previous.token_type);
             }
-            
+
             if (self.match(.kw_fun)) {
                 try methods.append(try self.funDeclaration(&[_]ast.Annotation{}, try modifiers.toOwnedSlice(), false));
             } else {
-                self.errorAtCurrent("Only methods are currently supported inside classes.");
+                self.errorAtCurrent("Only methods are currently supported inside types.");
                 return error.ParseError;
             }
         }
-        try self.consume(.r_brace, "Expected '}' after class body.");
+        try self.consume(.r_brace, "Expected '}' after type body.");
     }
-    
-    return try self.createNodeAt(.{ .class_decl = .{
+
+    return try self.createNodeAt(.{ .type_decl = .{
         .annotations = annotations,
         .name = name,
         .generic_params = try generic_params.toOwnedSlice(),
         .primary_constructor = try props.toOwnedSlice(),
         .methods = try methods.toOwnedSlice(),
         .resolved_c_name = null,
-        .is_open = is_open,
-        .superclass_name = superclass_name,
-        .superclass_args = try superclass_args.toOwnedSlice(),
+        .contracts = try contracts.toOwnedSlice(),
+        .skills = try skills.toOwnedSlice(),
+    } }, line, col);
+}
+
+pub fn contractDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*ASTNode {
+    const line = self.previous.line;
+    const col = self.previous.column;
+
+    try self.consume(.identifier, "Expected contract name.");
+    const name = self.previous.lexeme;
+
+    var methods = std.ArrayList(*ASTNode).init(self.allocator);
+    // Braces are optional for empty (marker) contracts: `contract Animal`
+    if (self.match(.l_brace)) {
+        while (!self.check(.r_brace) and !self.check(.eof)) {
+            var modifiers = std.ArrayList(TokenType).init(self.allocator);
+            while (self.match(.kw_implement) or self.match(.kw_operator)) {
+                try modifiers.append(self.previous.token_type);
+            }
+
+            if (self.match(.kw_fun)) {
+                const func = try self.funDeclaration(&[_]ast.Annotation{}, try modifiers.toOwnedSlice(), true);
+                const f = func.data.fun_decl;
+                if (f.is_expr_body or f.body.data.block.statements.len > 0) {
+                    self.errorAtCurrent("Contract methods cannot have a body.");
+                    return error.ParseError;
+                }
+                try methods.append(func);
+            } else {
+                self.errorAtCurrent("Contracts may only declare methods (no state, no constructors).");
+                return error.ParseError;
+            }
+        }
+        try self.consume(.r_brace, "Expected '}' after contract body.");
+    }
+
+    return try self.createNodeAt(.{ .contract_decl = .{
+        .annotations = annotations,
+        .name = name,
+        .methods = try methods.toOwnedSlice(),
+        .resolved_c_name = null,
+    } }, line, col);
+}
+
+pub fn skillDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!*ASTNode {
+    const line = self.previous.line;
+    const col = self.previous.column;
+
+    try self.consume(.identifier, "Expected skill name.");
+    const name = self.previous.lexeme;
+
+    var required_contracts = std.ArrayList([]const u8).init(self.allocator);
+    if (self.match(.colon)) {
+        while (true) {
+            try self.consume(.identifier, "Expected contract name after ':'.");
+            try required_contracts.append(self.previous.lexeme);
+            if (!self.match(.comma)) break;
+        }
+    }
+
+    try self.consume(.l_brace, "Expected '{' before skill body.");
+    var methods = std.ArrayList(*ASTNode).init(self.allocator);
+    while (!self.check(.r_brace) and !self.check(.eof)) {
+        var modifiers = std.ArrayList(TokenType).init(self.allocator);
+        while (self.match(.kw_implement) or self.match(.kw_operator)) {
+            try modifiers.append(self.previous.token_type);
+        }
+
+        if (self.match(.kw_fun)) {
+            try methods.append(try self.funDeclaration(&[_]ast.Annotation{}, try modifiers.toOwnedSlice(), false));
+        } else {
+            self.errorAtCurrent("Skills may only declare methods (no state, no constructors).");
+            return error.ParseError;
+        }
+    }
+    try self.consume(.r_brace, "Expected '}' after skill body.");
+
+    return try self.createNodeAt(.{ .skill_decl = .{
+        .annotations = annotations,
+        .name = name,
+        .required_contracts = try required_contracts.toOwnedSlice(),
+        .methods = try methods.toOwnedSlice(),
+        .resolved_c_name = null,
     } }, line, col);
 }
 
@@ -383,10 +468,10 @@ pub fn objectDeclaration(self: *Parser, annotations: []ast.Annotation) anyerror!
     while (!self.check(.r_brace) and !self.check(.eof)) {
         const member_annotations = try self.parseAnnotations();
         var modifiers = std.ArrayList(TokenType).init(self.allocator);
-        while (self.match(.kw_override) or self.match(.kw_operator) or self.match(.kw_open)) {
+        while (self.match(.kw_implement) or self.match(.kw_operator)) {
             try modifiers.append(self.previous.token_type);
         }
-        
+
         if (self.match(.kw_fun)) {
             const func = try self.funDeclaration(member_annotations, try modifiers.toOwnedSlice(), false);
             try members.append(func);

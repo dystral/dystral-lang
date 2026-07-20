@@ -22,7 +22,8 @@ This document tracks the historical progress, current status, and future roadmap
 - [x] Split source into `core`, `frontend`, and `backend` modules.
 - [x] Add Zigdoc to all structural components.
 
-### Phase 8: Classes and OOP Pragmatism (COMPLETED)
+### Phase 8: Classes and OOP Pragmatism (COMPLETED — SUPERSEDED BY PHASE 41)
+> **Nota:** O modelo `class` construído aqui (e estendido na Phase 30 com herança) será substituído pelo sistema de composição `type`/`contract`/`skill` da Phase 41 (ADR 25). `class`, `open` e herança serão removidos da linguagem.
 - [x] **Task 8.1:** Update Lexer and AST to support `class`, properties, and primary constructors.
 - [x] **Task 8.2:** Implement property access (`.`) and instantiation parsing.
 - [x] **Task 8.3:** Transpile classes into C `struct` definitions and initialize them safely via implicit `_new` calls.
@@ -177,11 +178,12 @@ Replacing the temporary C code generation (`temp_out.c` ──> `zig cc`) with a
 - [x] **Task 32.3:** Implement smart-casting in the TypeChecker for matching branches (e.g. if matched via `is String`, treat variable as `String` in that branch).
 - [x] **Task 32.4:** Transpile `when` expressions into clean C `switch` statements or chained `if-else` blocks in the C Transpiler.
 
-### Phase 33: Interfaces & Abstract Classes (PENDING)
-- [ ] **Task 33.1:** Add the `interface` and `abstract` keywords to the Lexer and Parser.
-- [ ] **Task 33.2:** Update AST declarations to support abstract methods (methods without a body) and interface inheritance.
-- [ ] **Task 33.3:** Implement semantic validation in the TypeChecker: verify that non-abstract classes implement all inherited interface/abstract methods.
-- [ ] **Task 33.4:** Update the C Transpiler to generate virtual tables (vtables) for interfaces, enabling runtime dynamic dispatch.
+### Phase 33: Interfaces & Abstract Classes (OBSOLETE — SUPERSEDED BY PHASE 41)
+> **Nota:** Esta fase nunca será implementada. O modelo de herança/abstração foi substituído pelo sistema de composição (`contract` + `skill`) definido na Phase 41 e no ADR 25.
+- [ ] ~~**Task 33.1:** Add the `interface` and `abstract` keywords to the Lexer and Parser.~~
+- [ ] ~~**Task 33.2:** Update AST declarations to support abstract methods (methods without a body) and interface inheritance.~~
+- [ ] ~~**Task 33.3:** Implement semantic validation in the TypeChecker: verify that non-abstract classes implement all inherited interface/abstract methods.~~
+- [ ] ~~**Task 33.4:** Update the C Transpiler to generate virtual tables (vtables) for interfaces, enabling runtime dynamic dispatch.~~
 
 ### Phase 34: Extension Functions (PENDING)
 - [ ] **Task 34.1:** Add support in the Parser for declaring extension functions (e.g., `fun String.lastChar(): String`).
@@ -226,12 +228,50 @@ Replacing the temporary C code generation (`temp_out.c` ──> `zig cc`) with a
 
 ### Phase 40: Multi-Pass Compiler Architecture Refactoring (Crystal/Kotlin Style) (PLANNED)
 Refactor the Aether compiler from file-by-file recursive typechecking to a global, multi-pass type resolution architecture inspired by Crystal and Kotlin to natively support project-wide namespaces and circular dependencies.
-
 - [ ] **Task 40.1:** Refactor file resolution to support a global Parsing Pass. Scan all files in the dependency graph starting from the entry point (`main.ae`) and load their parsed ASTs into a shared registry, rather than recursively compiling imports on-the-fly.
 - [ ] **Task 40.2:** Implement Type and Signature Declaration Pass. Walk all parsed ASTs and populate a global symbol table with all class, object, and function types and signatures, leaving bodies/initializers un-typechecked.
 - [ ] **Task 40.3:** Implement Semantic Body Validation Pass. Typecheck function bodies, method definitions, and initializers using the populated global symbol table. Resolves circular imports and cross-file type dependencies natively.
 - [ ] **Task 40.4:** Deduplicate Transpiler Output. Update `CTranspiler` to leverage the global registry, ensuring each standard library module is transpiled exactly once without duplicate C definitions.
 - [ ] **Verify:** Run a test verifying circular dependencies between user classes (e.g. `class User` referencing `class Group` and vice-versa) compiles and executes successfully.
+
+### Phase 41: Composition-Based Type System — `type`, `contract` & `skill` (COMPLETED)
+Replace implementation inheritance entirely with the composition model defined in ADR 25: `type` owns state, `contract` defines behavioral APIs, `skill` provides reusable implementation, `object` remains the singleton, `enum` unchanged. **Hard break:** `class`, `open`, `abstract` and inheritance syntax are removed.
+- [x] **Task 41.1:** Add `type`, `contract`, `skill`, `implement` tokens and AST nodes with header clauses `:` (contract implementation/requirement) and `+` (skill composition). Remove `class`, `open`, `abstract`, `override` from the Lexer/Parser.
+- [x] **Task 41.2:** Parse declaration headers: `type Name(params) : C1, C2 + S1, S2 { ... }`; `contract` bodies restricted to bodyless method signatures; `skill` headers with required contracts.
+- [x] **Task 41.3:** TypeChecker contract rules: contracts hold no state/constructors/bodies and cannot be instantiated; implementing types must provide every contract method with the `implement` keyword (`override` is removed with `class`).
+- [x] **Task 41.4:** TypeChecker skill rules: skills hold no state/constructors and cannot be instantiated; required contracts (`:`) are *not* implemented — method calls inside a skill resolve against its required contracts.
+- [x] **Task 41.5:** Composition validation: a `type` composing `+ Skill` must implement every contract the skill requires, with the exact error `Skill 'Shadow' requires contract 'Drawable'. Type 'Button' does not implement it.`
+- [x] **Task 41.6:** Skill conflict resolution: duplicate members across composed skills produce an ambiguity error until the type disambiguates with `implement` and a qualified call (`MouseInput.click()`).
+- [x] **Task 41.7:** Replace the `Exception` base class with the `Throwable` contract: `throw`/`catch` accept any type implementing `Throwable`; update `when`/`is` checks to use contract conformance instead of hierarchy.
+- [x] **Task 41.8:** Enforce singleton `object` semantics under the new model (direct member access, instantiation forbidden).
+- [x] **Task 41.9:** C Transpiler lowering: `type` → struct + methods, `object` → global instance, skill methods → functions on the consuming type, contract-typed values → fat pointers (data + vtable) with dynamic dispatch. Remove struct-embedding inheritance emission.
+- [x] **Task 41.10:** Migrate `src/std/*.ae`, samples and tests off `class`/inheritance; delete all inheritance machinery from the TypeChecker.
+- [x] **Verify:** Every example in the composition spec (valid and invalid) behaves as specified; full test suite passes with no inheritance code remaining.
+
+> **Known trade-offs (accepted):** skill methods are cloned per consuming type (C++ template-style code duplication in exchange for zero-cost static dispatch); contract-typed values are erased to `void*` in C (the TypeChecker is the only type-safety layer for dynamic dispatch). Follow-ups live in Phases 42–44.
+
+### Phase 42: Null Safety on Contract Receivers (PENDING)
+Contract-typed receivers are erased to `void*` and dispatch dynamically through `aether_find_vtable`. The safe-call path (`?.`) currently ignores the null check for contract method calls, and nullable contract types (`Drawable?`) are untested — a null receiver segfaults instead of short-circuiting.
+- [ ] **Task 42.1:** Emit the null short-circuit (`(obj) == 0 ? 0 : dispatch`) for `?.` calls on contract-typed receivers in the C Transpiler (`expression.zig` contract dispatch branch).
+- [ ] **Task 42.2:** Validate nullable contract types end-to-end: `val d: Drawable? = null`, `d?.draw()`, `d ?: fallback`, and `!!` assertions on contracts.
+- [ ] **Task 42.3:** TypeChecker: reject non-safe member access on nullable contract receivers with the standard null-safety error.
+- [ ] **Verify:** Tests covering `null` contract references using `?.`, `?:` and `!!` pass without crashes.
+
+### Phase 43: Heterogeneous Contract Collections (`List<Drawable>`) (PENDING / LATER)
+ADR 25 envisioned heterogeneous collections of contracts (e.g. `List<Drawable>`), but the monomorphizer generates concrete C containers and contract type erasure (`void*`) is not propagated into generic instantiations (element arrays would degrade to invalid `void` element types).
+- [ ] **Task 43.1:** Propagate contract erasure into `getCTypeStr` consumers inside monomorphized collections: a `List<Drawable>` must generate its storage as `void*` elements (named e.g. `AetherArray_voidPtr`) instead of an invalid `void` element type.
+- [ ] **Task 43.2:** TypeChecker: allow contract types as generic arguments (`List<Drawable>`, `Map<String, Throwable>`) and ensure method returns/params inside the monomorphized collection keep the contract static type (so returned elements dispatch dynamically).
+- [ ] **Task 43.3:** Transpiler: contract dispatch when the receiver expression is a collection element access (e.g. `shapes[0].draw()`).
+- [ ] **Verify:** Test that stores `Circle` and `Square` in one `List<Shape>` and dynamically dispatches a method per element.
+
+### Phase 44: Composition Test Coverage Hardening (PENDING)
+The composition model (Phase 41) currently has only 5 dedicated tests (`composition_test.ae`). Several interaction paths are unverified.
+- [ ] **Task 44.1:** Tests for contracts as function parameters and return types (`fun renderAll(items: List<Drawable>)` without Phase 43, or `fun max(a, b): Drawable` style single-value flows).
+- [ ] **Task 44.2:** Cross-module composition: contracts and skills declared in one module, composed in another (including `std`-level contracts beyond `Throwable`).
+- [ ] **Task 44.3:** Skills requiring multiple contracts (`skill S : A, B`) and types composing multiple skills with multiple requirements.
+- [ ] **Task 44.4:** Negative tests as runnable fixtures: contract with state, contract instantiation, skill instantiation, missing `implement`, unresolved ambiguity, wrong signature/return type.
+- [ ] **Task 44.5:** Improve ambiguity error to list all conflicting skills when 3+ collide.
+- [ ] **Verify:** New tests pass; negative fixtures fail with the exact expected diagnostics.
 
 ---
 

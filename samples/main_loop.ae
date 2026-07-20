@@ -3,7 +3,7 @@ import { now } from "std.time"
 import { MutableList } from "std.collections"
 import { Body, NBodySystem } from "nbody"
 
-class Person(val name: String, var age: Int)
+type Person(val name: String, var age: Int)
 
 fun runNBodyStress(): Void {
     // Allocate bodies dynamically inside the function

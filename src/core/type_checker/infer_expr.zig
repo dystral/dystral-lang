@@ -228,8 +228,8 @@ pub fn inferAsExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aether
     const base_target = extractBaseType(target_type);
 
     if (base_val.* == .Custom and base_target.* == .Custom) {
-        const is_upcast = self.isSubclassOf(base_val.Custom, base_target.Custom);
-        const is_downcast = self.isSubclassOf(base_target.Custom, base_val.Custom);
+        const is_upcast = self.conformsTo(base_val.Custom, base_target.Custom);
+        const is_downcast = self.conformsTo(base_target.Custom, base_val.Custom);
         if (!is_upcast and !is_downcast) {
             self.reportError(node.line, node.column, "TypeError: Incompatible types for cast: cannot cast {s} to {s}.", .{ base_val.Custom, base_target.Custom });
             return error.TypeError;
@@ -253,10 +253,10 @@ pub fn inferIsExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aether
     const base_target = extractBaseType(target_type);
 
     if (base_val.* == .Custom and base_target.* == .Custom) {
-        const is_upcast = self.isSubclassOf(base_val.Custom, base_target.Custom);
-        const is_downcast = self.isSubclassOf(base_target.Custom, base_val.Custom);
+        const is_upcast = self.conformsTo(base_val.Custom, base_target.Custom);
+        const is_downcast = self.conformsTo(base_target.Custom, base_val.Custom);
         if (!is_upcast and !is_downcast) {
-            self.reportError(node.line, node.column, "TypeError: Incompatible types for type check: {s} is not in the inheritance hierarchy of {s}.", .{ base_val.Custom, base_target.Custom });
+            self.reportError(node.line, node.column, "TypeError: Incompatible types for type check: {s} does not conform to {s}.", .{ base_val.Custom, base_target.Custom });
             return error.TypeError;
         }
     } else {
@@ -339,39 +339,33 @@ pub fn inferLambdaExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
         
         const rec_base = extractBaseType(rec);
         if (rec_base.* == .Custom) {
-            var curr_class: ?[]const u8 = rec_base.Custom;
-            while (curr_class) |c_name| {
-                const actual_name = self.alias_map.get(c_name) orelse c_name;
-                if (self.classes_ast.get(actual_name)) |cn| {
-                    const class_decl = cn.data.class_decl;
-                    for (class_decl.primary_constructor) |prop| {
-                        if (prop.is_property) {
-                            const prop_t = try self.resolveTypeRef(prop.type_ref);
-                            try receiver_scope.?.define(prop.name, prop_t, prop.is_mut, false);
-                        }
+            const actual_name = self.alias_map.get(rec_base.Custom) orelse rec_base.Custom;
+            if (self.classes_ast.get(actual_name)) |cn| {
+                const type_decl = cn.data.type_decl;
+                for (type_decl.primary_constructor) |prop| {
+                    if (prop.is_property) {
+                        const prop_t = try self.resolveTypeRef(prop.type_ref);
+                        try receiver_scope.?.define(prop.name, prop_t, prop.is_mut, false);
                     }
-                    for (class_decl.methods) |method| {
-                        if (method.data == .fun_decl) {
-                            const m_decl = method.data.fun_decl;
-                            var param_types = std.ArrayList(*const AetherType).init(self.allocator);
-                            for (m_decl.params) |p| {
-                                const p_t = if (p.type_ref) |tr| try self.resolveTypeRef(tr) else try self.resolveTypeName("Void", false);
-                                try param_types.append(p_t);
-                            }
-                            const ret_t = if (m_decl.type_ref) |tr| try self.resolveTypeRef(tr) else try self.resolveTypeName("Void", false);
-                             const fn_type = try self.allocator.create(AetherType);
-                             fn_type.* = .{ .Function = .{
-                                 .params = try param_types.toOwnedSlice(),
-                                 .return_type = ret_t,
-                                 .c_name = m_decl.resolved_c_name orelse m_decl.name,
-                                 .receiver = rec,
-                             } };
-                            try receiver_scope.?.define(m_decl.name, fn_type, false, true);
+                }
+                for (type_decl.methods) |method| {
+                    if (method.data == .fun_decl) {
+                        const m_decl = method.data.fun_decl;
+                        var param_types = std.ArrayList(*const AetherType).init(self.allocator);
+                        for (m_decl.params) |p| {
+                            const p_t = if (p.type_ref) |tr| try self.resolveTypeRef(tr) else try self.resolveTypeName("Void", false);
+                            try param_types.append(p_t);
                         }
+                        const ret_t = if (m_decl.type_ref) |tr| try self.resolveTypeRef(tr) else try self.resolveTypeName("Void", false);
+                         const fn_type = try self.allocator.create(AetherType);
+                         fn_type.* = .{ .Function = .{
+                             .params = try param_types.toOwnedSlice(),
+                             .return_type = ret_t,
+                             .c_name = m_decl.resolved_c_name orelse m_decl.name,
+                             .receiver = rec,
+                         } };
+                        try receiver_scope.?.define(m_decl.name, fn_type, false, true);
                     }
-                    curr_class = class_decl.superclass_name;
-                } else {
-                    break;
                 }
             }
         }
@@ -423,19 +417,13 @@ pub fn inferLambdaExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
     if (expected_receiver) |rec| {
         const rec_base = extractBaseType(rec);
         if (rec_base.* == .Custom) {
-            var curr_class: ?[]const u8 = rec_base.Custom;
-            while (curr_class) |c_name| {
-                const actual_name = self.alias_map.get(c_name) orelse c_name;
-                if (self.classes_ast.get(actual_name)) |cn| {
-                    const class_decl = cn.data.class_decl;
-                    for (class_decl.primary_constructor) |prop| {
-                        if (prop.is_property) {
-                            try lambda_class_props.put(prop.name, {});
-                        }
+            const actual_name = self.alias_map.get(rec_base.Custom) orelse rec_base.Custom;
+            if (self.classes_ast.get(actual_name)) |cn| {
+                const type_decl = cn.data.type_decl;
+                for (type_decl.primary_constructor) |prop| {
+                    if (prop.is_property) {
+                        try lambda_class_props.put(prop.name, {});
                     }
-                    curr_class = class_decl.superclass_name;
-                } else {
-                    break;
                 }
             }
         }

@@ -12,31 +12,56 @@ const isNullable = core.isNullable;
 const extractBaseType = core.extractBaseType;
 
 pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
-    const g = node.data.get_expr;
-    
+    var g = &node.data.get_expr;
+
     // Check if it's a lib method call (e.g. C.printf)
     if (g.object.data == .identifier) {
         const full_name = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ g.object.data.identifier.name, g.name });
         if (scope.lookupVariable(full_name)) |found_type| {
             t.* = found_type.*;
             node.resolved_type = found_type;
-            
+
             const obj_t = try self.allocator.create(AetherType);
             obj_t.* = .{ .Custom = g.object.data.identifier.name };
             g.object.resolved_type = obj_t;
-            
+
             return;
         } else if (scope.lookupFunctions(full_name)) |overloads| {
             if (overloads.len > 0) {
                 const found_type = overloads[0];
                 t.* = found_type.*;
                 node.resolved_type = found_type;
-                
+
                 const obj_t = try self.allocator.create(AetherType);
                 obj_t.* = .{ .Custom = g.object.data.identifier.name };
                 g.object.resolved_type = obj_t;
-                
+
                 return;
+            }
+        }
+    }
+
+    // Qualified skill member access (e.g. MouseInput.click()) inside a composing type.
+    // Rewrites to the shadowed method "{Skill}_{member}" on the current type.
+    if (g.object.data == .identifier) {
+        const skill_src = g.object.data.identifier.name;
+        const skill_actual = self.alias_map.get(skill_src) orelse skill_src;
+        if (self.skills_ast.contains(skill_actual)) {
+            if (self.current_type_c_name) |type_c_name| {
+                if (self.skills_ast.get(skill_actual)) |sn| {
+                    const qualified = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ sn.data.skill_decl.name, g.name });
+                    g.name = qualified;
+                    const obj_t = try self.allocator.create(AetherType);
+                    obj_t.* = .{ .Custom = type_c_name };
+                    g.object.resolved_type = obj_t;
+                    const this_t = try self.allocator.create(AetherType);
+                    this_t.* = .{ .Custom = type_c_name };
+                    g.object.data = .{ .identifier = .{ .name = "this", .resolved_c_name = null } };
+                    g.object.resolved_type = this_t;
+                }
+            } else {
+                self.reportError(node.line, node.column, "TypeError: Qualified skill access '{s}.{s}' is only allowed inside a type that composes the skill.", .{ skill_src, g.name });
+                return error.TypeError;
             }
         }
     }
@@ -49,6 +74,9 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         const actual_class_name = self.alias_map.get(class_name) orelse class_name;
         if (self.objects_ast.contains(actual_class_name)) {
             is_static = true;
+            // Pin the resolved object name so the transpiler does not re-resolve
+            // it through the (possibly polluted) global alias map.
+            g.object.data.identifier.resolved_c_name = actual_class_name;
             const obj_node = self.objects_ast.get(actual_class_name).?;
             const obj = obj_node.data.object_decl;
             for (obj.members) |member| {
@@ -95,43 +123,49 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     }
     
     if (lookup_name) |name| {
-        var current_class_name: ?[]const u8 = name;
-        while (current_class_name) |curr_name| {
-            const actual_class_name = self.alias_map.get(curr_name) orelse curr_name;
-            if (self.classes_ast.get(actual_class_name)) |class_node| {
-                const c = class_node.data.class_decl;
-                for (c.primary_constructor) |prop| {
-                    if (std.mem.eql(u8, prop.name, g.name)) {
-                        prop_type = try self.resolveTypeRef(prop.type_ref);
-                        break;
+        if (self.contracts_ast.get(name)) |contract_node| {
+            // Member lookup on a contract-typed receiver
+            for (contract_node.data.contract_decl.methods) |method| {
+                if (method.data == .fun_decl and std.mem.eql(u8, method.data.fun_decl.name, g.name)) {
+                    if (method.data.fun_decl.type_ref) |tr| {
+                        prop_type = try self.resolveTypeRef(tr);
+                    } else {
+                        const void_type = try self.allocator.create(AetherType);
+                        void_type.* = .Void;
+                        prop_type = void_type;
                     }
+                    break;
                 }
-                if (prop_type == null) {
-                    for (c.methods) |method| {
-                        if (std.mem.eql(u8, method.data.fun_decl.name, g.name)) {
-                            if (method.data.fun_decl.type_ref) |tr| {
-                                prop_type = try self.resolveTypeRef(tr);
-                            } else if (method.data.fun_decl.is_expr_body) {
-                                if (method.data.fun_decl.body.resolved_type) |rt| {
-                                    prop_type = rt;
-                                } else {
-                                    const void_type = try self.allocator.create(AetherType);
-                                    void_type.* = .Void;
-                                    prop_type = void_type;
-                                }
+            }
+        } else if (self.classes_ast.get(name)) |class_node| {
+            const c = class_node.data.type_decl;
+            for (c.primary_constructor) |prop| {
+                if (std.mem.eql(u8, prop.name, g.name)) {
+                    prop_type = try self.resolveTypeRef(prop.type_ref);
+                    break;
+                }
+            }
+            if (prop_type == null) {
+                for (c.methods) |method| {
+                    if (std.mem.eql(u8, method.data.fun_decl.name, g.name)) {
+                        if (method.data.fun_decl.type_ref) |tr| {
+                            prop_type = try self.resolveTypeRef(tr);
+                        } else if (method.data.fun_decl.is_expr_body) {
+                            if (method.data.fun_decl.body.resolved_type) |rt| {
+                                prop_type = rt;
                             } else {
                                 const void_type = try self.allocator.create(AetherType);
                                 void_type.* = .Void;
                                 prop_type = void_type;
                             }
-                            break;
+                        } else {
+                            const void_type = try self.allocator.create(AetherType);
+                            void_type.* = .Void;
+                            prop_type = void_type;
                         }
+                        break;
                     }
                 }
-                if (prop_type != null) break;
-                current_class_name = c.superclass_name;
-            } else {
-                break;
             }
         }
     } else if (base_type.* == .Array) {
@@ -194,7 +228,7 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
 }
 
 pub fn inferSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
-    const s = node.data.set_expr;
+    var s = &node.data.set_expr;
     const obj_type = try self.inferNode(s.object, scope);
     const assigned_type = try self.inferNode(s.value, scope);
 
@@ -202,6 +236,7 @@ pub fn inferSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         const class_name = s.object.data.identifier.name;
         const actual_class_name = self.alias_map.get(class_name) orelse class_name;
         if (self.objects_ast.contains(actual_class_name)) {
+            s.object.data.identifier.resolved_c_name = actual_class_name;
             const obj_node = self.objects_ast.get(actual_class_name).?;
             const obj = obj_node.data.object_decl;
             var found_prop = false;
@@ -241,31 +276,23 @@ pub fn inferSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     }
 
     if (lookup_name) |name| {
-        var current_class_name: ?[]const u8 = name;
         var found_prop = false;
-        while (current_class_name) |curr_name| {
-            const actual_class_name = self.alias_map.get(curr_name) orelse curr_name;
-            if (self.classes_ast.get(actual_class_name)) |class_node| {
-                const c = class_node.data.class_decl;
-                for (c.primary_constructor) |prop| {
-                    if (std.mem.eql(u8, prop.name, s.name)) {
-                        found_prop = true;
-                        if (!prop.is_mut) {
-                            self.reportError(node.line, node.column, "TypeError: Cannot assign to constant property '{s}' of type {}.", .{ s.name, base_type.* });
-                            return error.TypeError;
-                        }
-                        const prop_type = try self.resolveTypeRef(prop.type_ref);
-                        if (!self.isCompatible(prop_type, assigned_type)) {
-                            self.reportError(node.line, node.column, "TypeError: Expected {} but found {} when setting property '{s}'.", .{ prop_type.*, assigned_type.*, s.name });
-                            return error.TypeError;
-                        }
-                        break;
+        if (self.classes_ast.get(name)) |class_node| {
+            const c = class_node.data.type_decl;
+            for (c.primary_constructor) |prop| {
+                if (std.mem.eql(u8, prop.name, s.name)) {
+                    found_prop = true;
+                    if (!prop.is_mut) {
+                        self.reportError(node.line, node.column, "TypeError: Cannot assign to constant property '{s}' of type {}.", .{ s.name, base_type.* });
+                        return error.TypeError;
                     }
+                    const prop_type = try self.resolveTypeRef(prop.type_ref);
+                    if (!self.isCompatible(prop_type, assigned_type)) {
+                        self.reportError(node.line, node.column, "TypeError: Expected {} but found {} when setting property '{s}'.", .{ prop_type.*, assigned_type.*, s.name });
+                        return error.TypeError;
+                    }
+                    break;
                 }
-                if (found_prop) break;
-                current_class_name = c.superclass_name;
-            } else {
-                break;
             }
         }
         if (!found_prop) {

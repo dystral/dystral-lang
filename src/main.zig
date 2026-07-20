@@ -198,9 +198,10 @@ pub fn main() !void {
         };
     }
 
-    // Consolidate classes, objects, and aliases for the CTranspiler
+    // Consolidate classes, objects, contracts, and aliases for the CTranspiler
     var global_classes_ast = std.StringHashMap(*ast.ASTNode).init(arena.allocator());
     var global_objects_ast = std.StringHashMap(*ast.ASTNode).init(arena.allocator());
+    var global_contracts_ast = std.StringHashMap(*ast.ASTNode).init(arena.allocator());
     var global_alias_map = std.StringHashMap([]const u8).init(arena.allocator());
 
     for (registry.ordered_modules.items) |path| {
@@ -213,6 +214,10 @@ pub fn main() !void {
         while (object_it.next()) |entry| {
             try global_objects_ast.put(entry.key_ptr.*, entry.value_ptr.*);
         }
+        var contract_it = mod.checker.contracts_ast.iterator();
+        while (contract_it.next()) |entry| {
+            try global_contracts_ast.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
         var alias_it = mod.checker.alias_map.iterator();
         while (alias_it.next()) |entry| {
             try global_alias_map.put(entry.key_ptr.*, entry.value_ptr.*);
@@ -223,6 +228,7 @@ pub fn main() !void {
     transpiler.is_test_mode = is_test;
     transpiler.classes_ast = &global_classes_ast;
     transpiler.objects_ast = &global_objects_ast;
+    transpiler.contracts_ast = &global_contracts_ast;
     transpiler.alias_map = &global_alias_map;
     transpiler.source_file = filename; // used for #line directives in C output
     defer transpiler.deinit();

@@ -64,7 +64,9 @@ pub const Parser = struct {
     pub const testDeclaration = declaration_mod.testDeclaration;
     pub const importDeclaration = declaration_mod.importDeclaration;
     pub const funDeclaration = declaration_mod.funDeclaration;
-    pub const classDeclaration = declaration_mod.classDeclaration;
+    pub const typeDeclaration = declaration_mod.typeDeclaration;
+    pub const contractDeclaration = declaration_mod.contractDeclaration;
+    pub const skillDeclaration = declaration_mod.skillDeclaration;
     pub const libDeclaration = declaration_mod.libDeclaration;
     pub const parseAnnotations = declaration_mod.parseAnnotations;
     pub const objectDeclaration = declaration_mod.objectDeclaration;
@@ -223,27 +225,27 @@ fn core_parse(self: *Parser) anyerror!*ASTNode {
         if (stmt.data == .object_decl and stmt.data.object_decl.name == null) {
             if (statements.items.len > 0) {
                 const prev = statements.items[statements.items.len - 1];
-                if (prev.data == .class_decl and stmt.line == prev_r_brace) {
-                    @constCast(&stmt.data.object_decl).name = prev.data.class_decl.name;
+                if (prev.data == .type_decl and stmt.line == prev_r_brace) {
+                    @constCast(&stmt.data.object_decl).name = prev.data.type_decl.name;
                 } else {
-                    self.reportLexerError(stmt.line, stmt.column, "Syntax Error: Anonymous object must immediately follow a class declaration on the same line (e.g. '}} object {{').", .{});
+                    self.reportLexerError(stmt.line, stmt.column, "Syntax Error: Anonymous object must immediately follow a type declaration on the same line (e.g. '}} object {{').", .{});
                     return error.ParseError;
                 }
             } else {
-                self.reportLexerError(stmt.line, stmt.column, "Syntax Error: Anonymous object must immediately follow a class declaration on the same line (e.g. '}} object {{').", .{});
+                self.reportLexerError(stmt.line, stmt.column, "Syntax Error: Anonymous object must immediately follow a type declaration on the same line (e.g. '}} object {{').", .{});
                 return error.ParseError;
             }
-        } else if (stmt.data == .class_decl and stmt.data.class_decl.name.len == 0) {
+        } else if (stmt.data == .type_decl and stmt.data.type_decl.name.len == 0) {
             if (statements.items.len > 0) {
                 const prev = statements.items[statements.items.len - 1];
                 if (prev.data == .object_decl and prev.data.object_decl.name != null and stmt.line == prev_r_brace) {
-                    @constCast(&stmt.data.class_decl).name = prev.data.object_decl.name.?;
+                    @constCast(&stmt.data.type_decl).name = prev.data.object_decl.name.?;
                 } else {
-                    self.reportLexerError(stmt.line, stmt.column, "Syntax Error: Anonymous class must immediately follow an object declaration on the same line (e.g. '}} class (...) {{').", .{});
+                    self.reportLexerError(stmt.line, stmt.column, "Syntax Error: Anonymous type must immediately follow an object declaration on the same line (e.g. '}} type (...) {{').", .{});
                     return error.ParseError;
                 }
             } else {
-                self.reportLexerError(stmt.line, stmt.column, "Syntax Error: Anonymous class must immediately follow an object declaration on the same line (e.g. '}} class (...) {{').", .{});
+                self.reportLexerError(stmt.line, stmt.column, "Syntax Error: Anonymous type must immediately follow an object declaration on the same line (e.g. '}} type (...) {{').", .{});
                 return error.ParseError;
             }
         }

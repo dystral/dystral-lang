@@ -35,9 +35,9 @@ lib NativeHttp {
     fun curlSetoptInt(curl: OpaquePointer, option: Int, value: Int): Int
 }
 
-class Response(val status: Int, val body: String)
+type Response(val status: Int, val body: String)
 
-class Client() {
+type Client() {
     fun get(url: String): Response {
         val curl = NativeHttp.curlEasyInit()
         if (curl == null) {
@@ -114,9 +114,9 @@ class Client() {
     }
 }
 
-class Request(val method: String, val path: String, val body: String, val headers: Map<String, String>, val queries: Map<String, String>)
+type Request(val method: String, val path: String, val body: String, val headers: Map<String, String>, val queries: Map<String, String>)
 
-class ServerConnection(val sock: Socket) {
+type ServerConnection(val sock: Socket) {
     fun readRequest(): Request {
         val raw = this.sock.read(4096)
         
@@ -233,7 +233,7 @@ class ServerConnection(val sock: Socket) {
     }
 }
 
-class Server(val tcpServer: TCPServer = TCPServer(-1)) {
+type Server(val tcpServer: TCPServer = TCPServer(-1)) {
     fun bind(port: Int): Bool {
         return this.tcpServer.bind(port)
     }

@@ -1,6 +1,6 @@
-open class Animal
-class Dog(val name: String) : Animal()
-class Cat(val lives: Int) : Animal()
+contract Animal
+type Dog(val name: String) : Animal
+type Cat(val lives: Int) : Animal
 
 test "basic when with single value match" {
     val x = 2

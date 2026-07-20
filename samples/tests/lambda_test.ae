@@ -36,7 +36,7 @@ test "lambdas: higher order function return and nested capturing" {
     assert(add5(10) == 15)
 }
 
-class HTMLBuilder(var content: String = "") {
+type HTMLBuilder(var content: String = "") {
     fun body(init: () -> String) {
         this.content = this.content + "<body>" + init() + "</body>"
     }

@@ -65,6 +65,7 @@ pub const CTranspiler = struct {
     test_count: usize = 0,
     classes_ast: ?*std.StringHashMap(*ASTNode) = null,
     objects_ast: ?*std.StringHashMap(*ASTNode) = null,
+    contracts_ast: ?*std.StringHashMap(*ASTNode) = null,
     alias_map: ?*std.StringHashMap([]const u8) = null,
     source_file: []const u8 = "<unknown>", // path to the .ae source file being transpiled
     static_initializers: std.ArrayList(StaticInitializer),
@@ -74,7 +75,9 @@ pub const CTranspiler = struct {
         init: *ASTNode,
     };
 
-    pub const emitClassDecl = decl_mod.emitClassDecl;
+    pub const emitTypeDecl = decl_mod.emitTypeDecl;
+    pub const emitContractDecl = decl_mod.emitContractDecl;
+    pub const emitSkillDecl = decl_mod.emitSkillDecl;
     pub const emitMethodDecl = decl_mod.emitMethodDecl;
     pub const emitFunDecl = decl_mod.emitFunDecl;
     pub const emitTestDecl = decl_mod.emitTestDecl;
@@ -85,82 +88,23 @@ pub const CTranspiler = struct {
     pub const emitExpression = expr_mod.emitExpression;
     pub const collectCaptures = expr_mod.collectCaptures;
 
-    pub fn isOverride(self: *CTranspiler, class_decl: anytype, method_name: []const u8) bool {
-        var curr_super = class_decl.superclass_name;
-        while (curr_super) |super_name| {
-            const actual_super = if (self.alias_map) |am| (am.get(super_name) orelse super_name) else super_name;
-            if (self.classes_ast) |ca| {
-                if (ca.get(actual_super)) |parent_node| {
-                    const p_decl = parent_node.data.class_decl;
-                    for (p_decl.methods) |m| {
-                        if (std.mem.eql(u8, m.data.fun_decl.name, method_name)) return true;
-                    }
-                    curr_super = p_decl.superclass_name;
-                    continue;
-                }
+    /// Contract-aware C type: contract-typed values are erased to `void*`
+    /// (dynamic dispatch goes through the object header descriptor).
+    pub fn cType(self: *CTranspiler, t: *const type_system.AetherType) ![]const u8 {
+        const base = type_system.extractBaseType(t);
+        if (base.* == .Custom) {
+            if (self.contracts_ast) |ca| {
+                if (ca.contains(base.Custom)) return "void*";
             }
-            break;
+        }
+        return getCTypeStr(self.allocator, t);
+    }
+
+    pub fn isContract(self: *CTranspiler, name: []const u8) bool {
+        if (self.contracts_ast) |ca| {
+            return ca.contains(name);
         }
         return false;
-    }
-
-    pub fn getMethodOwner(self: *CTranspiler, class_decl: anytype, method_name: []const u8) ?[]const u8 {
-        var curr_super = class_decl.superclass_name;
-        while (curr_super) |super_name| {
-            const actual_super = if (self.alias_map) |am| (am.get(super_name) orelse super_name) else super_name;
-            if (self.classes_ast) |ca| {
-                if (ca.get(actual_super)) |parent_node| {
-                    const p_decl = parent_node.data.class_decl;
-                    for (p_decl.methods) |m| {
-                        if (std.mem.eql(u8, m.data.fun_decl.name, method_name)) return actual_super;
-                    }
-                    curr_super = p_decl.superclass_name;
-                    continue;
-                }
-            }
-            break;
-        }
-        return null;
-    }
-
-    pub fn getPropertyOwner(self: *CTranspiler, class_decl: anytype, prop_name: []const u8) ?[]const u8 {
-        var curr_super = class_decl.superclass_name;
-        while (curr_super) |super_name| {
-            const actual_super = if (self.alias_map) |am| (am.get(super_name) orelse super_name) else super_name;
-            if (self.classes_ast) |ca| {
-                if (ca.get(actual_super)) |parent_node| {
-                    const p_decl = parent_node.data.class_decl;
-                    for (p_decl.primary_constructor) |prop| {
-                        if (std.mem.eql(u8, prop.name, prop_name) and prop.is_property) return actual_super;
-                    }
-                    curr_super = p_decl.superclass_name;
-                    continue;
-                }
-            }
-            break;
-        }
-        return null;
-    }
-
-    pub fn getSuperclassPath(self: *CTranspiler, subclass_name: []const u8, target_superclass_name: []const u8) ![]const u8 {
-        var path = std.ArrayList(u8).init(self.allocator);
-        var curr: ?[]const u8 = subclass_name;
-        while (curr) |curr_name| {
-            const actual_curr = if (self.alias_map) |am| (am.get(curr_name) orelse curr_name) else curr_name;
-            if (std.mem.eql(u8, actual_curr, target_superclass_name)) {
-                break;
-            }
-            const node = self.classes_ast.?.get(actual_curr) orelse break;
-            const c = node.data.class_decl;
-            if (c.superclass_name) |parent| {
-                if (path.items.len > 0) try path.appendSlice(".");
-                try path.appendSlice("parent");
-                curr = parent;
-            } else {
-                break;
-            }
-        }
-        return try path.toOwnedSlice();
     }
 
     pub fn init(allocator: std.mem.Allocator) CTranspiler {
@@ -205,8 +149,8 @@ pub const CTranspiler = struct {
         if (self.classes_ast) |ca| {
             var pre_it = ca.iterator();
             while (pre_it.next()) |entry| {
-                if (entry.value_ptr.*.data == .class_decl) {
-                    const cd = entry.value_ptr.*.data.class_decl;
+                if (entry.value_ptr.*.data == .type_decl) {
+                    const cd = entry.value_ptr.*.data.type_decl;
                     if (cd.generic_params.len == 0) {
                         const actual_name = cd.resolved_c_name orelse cd.name;
                         if (!self.known_constructors.contains(actual_name)) {
@@ -220,13 +164,13 @@ pub const CTranspiler = struct {
         }
 
         try self.transpileNode(node, true);
-        
+
         if (self.classes_ast) |ca| {
             var it = ca.iterator();
             while (it.next()) |entry| {
-                if (entry.value_ptr.*.data == .class_decl) {
-                    if (entry.value_ptr.*.data.class_decl.generic_params.len == 0) {
-                        try self.emitClassDecl(entry.value_ptr.*);
+                if (entry.value_ptr.*.data == .type_decl) {
+                    if (entry.value_ptr.*.data.type_decl.generic_params.len == 0) {
+                        try self.emitTypeDecl(entry.value_ptr.*);
                     }
                 }
             }
@@ -294,7 +238,7 @@ pub const CTranspiler = struct {
             .program => |p| {
                 var has_main = false;
                 
-                // Pass 1: Types (Classes) and Imports
+                // Pass 1: Types, Contracts, Skills and Imports
                 for (p.statements) |stmt| {
                     if (stmt.data == .import_stmt) {
                         if (stmt.data.import_stmt.module_ast) |mod_ast| {
@@ -303,10 +247,14 @@ pub const CTranspiler = struct {
                                 try self.transpileNode(mod_ast, false);
                             }
                         }
-                    } else if (stmt.data == .class_decl) {
-                        if (stmt.data.class_decl.generic_params.len == 0) {
-                            try self.emitClassDecl(stmt);
+                    } else if (stmt.data == .type_decl) {
+                        if (stmt.data.type_decl.generic_params.len == 0) {
+                            try self.emitTypeDecl(stmt);
                         }
+                    } else if (stmt.data == .contract_decl) {
+                        try self.emitContractDecl(stmt);
+                    } else if (stmt.data == .skill_decl) {
+                        try self.emitSkillDecl(stmt);
                     } else if (stmt.data == .lib_decl) {
                         try self.emitLibDecl(stmt);
                     }
@@ -328,7 +276,7 @@ pub const CTranspiler = struct {
                 var top_level_stmts = std.ArrayList(*ASTNode).init(self.allocator);
                 defer top_level_stmts.deinit();
                 for (p.statements) |stmt| {
-                    if (stmt.data != .fun_decl and stmt.data != .class_decl and stmt.data != .import_stmt and stmt.data != .test_decl and stmt.data != .lib_decl and stmt.data != .object_decl) {
+                    if (stmt.data != .fun_decl and stmt.data != .type_decl and stmt.data != .contract_decl and stmt.data != .skill_decl and stmt.data != .import_stmt and stmt.data != .test_decl and stmt.data != .lib_decl and stmt.data != .object_decl) {
                         try top_level_stmts.append(stmt);
                     }
                 }
@@ -362,10 +310,12 @@ pub const CTranspiler = struct {
                             try self.writer.appendSlice("            const char* __name = \"UnknownException\";\n");
                             try self.writer.appendSlice("            const char* __msg = \"\";\n");
                             try self.writer.appendSlice("            if (__exc) {\n");
-                            try self.writer.appendSlice("                const AetherClassDescriptor* __desc = *(const AetherClassDescriptor**)__exc;\n");
+                            try self.writer.appendSlice("                const AetherTypeDescriptor* __desc = *(const AetherTypeDescriptor**)__exc;\n");
                             try self.writer.appendSlice("                if (__desc) __name = __desc->name;\n");
-                            try self.writer.appendSlice("                if (aether_is_instance(__desc, &core_Exception_descriptor)) {\n");
-                            try self.writer.appendSlice("                    __msg = ((core_Exception*)__exc)->message->ptr;\n");
+                            try self.writer.appendSlice("                void** __vt = aether_find_vtable(__desc, &core_Throwable_contract);\n");
+                            try self.writer.appendSlice("                if (__vt && __vt[0]) {\n");
+                            try self.writer.appendSlice("                    core_String* __s = ((core_String*(*)(void*))__vt[0])(__exc);\n");
+                            try self.writer.appendSlice("                    if (__s) __msg = __s->ptr;\n");
                             try self.writer.appendSlice("                }\n");
                             try self.writer.appendSlice("            }\n");
                             try self.writer.writer().print("            printf(\"[FAIL] {s}: %s (%s)\\n\", __name, __msg);\n", .{tname});

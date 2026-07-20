@@ -1,0 +1,21 @@
+// NEGATIVE SAMPLE — must NOT compile (Phase 41, Task 41.5)
+// Expected error:
+//   Skill 'Shadow' requires contract 'Drawable'.
+//   Type 'Button' does not implement it.
+
+contract Drawable {
+    fun draw()
+}
+
+skill Shadow : Drawable {
+
+    fun render() {
+        draw()
+    }
+
+}
+
+// Missing `: Drawable` — composition must be rejected.
+type Button + Shadow {
+
+}

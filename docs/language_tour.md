@@ -51,7 +51,7 @@ If your code reaches the end of the file, it exits successfully (returning `0` t
 **The Golden Rule of Modules (No Side-Effects):**
 Top-level execution is **only allowed in your root file** (the one you pass to `aether run`). If an *imported* file tries to run top-level statements (like calling `print`), the compiler will strictly block it and throw an `ImportSideEffectsNotAllowed` error. 
 
-Imported files must be "passive libraries", meaning they should only **declare** things (Functions, Classes, Tests, etc.). This ensures maximum code hygiene and predictable execution paths.
+Imported files must be "passive libraries", meaning they should only **declare** things (Functions, Types, Tests, etc.). This ensures maximum code hygiene and predictable execution paths.
 
 ---
 
@@ -143,10 +143,14 @@ val dangerousName = guest!!.name
 
 ## 6. Exception Handling (try-catch)
 
-Aether features a native structured exception handling system using `try` and `catch` blocks. All exception types must inherit from the built-in `Exception` base class:
+Aether features a native structured exception handling system using `try` and `catch` blocks. There is no exception hierarchy: any type that implements the built-in `Throwable` contract can be thrown:
 
 ```kotlin
-class InvalidAgeException(message: String) : Exception(message)
+type InvalidAgeException(val text: String) : Throwable {
+    implement fun message(): String {
+        return this.text
+    }
+}
 
 fun checkAge(age: Int) {
     if (age < 18) {
@@ -163,7 +167,7 @@ Aether supports two forms of `try`. The standard form catches specific exception
 try {
     checkAge(15)
 } catch (e: InvalidAgeException) {
-    print("Error caught: " + e.message)
+    print("Error caught: " + e.message())
 }
 ```
 
@@ -175,12 +179,21 @@ try {
 ```
 
 ### 6.2 Multi-Catch
-You can catch multiple exceptions in a single block using the union syntax `|`. In this case, the caught exception `e` is statically typed as the generic `Exception` base class:
+You can catch multiple exceptions in a single block using the union syntax `|`. In this case, the caught exception `e` is statically typed as the `Throwable` contract (with dynamic dispatch):
 ```kotlin
 try {
     checkAge(15)
 } catch (e: InvalidAgeException | ConnectionException) {
-    print("Exception caught: " + e.message)
+    print("Exception caught: " + e.message())
+}
+```
+
+You can also catch directly by the `Throwable` contract to handle any throwable value:
+```kotlin
+try {
+    checkAge(15)
+} catch (e: Throwable) {
+    print("Exception caught: " + e.message())
 }
 ```
 
@@ -415,10 +428,10 @@ cond ? print("hello")
 
 Kotlin allows you to overload mathematical operators (like `+` and `-`) by naming a function `plus` or `minus`. Aether takes this a step further to prevent accidental overloads.
 
-In Aether, naming a function `plus` is not enough. You **must** explicitly tag the function with the `operator` modifier. This acts as a clear contract to anyone reading the code that this function fundamentally alters the language's math operations for that class.
+In Aether, naming a function `plus` is not enough. You **must** explicitly tag the function with the `operator` modifier. This acts as a clear contract to anyone reading the code that this function fundamentally alters the language's math operations for that type.
 
 ```kotlin
-class Vector(val x: Int, val y: Int) {
+type Vector(val x: Int, val y: Int) {
     
     // The 'operator' modifier is MANDATORY.
     operator fun plus(other: Vector): Vector {
@@ -456,12 +469,12 @@ assert(message == "Not Found")
 * **Exhaustiveness:** If `when` is used as an expression (to assign a value), the `else` branch is **mandatory**. If used as a statement, `else` is optional.
 
 ### 10.2 Smart Casting via Type Check
-Aether integrates pattern matching with its class hierarchy and polymorphism. If you match a stable variable against a type using `is Type`, the variable is automatically **smart-cast** inside that branch's scope:
+Aether integrates pattern matching with its contract-based polymorphism. If you match a stable variable against a type using `is Type`, the variable is automatically **smart-cast** inside that branch's scope:
 
 ```kotlin
-open class Shape
-class Circle(val radius: Int) : Shape()
-class Square(val side: Int) : Shape()
+contract Shape
+type Circle(val radius: Int) : Shape
+type Square(val side: Int) : Shape
 
 fun printArea(shape: Shape) {
     when (shape) {
@@ -494,11 +507,165 @@ when {
 
 ---
 
-## 11. Objects & Boundless Namespaces
+## 11. The Composition Type System: `type`, `contract` & `skill`
 
-Objects allow grouping static variables and functions under a class namespace. In Aether, this is declared using the `object` keyword.
+> **Since Phase 41 / ADR 25:** Aether uses a composition-based type system. There are no classes — `class`, `open`, `abstract` and `override` were removed from the language.
 
-### 11.1 Named Standalone Objects (Singletons)
+Aether has **no implementation inheritance**: no superclasses, no abstract classes, no `extends`. Instead, the type system is built on five declaration types, each with a single responsibility:
+
+| Declaration | Owns state? | Has implementation? | Can be instantiated? |
+|-------------|:-----------:|:-------------------:|:--------------------:|
+| `type`      | ✅ Yes       | ✅ Yes               | ✅ Yes                |
+| `object`    | ✅ (static)  | ✅ Yes               | ❌ (singleton)        |
+| `contract`  | ❌ No        | ❌ No                | ❌ No                 |
+| `skill`     | ❌ No        | ✅ Yes               | ❌ No                 |
+| `enum`      | —           | —                   | ✅ Yes                |
+
+### 11.0 Coming from Other Languages
+
+If you know Kotlin, Java, Rust or Scala, these concepts will feel familiar — but watch the differences:
+
+| Aether | Closest concept | Key difference |
+|--------|-----------------|----------------|
+| `type` | `class` (Kotlin/Java/C#) | Cannot be extended. There is no `open`, no subclassing — ever. |
+| `contract` | `interface` (Java/C#), `trait` signature part (Rust) | Pure signatures only. Contracts cannot require or extend other contracts — conformance is always flat. |
+| `skill` | `trait` (Rust/Scala), `mixin` | A skill does **not** implement the contracts it requires. It only *borrows* them: required methods are supplied by the consuming `type`, not by the skill. |
+| `object` | `object` (Kotlin), static-only class (Java/C#) | A true singleton with identity — it can hold mutable static state, not just static methods. |
+
+The mental shift is small but important: in Aether you never ask *"what does this type inherit from?"* — you ask *"which contracts does it implement (`:`) and which skills does it compose (`+`)?"*
+
+### 11.1 `type` — State and Identity
+
+A `type` is the only declaration that holds instance state. It declares fields, constructors and methods, and composes behavior through two header operators:
+
+* `:` — **implements** contracts
+* `+` — **composes** skills
+
+```kotlin
+type Button
+    : Drawable, Serializable
+    + Clickable
+    + Hoverable {
+    // ...
+}
+```
+
+### 11.2 `contract` — Behavioral Capabilities
+
+A `contract` defines a pure API: method signatures only. No state, no constructors, no implementation, no instantiation. Contracts are how Aether does polymorphism.
+
+```kotlin
+contract Drawable {
+    fun draw()
+}
+```
+
+For empty **marker contracts** (used only for tagging and `is` checks), the braces are optional:
+
+```kotlin
+contract Shape
+
+type Circle(val radius: Int) : Shape
+```
+
+A type implementing a contract must `implement` every method:
+
+```kotlin
+type Button : Drawable {
+    implement fun draw() {
+        println("drawing button")
+    }
+}
+```
+
+### 11.3 `skill` — Reusable Behavior
+
+A `skill` contains implementation but no state and no identity. It cannot be instantiated. A skill may **require** contracts using `:`, but it does *not* implement them — the required methods are provided by the consuming type:
+
+```kotlin
+skill Shadow : Drawable {
+
+    fun drawShadow() {
+        // ...
+    }
+
+    fun render() {
+        draw()       // provided by the consuming type
+        drawShadow()
+    }
+}
+```
+
+A type may compose a skill **only if it implements every contract the skill requires**:
+
+```kotlin
+// ✅ Valid — Button implements Drawable, which Shadow requires
+type Button : Drawable + Shadow {
+    implement fun draw() {
+        println("drawing button")
+    }
+}
+```
+
+```kotlin
+// ❌ Invalid — missing the required contract
+type Button + Shadow
+// Compile error:
+// Skill 'Shadow' requires contract 'Drawable'.
+// Type 'Button' does not implement it.
+```
+
+### 11.4 Resolving Skill Conflicts
+
+If two composed skills declare the same member, the compiler reports an ambiguity. The type resolves it explicitly with an `implement` and a qualified call:
+
+```kotlin
+skill MouseInput { fun click() { println("mouse") } }
+skill TouchInput { fun click() { println("touch") } }
+
+type Button + MouseInput + TouchInput {
+    implement fun click() {
+        MouseInput.click()
+    }
+}
+```
+
+### 11.5 Exceptions Without Hierarchy
+
+There is no `Exception` base class. Any type that implements the `Throwable` contract can be thrown and caught:
+
+```kotlin
+contract Throwable {
+    fun message(): String
+}
+
+type AssertionException(private val text: String) : Throwable {
+    implement fun message(): String {
+        return text
+    }
+}
+
+throw AssertionException("Assertion failed")
+
+catch (e: Throwable) {
+    println(e.message())
+}
+```
+
+### 11.6 Design Principles
+
+1. **Types own state.** Only `type` declarations contain instance state.
+2. **Contracts define capabilities.** Behavior only — never storage or implementation.
+3. **Skills provide reusable behavior.** Implementation without state, depending on contracts supplied by the consuming type.
+4. **Composition replaces inheritance.** Code reuse comes exclusively from skills; polymorphism comes exclusively from contracts.
+
+---
+
+## 12. Objects & Boundless Namespaces
+
+Objects allow grouping static variables and functions under a type namespace. In Aether, this is declared using the `object` keyword.
+
+### 12.1 Named Standalone Objects (Singletons)
 You can also declare standalone named `object` blocks which act as singletons or modules:
 
 ```kotlin
@@ -518,17 +685,17 @@ fun main() {
 }
 ```
 
-### 11.2 Class-Bound Objects
-An anonymous `object` block that immediately follows or precedes a `class` definition binds its members to the class namespace.
+### 12.2 Type-Bound Objects
+An anonymous `object` block that immediately follows or precedes a `type` definition binds its members to the type namespace.
 
 #### Same-Line Syntax Constraint
-To emphasize that the class-bound object/class definition is a continuation of the class/object scope, Aether enforces that the anonymous block **must start on the same line** as the closing brace `}` of the sibling block. Separating them with a newline will trigger a compile-time syntax error.
+To emphasize that the type-bound object/type definition is a continuation of the type/object scope, Aether enforces that the anonymous block **must start on the same line** as the closing brace `}` of the sibling block. Separating them with a newline will trigger a compile-time syntax error.
 
-#### Class-First Declaration
-When the class is declared first, the anonymous `object` block is declared immediately after the class closing brace `} object {`:
+#### Type-First Declaration
+When the type is declared first, the anonymous `object` block is declared immediately after the type closing brace `} object {`:
 
 ```kotlin
-class File(val path: String) {
+type File(val path: String) {
     fun read(): String {
         return "Content of " + this.path
     }
@@ -541,17 +708,17 @@ class File(val path: String) {
 }
 
 fun main() {
-    // Access static members directly on the class name
+    // Access static members directly on the type name
     val path = File.defaultPath
     val file = File.create(path)
     
-    // Access instance methods on the instantiated class object
+    // Access instance methods on the instantiated type
     assert(file.read() == "Content of /tmp/aether.txt")
 }
 ```
 
 #### Object-First Declaration (Vice-Versa)
-Alternatively, you can declare the named `object` first, followed immediately by the anonymous `class` definition on the same line `} class(...) {`:
+Alternatively, you can declare the named `object` first, followed immediately by the anonymous `type` definition on the same line `} type(...) {`:
 
 ```kotlin
 object Configuration {
@@ -562,14 +729,14 @@ object Configuration {
         Configuration.loadCount = Configuration.loadCount + 1
         return Configuration(Configuration.defaultPrefix + name)
     }
-} class (val name: String) {
+} type (val name: String) {
     fun getFormatted(): String {
         return "Config:" + this.name
     }
 }
 
 fun main() {
-    // Access static members on the object/class namespace
+    // Access static members on the object/type namespace
     assert(Configuration.loadCount == 0)
     val config = Configuration.createSystem("DB")
     assert(Configuration.loadCount == 1)
@@ -581,7 +748,7 @@ fun main() {
 
 ---
 
-## 12. Implicit Returns & Expression Bodies
+## 13. Implicit Returns & Expression Bodies
 
 Like Kotlin, Aether heavily favors expressions. If a function is simple enough, you don't need curly braces or a `return` keyword.
 
@@ -597,15 +764,15 @@ fun multiply(a: Int, b: Int) = a * b
 
 ---
 
-## 13. Default Parameters
+## 14. Default Parameters
 
-Aether supports default values for parameters in functions, methods, and class constructors (both generic and non-generic). This reduces the need for overloading and simplifies constructor instantiations.
+Aether supports default values for parameters in functions, methods, and type constructors (both generic and non-generic). This reduces the need for overloading and simplifies constructor instantiations.
 
 ```kotlin
 // Function with default parameters
 fun greet(name: String, greeting: String = "Hello") = greeting + ", " + name + "!"
 
-class Server(val tcpServer: TCPServer = TCPServer())
+type Server(val tcpServer: TCPServer = TCPServer())
 
 fun main() {
     // Uses the default greeting "Hello"
@@ -619,15 +786,15 @@ fun main() {
 }
 ```
 
-Statically typed defaults are evaluated and type-checked during function and class declarations. If a caller omits an argument that has a default value, the type checker automatically clones and injects the default expression at the call-site.
+Statically typed defaults are evaluated and type-checked during function and type declarations. If a caller omits an argument that has a default value, the type checker automatically clones and injects the default expression at the call-site.
 
 ---
 
-## 14. Lambda Expressions & Higher-Order Functions
+## 15. Lambda Expressions & Higher-Order Functions
 
 Aether supports functional programming paradigms via lambdas (anonymous function literals) and Higher-Order Functions (functions that accept functions as arguments or return them).
 
-### 14.1 Function Types
+### 15.1 Function Types
 A function type represents a reference to a function. Its syntax is `(ParamType1, ParamType2, ...) -> ReturnType`.
 
 ```kotlin
@@ -639,7 +806,7 @@ val result = sum(10, 20)
 assert(result == 30)
 ```
 
-### 14.2 Lambda Literals & Implicit `it`
+### 15.2 Lambda Literals & Implicit `it`
 Lambdas are enclosed in curly braces `{}`. If a lambda has parameters, they are declared before the arrow `->`. If the lambda has only one parameter, you can omit its declaration and access it via the implicit name `it`.
 
 ```kotlin
@@ -652,7 +819,7 @@ val triple: (Int) -> Int = { it * 3 }
 assert(triple(5) == 15)
 ```
 
-### 14.3 Scope Capturing (Closures)
+### 15.3 Scope Capturing (Closures)
 Lambdas can capture variables from their surrounding lexical scope. If a captured variable is mutable (`var`), the Aether compiler automatically wraps it in a heap-allocated box so that changes are visible both inside the lambda and in the outer scope, even after the outer function exits.
 
 ```kotlin
@@ -671,11 +838,11 @@ fun main() {
 }
 ```
 
-### 14.4 Trailing Lambdas & DSLs
+### 15.4 Trailing Lambdas & DSLs
 If the last parameter of a function is a function type, the lambda expression can be passed outside of the function call parentheses. If it is the only parameter, the parentheses can be completely omitted. This is extremely powerful for building clean DSLs:
 
 ```kotlin
-class HTMLBuilder {
+type HTMLBuilder {
     var content: String = ""
     fun body(init: () -> String) {
         this.content = this.content + "<body>" + init() + "</body>"
@@ -701,7 +868,7 @@ fun main() {
 
 ---
 
-## 15. C Interoperability & Annotations
+## 16. C Interoperability & Annotations
 
 Because Aether transpiles to C, integrating with native C libraries is seamless. You can declare a `lib` block to map C functions into Aether without writing any wrapper code.
 
@@ -738,11 +905,11 @@ val curl = NativeHttp.curlEasyInit()
 
 ---
 
-## 16. Standard Library Packages & Time API
+## 17. Standard Library Packages & Time API
 
 Aether organizes its standard library into virtual packages starting with `std.`. The compiler automatically maps these to the language's internal SDK.
 
-For example, manipulating Date and Time in Aether is done through the `std.time` package, which uses an ultra-fast **Epoch-First** architecture (inspired by Go). Instead of bloated objects containing Year/Month/Day properties, Aether's `Time` class is a zero-overhead wrapper around a simple Unix Epoch integer. 
+For example, manipulating Date and Time in Aether is done through the `std.time` package, which uses an ultra-fast **Epoch-First** architecture (inspired by Go). Instead of bloated objects containing Year/Month/Day properties, Aether's `Time` type is a zero-overhead wrapper around a simple Unix Epoch integer. 
 
 ```kotlin
 import { Time, Duration, now, date, hours, minutes, seconds } from "std.time"
@@ -771,10 +938,10 @@ Because time math is just adding integers (`epoch + seconds`), it avoids the his
 
 ---
 
-## 17. Environment Variables (`std.env`)
+## 18. Environment Variables (`std.env`)
 The `std.env` module provides tools to load environment variables from `.env` files and interact with the process's environment. Like `std.core`, `std.collections`, and `std.time`, the `std.env` module is **implicitly imported** by the compiler into every program, so no `import` statement is required.
 
-### 17.1 Loading `.env` files
+### 18.1 Loading `.env` files
 Use `Env.load()` to load an environment configuration. If no path is provided, Aether looks for `.env` in the current directory. This returns `false` silently if the file is not found.
 
 ```kotlin
@@ -787,7 +954,7 @@ fun main() {
 }
 ```
 
-### 17.2 Reading Variables
+### 18.2 Reading Variables
 You can query variables using `Env.get`. If a get/check is performed before `Env.load()` is explicitly invoked, Aether automatically attempts to load the default `.env` file first.
 
 ```kotlin
@@ -802,7 +969,7 @@ fun main() {
 }
 ```
 
-### 17.3 Global `env()` Helper
+### 18.3 Global `env()` Helper
 For fast, zero-boilerplate configuration lookup, Aether provides overloaded global `env()` helper functions (which delegate directly to `Env.get`):
 
 ```kotlin
@@ -817,7 +984,7 @@ fun main() {
 }
 ```
 
-### 17.4 Modifying and Checking Variables
+### 18.4 Modifying and Checking Variables
 Aether allows setting, unsetting, and checking for the existence of environment variables:
 
 ```kotlin

@@ -45,9 +45,9 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                 self.reportError(node.line, node.column, "TypeError: Generic class '{s}' not found.", .{name});
                 return error.TypeError;
             };
-            const class_decl = class_node.data.class_decl;
-            if (class_decl.generic_params.len != c.type_args.len) {
-                self.reportError(node.line, node.column, "TypeError: Expected {} generic arguments for '{s}', got {}.", .{ class_decl.generic_params.len, name, c.type_args.len });
+            const type_decl = class_node.data.type_decl;
+            if (type_decl.generic_params.len != c.type_args.len) {
+                self.reportError(node.line, node.column, "TypeError: Expected {} generic arguments for '{s}', got {}.", .{ type_decl.generic_params.len, name, c.type_args.len });
                 return error.TypeError;
             }
 
@@ -56,7 +56,7 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                 type_args[i] = try self.resolveTypeRef(type_ref);
             }
 
-            const base_name = class_decl.resolved_c_name orelse class_name;
+            const base_name = type_decl.resolved_c_name orelse class_name;
             var mangled = std.ArrayList(u8).init(self.allocator);
             try mangled.appendSlice(base_name);
             try mangled.appendSlice("_");
@@ -68,7 +68,7 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
 
             try self.monomorphizeClass(base_name, type_args, final_mangled);
             const mono_node = self.classes_ast.get(final_mangled).?;
-            const mono_decl = mono_node.data.class_decl;
+            const mono_decl = mono_node.data.type_decl;
 
             if (c.arguments.len < mono_decl.primary_constructor.len) {
                 var new_args = try self.allocator.alloc(*ASTNode, mono_decl.primary_constructor.len);
@@ -279,18 +279,26 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                 }
                 return;
             } else if (variable.* == .Custom) {
+                if (self.contracts_ast.contains(variable.Custom)) {
+                    self.reportError(node.line, node.column, "TypeError: Cannot instantiate contract '{s}'. Contracts define behavior only and have no state.", .{name});
+                    return error.TypeError;
+                }
+                if (self.objects_ast.contains(variable.Custom) and !self.classes_ast.contains(variable.Custom)) {
+                    self.reportError(node.line, node.column, "TypeError: Cannot instantiate singleton object '{s}'. Access its members directly via '{s}.member'.", .{ name, name });
+                    return error.TypeError;
+                }
                 const class_node = self.classes_ast.get(variable.Custom);
                 if (class_node) |cn| {
-                    const class_decl = cn.data.class_decl;
-                    if (class_decl.generic_params.len > 0) {
-                        if (c.arguments.len < class_decl.primary_constructor.len) {
-                            var new_args = try self.allocator.alloc(*ASTNode, class_decl.primary_constructor.len);
+                    const type_decl = cn.data.type_decl;
+                    if (type_decl.generic_params.len > 0) {
+                        if (c.arguments.len < type_decl.primary_constructor.len) {
+                            var new_args = try self.allocator.alloc(*ASTNode, type_decl.primary_constructor.len);
                             for (c.arguments, 0..) |arg, arg_i| {
                                 new_args[arg_i] = arg;
                             }
                             var i = c.arguments.len;
-                            while (i < class_decl.primary_constructor.len) : (i += 1) {
-                                const prop = class_decl.primary_constructor[i];
+                            while (i < type_decl.primary_constructor.len) : (i += 1) {
+                                const prop = type_decl.primary_constructor[i];
                                 if (prop.initializer) |init_node| {
                                     const cloned = try self.cloneNode(init_node);
                                     new_args[i] = cloned;
@@ -301,14 +309,14 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                                 }
                             }
                             c.arguments = new_args;
-                        } else if (c.arguments.len > class_decl.primary_constructor.len) {
-                            self.reportError(node.line, node.column, "TypeError: Expected at most {} arguments for generic constructor of '{s}', got {}.", .{ class_decl.primary_constructor.len, name, c.arguments.len });
+                        } else if (c.arguments.len > type_decl.primary_constructor.len) {
+                            self.reportError(node.line, node.column, "TypeError: Expected at most {} arguments for generic constructor of '{s}', got {}.", .{ type_decl.primary_constructor.len, name, c.arguments.len });
                             return error.TypeError;
                         }
-                        var type_args = try self.allocator.alloc(*const AetherType, class_decl.generic_params.len);
-                        for (class_decl.generic_params, 0..) |g_param, i| {
+                        var type_args = try self.allocator.alloc(*const AetherType, type_decl.generic_params.len);
+                        for (type_decl.generic_params, 0..) |g_param, i| {
                             var found_type: ?*const AetherType = null;
-                            for (class_decl.primary_constructor, 0..) |prop, prop_i| {
+                            for (type_decl.primary_constructor, 0..) |prop, prop_i| {
                                 if (std.mem.eql(u8, prop.type_ref.name, g_param) and prop.type_ref.generic_args.len == 0 and !prop.type_ref.is_array) {
                                     found_type = c.arguments[prop_i].resolved_type.?;
                                     break;
@@ -417,7 +425,7 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                             if (found_type) |ft| {
                                 type_args[i] = ft;
                             } else {
-                                std.debug.print("Failed to infer '{s}' for '{s}'. Prop: {s}. Arg type: {}\n", .{g_param, name, class_decl.primary_constructor[0].name, c.arguments[0].resolved_type.?.*});
+                                std.debug.print("Failed to infer '{s}' for '{s}'. Prop: {s}. Arg type: {}\n", .{g_param, name, type_decl.primary_constructor[0].name, c.arguments[0].resolved_type.?.*});
                                 self.reportError(node.line, node.column, "TypeError: Could not infer generic parameter '{s}' for class '{s}'.", .{ g_param, name });
                                 return error.TypeError;
                             }
@@ -439,14 +447,14 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                         c.callee.data.identifier.resolved_c_name = actual_mangled;
                         return;
                     } else {
-                        if (c.arguments.len < class_decl.primary_constructor.len) {
-                            var new_args = try self.allocator.alloc(*ASTNode, class_decl.primary_constructor.len);
+                        if (c.arguments.len < type_decl.primary_constructor.len) {
+                            var new_args = try self.allocator.alloc(*ASTNode, type_decl.primary_constructor.len);
                             for (c.arguments, 0..) |arg, arg_i| {
                                 new_args[arg_i] = arg;
                             }
                             var i = c.arguments.len;
-                            while (i < class_decl.primary_constructor.len) : (i += 1) {
-                                const prop = class_decl.primary_constructor[i];
+                            while (i < type_decl.primary_constructor.len) : (i += 1) {
+                                const prop = type_decl.primary_constructor[i];
                                 if (prop.initializer) |init_node| {
                                     const cloned = try self.cloneNode(init_node);
                                     new_args[i] = cloned;
@@ -457,8 +465,8 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                                 }
                             }
                             c.arguments = new_args;
-                        } else if (c.arguments.len > class_decl.primary_constructor.len) {
-                            self.reportError(node.line, node.column, "TypeError: Expected at most {} arguments for constructor of '{s}', got {}.", .{ class_decl.primary_constructor.len, name, c.arguments.len });
+                        } else if (c.arguments.len > type_decl.primary_constructor.len) {
+                            self.reportError(node.line, node.column, "TypeError: Expected at most {} arguments for constructor of '{s}', got {}.", .{ type_decl.primary_constructor.len, name, c.arguments.len });
                             return error.TypeError;
                         }
                     }
@@ -473,17 +481,21 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
         if (self.alias_map.get(name)) |c_name| {
             if (scope.lookupVariable(c_name)) |variable| {
                 if (variable.* == .Custom) {
+                    if (self.contracts_ast.contains(variable.Custom)) {
+                        self.reportError(node.line, node.column, "TypeError: Cannot instantiate contract '{s}'. Contracts define behavior only and have no state.", .{name});
+                        return error.TypeError;
+                    }
                     const class_node = self.classes_ast.get(variable.Custom);
                     if (class_node) |cn| {
-                        const class_decl = cn.data.class_decl;
-                        if (c.arguments.len < class_decl.primary_constructor.len) {
-                            var new_args = try self.allocator.alloc(*ASTNode, class_decl.primary_constructor.len);
+                        const type_decl = cn.data.type_decl;
+                        if (c.arguments.len < type_decl.primary_constructor.len) {
+                            var new_args = try self.allocator.alloc(*ASTNode, type_decl.primary_constructor.len);
                             for (c.arguments, 0..) |arg, arg_i| {
                                 new_args[arg_i] = arg;
                             }
                             var i = c.arguments.len;
-                            while (i < class_decl.primary_constructor.len) : (i += 1) {
-                                const prop = class_decl.primary_constructor[i];
+                            while (i < type_decl.primary_constructor.len) : (i += 1) {
+                                const prop = type_decl.primary_constructor[i];
                                 if (prop.initializer) |init_node| {
                                     const cloned = try self.cloneNode(init_node);
                                     new_args[i] = cloned;
@@ -494,8 +506,8 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                                 }
                             }
                             c.arguments = new_args;
-                        } else if (c.arguments.len > class_decl.primary_constructor.len) {
-                            self.reportError(node.line, node.column, "TypeError: Expected at most {} arguments for constructor of '{s}', got {}.", .{ class_decl.primary_constructor.len, name, c.arguments.len });
+                        } else if (c.arguments.len > type_decl.primary_constructor.len) {
+                            self.reportError(node.line, node.column, "TypeError: Expected at most {} arguments for constructor of '{s}', got {}.", .{ type_decl.primary_constructor.len, name, c.arguments.len });
                             return error.TypeError;
                         }
                     }
@@ -621,23 +633,12 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
             if (base_type.* == .Custom) {
                 const class_name = base_type.Custom;
                 if (self.classes_ast.get(class_name)) |class_node| {
-                    const class_decl = class_node.data.class_decl;
+                    const type_decl = class_node.data.type_decl;
                     
-                    // Search for the method declaration
                     var found_method: ?*ASTNode = null;
-                    var current_class_name: ?[]const u8 = class_name;
-                    while (current_class_name) |curr_name| {
-                        const actual_class_name = self.alias_map.get(curr_name) orelse curr_name;
-                        if (self.classes_ast.get(actual_class_name)) |curr_node| {
-                            for (curr_node.data.class_decl.methods) |method| {
-                                if (std.mem.eql(u8, method.data.fun_decl.name, g.name)) {
-                                    found_method = method;
-                                    break;
-                                }
-                            }
-                            if (found_method != null) break;
-                            current_class_name = curr_node.data.class_decl.superclass_name;
-                        } else {
+                    for (type_decl.methods) |method| {
+                        if (std.mem.eql(u8, method.data.fun_decl.name, g.name)) {
+                            found_method = method;
                             break;
                         }
                     }
@@ -657,13 +658,13 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                                     new_args[i] = cloned;
                                     _ = try self.inferNode(cloned, scope);
                                 } else {
-                                    self.reportError(node.line, node.column, "TypeError: Missing argument for method parameter '{s}' of '{s}.{s}' which has no default value.", .{ prop.name, class_decl.name, g.name });
+                                    self.reportError(node.line, node.column, "TypeError: Missing argument for method parameter '{s}' of '{s}.{s}' which has no default value.", .{ prop.name, type_decl.name, g.name });
                                     return error.TypeError;
                                 }
                             }
                             c.arguments = new_args;
                         } else if (c.arguments.len > f.params.len) {
-                            self.reportError(node.line, node.column, "TypeError: Expected at most {} arguments for method '{s}.{s}', got {}.", .{ f.params.len, class_decl.name, g.name, c.arguments.len });
+                            self.reportError(node.line, node.column, "TypeError: Expected at most {} arguments for method '{s}.{s}', got {}.", .{ f.params.len, type_decl.name, g.name, c.arguments.len });
                             return error.TypeError;
                         }
                     }

@@ -5,14 +5,14 @@ const ts = @import("../../core/type_system.zig");
 const ASTNode = core.ASTNode;
 const CTranspiler = core.CTranspiler;
 
-pub fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
-    const class_decl = node.data.class_decl;
-    const actual_name = class_decl.resolved_c_name orelse class_decl.name;
+pub fn emitTypeDecl(self: *CTranspiler, node: *ASTNode) !void {
+    const type_decl = node.data.type_decl;
+    const actual_name = type_decl.resolved_c_name orelse type_decl.name;
     if (self.classes.contains(actual_name)) return;
     try self.classes.put(actual_name, {});
 
     var primitive_type: ?[]const u8 = null;
-    for (class_decl.annotations) |ann| {
+    for (type_decl.annotations) |ann| {
         if (std.mem.eql(u8, ann.name, "Primitive") and ann.arguments.len > 0) {
             primitive_type = ann.arguments[0];
             break;
@@ -21,7 +21,7 @@ pub fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
 
     if (primitive_type == null) {
         // Pre-emit any array structs needed for properties
-        for (class_decl.primary_constructor) |prop| {
+        for (type_decl.primary_constructor) |prop| {
             if (prop.resolved_type) |rt| {
                 if (ts.extractBaseType(rt).* == .Array) try self.emitArrayStruct(ts.extractBaseType(rt).Array);
             }
@@ -29,19 +29,13 @@ pub fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
 
         // Pre-emit any Custom struct dependencies (e.g. MutableList depends on List)
         if (self.classes_ast) |ca| {
-            if (class_decl.superclass_name) |super_name| {
-                const actual_super = if (self.alias_map) |am| (am.get(super_name) orelse super_name) else super_name;
-                if (ca.get(actual_super)) |dep_node| {
-                    try self.emitClassDecl(dep_node);
-                }
-            }
-            for (class_decl.primary_constructor) |prop| {
+            for (type_decl.primary_constructor) |prop| {
                 if (prop.resolved_type) |rt| {
                     const base = ts.extractBaseType(rt);
                     if (base.* == .Custom) {
                         if (ca.get(base.Custom)) |dep_node| {
-                            if (dep_node.data == .class_decl and dep_node.data.class_decl.generic_params.len == 0) {
-                                try self.emitClassDecl(dep_node);
+                            if (dep_node.data == .type_decl and dep_node.data.type_decl.generic_params.len == 0) {
+                                try self.emitTypeDecl(dep_node);
                             }
                         }
                     }
@@ -51,40 +45,15 @@ pub fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
 
         // Emit Struct
         try self.header_writer.writer().print("typedef struct {s} {s};\n", .{actual_name, actual_name});
-        try self.header_writer.writer().print("extern const AetherClassDescriptor {s}_descriptor;\n", .{actual_name});
+        try self.header_writer.writer().print("extern const AetherTypeDescriptor {s}_descriptor;\n", .{actual_name});
         try self.header_writer.writer().print("struct {s} {{\n", .{actual_name});
-        if (class_decl.superclass_name) |super_name| {
-            const actual_super = if (self.alias_map) |am| (am.get(super_name) orelse super_name) else super_name;
-            try self.header_writer.writer().print("    {s} parent;\n", .{actual_super});
-        } else if (class_decl.is_open) {
-            try self.header_writer.writer().print("    const AetherClassDescriptor* _class_desc;\n", .{});
-        }
-        
-        // Emit function pointers for virtual/open methods
-        for (class_decl.methods) |method| {
-            const m_decl = method.data.fun_decl;
-            if ((class_decl.is_open or class_decl.superclass_name != null) and !self.isOverride(class_decl, m_decl.name)) {
-                var ret_str: []const u8 = "void";
-                if (method.resolved_type) |rt| {
-                    ret_str = try core.getCTypeStr(self.allocator, rt.Function.return_type);
-                }
-                try self.header_writer.writer().print("    {s} (*{s}_ptr)({s}* self", .{ret_str, m_decl.name, actual_name});
-                if (method.resolved_type) |rt| {
-                    const fun_type = rt.Function;
-                    for (m_decl.params, 0..) |p, param_i| {
-                        const param_t_str = try core.getCTypeStr(self.allocator, fun_type.params[param_i]);
-                        try self.header_writer.writer().print(", {s} {s}", .{param_t_str, p.name});
-                    }
-                }
-                try self.header_writer.appendSlice(");\n");
-            }
-        }
+        try self.header_writer.writer().print("    const AetherTypeDescriptor* _desc;\n", .{});
 
-        for (class_decl.primary_constructor) |prop| {
+        for (type_decl.primary_constructor) |prop| {
             if (!prop.is_property) continue;
             var t_str: []const u8 = "void*";
             if (prop.resolved_type) |rt| {
-                t_str = try core.getCTypeStr(self.allocator, rt);
+                t_str = try self.cType(rt);
             }
             try self.header_writer.writer().print("    {s} {s};\n", .{t_str, prop.name});
         }
@@ -92,103 +61,99 @@ pub fn emitClassDecl(self: *CTranspiler, node: *ASTNode) !void {
 
         // Emit Allocator/Constructor Declaration
         try self.header_writer.writer().print("{s}* {s}_new(", .{actual_name, actual_name});
-        for (class_decl.primary_constructor, 0..) |prop, i| {
+        for (type_decl.primary_constructor, 0..) |prop, i| {
             if (i > 0) try self.header_writer.appendSlice(", ");
             var t_str: []const u8 = "void*";
             if (prop.resolved_type) |rt| {
-                t_str = try core.getCTypeStr(self.allocator, rt);
+                t_str = try self.cType(rt);
             }
             try self.header_writer.writer().print("{s} {s}", .{t_str, prop.name});
         }
         try self.header_writer.appendSlice(");\n");
-        if (primitive_type) |pt| {
-            try self.header_writer.writer().print("{s} {s}_constructor({s} this);\n", .{actual_name, actual_name, pt});
-        } else {
-            try self.header_writer.writer().print("{s}* {s}_constructor({s}* this);\n", .{actual_name, actual_name, actual_name});
+        try self.header_writer.writer().print("{s}* {s}_constructor({s}* this);\n", .{actual_name, actual_name, actual_name});
+
+        // Emit vtables for implemented contracts
+        for (type_decl.contracts) |contract_src| {
+            const contract_c_name = if (self.alias_map) |am| (am.get(contract_src) orelse contract_src) else contract_src;
+            const contract_node = if (self.contracts_ast) |ca| ca.get(contract_c_name) orelse continue else continue;
+
+            try self.header_writer.writer().print("extern const AetherContractDescriptor {s}_contract;\n", .{contract_c_name});
+
+            try self.writer.writer().print("void* {s}_{s}_vtable[] = {{\n", .{ actual_name, contract_c_name });
+            for (contract_node.data.contract_decl.methods) |cm| {
+                if (cm.data != .fun_decl) continue;
+                const cm_name = cm.data.fun_decl.name;
+                // Find the implementing method in the type
+                var impl_c_name: ?[]const u8 = null;
+                for (type_decl.methods) |m| {
+                    if (m.data == .fun_decl and std.mem.eql(u8, m.data.fun_decl.name, cm_name)) {
+                        impl_c_name = m.data.fun_decl.resolved_c_name orelse try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ actual_name, cm_name });
+                        break;
+                    }
+                }
+                if (impl_c_name) |icn| {
+                    try self.writer.writer().print("    (void*)&{s},\n", .{icn});
+                } else {
+                    try self.writer.appendSlice("    0,\n");
+                }
+            }
+            try self.writer.appendSlice("};\n");
         }
 
-        // Emit static descriptor definition
-        var super_desc_ptr_str: []const u8 = "0";
-        if (class_decl.superclass_name) |super_name| {
-            const actual_super_name = if (self.alias_map) |am| (am.get(super_name) orelse super_name) else super_name;
-            super_desc_ptr_str = try std.fmt.allocPrint(self.allocator, "&{s}_descriptor", .{actual_super_name});
+        // Emit the impl table + static descriptor definition
+        if (type_decl.contracts.len > 0) {
+            try self.writer.writer().print("const AetherContractImpl {s}_impls[] = {{\n", .{actual_name});
+            for (type_decl.contracts) |contract_src| {
+                const contract_c_name = if (self.alias_map) |am| (am.get(contract_src) orelse contract_src) else contract_src;
+                try self.writer.writer().print("    {{ &{s}_contract, {s}_{s}_vtable }},\n", .{ contract_c_name, actual_name, contract_c_name });
+            }
+            try self.writer.appendSlice("};\n");
+            try self.writer.writer().print("const AetherTypeDescriptor {s}_descriptor = {{ \"{s}\", {s}_impls, {d} }};\n\n", .{ actual_name, type_decl.name, actual_name, type_decl.contracts.len });
+        } else {
+            try self.writer.writer().print("const AetherTypeDescriptor {s}_descriptor = {{ \"{s}\", 0, 0 }};\n\n", .{ actual_name, type_decl.name });
         }
-        try self.writer.writer().print("const AetherClassDescriptor {s}_descriptor = {{ \"{s}\", {s} }};\n\n", .{actual_name, class_decl.name, super_desc_ptr_str});
 
         // Emit Allocator/Constructor Implementation
         try self.writer.writer().print("{s}* {s}_new(", .{actual_name, actual_name});
-        for (class_decl.primary_constructor, 0..) |prop, i| {
+        for (type_decl.primary_constructor, 0..) |prop, i| {
             if (i > 0) try self.writer.appendSlice(", ");
             var t_str: []const u8 = "void*";
             if (prop.resolved_type) |rt| {
-                t_str = try core.getCTypeStr(self.allocator, rt);
+                t_str = try self.cType(rt);
                 if (ts.extractBaseType(rt).* == .Array) try self.emitArrayStruct(ts.extractBaseType(rt).Array);
             }
             try self.writer.writer().print("{s} {s}", .{t_str, prop.name});
         }
         try self.writer.writer().print(") {{\n", .{});
         try self.writer.writer().print("    {s}* instance = ({s}*)GC_MALLOC(sizeof({s}));\n", .{actual_name, actual_name, actual_name});
+        try self.writer.writer().print("    instance->_desc = &{s}_descriptor;\n", .{actual_name});
 
-        if (class_decl.is_open or class_decl.superclass_name != null) {
-            try self.writer.writer().print("    *(const AetherClassDescriptor**)instance = &{s}_descriptor;\n", .{actual_name});
-        }
-
-        // Initialize virtual method pointers
-        for (class_decl.methods) |method| {
-            const m_decl = method.data.fun_decl;
-            if (self.getMethodOwner(class_decl, m_decl.name)) |owner| {
-                const super_path = try self.getSuperclassPath(actual_name, owner);
-                
-                var cast_str = std.ArrayList(u8).init(self.allocator);
-                var ret_str: []const u8 = "void";
-                if (method.resolved_type) |rt| {
-                    ret_str = try core.getCTypeStr(self.allocator, rt.Function.return_type);
-                }
-                try cast_str.writer().print("({s}(*)({s}*", .{ret_str, owner});
-                if (method.resolved_type) |rt| {
-                    const fun_type = rt.Function;
-                    for (m_decl.params, 0..) |p, param_i| {
-                        _ = p;
-                        const param_t_str = try core.getCTypeStr(self.allocator, fun_type.params[param_i]);
-                        try cast_str.writer().print(", {s}", .{param_t_str});
-                    }
-                }
-                try cast_str.appendSlice("))");
-                
-                try self.writer.writer().print("    instance->{s}.{s}_ptr = {s}&{s}_{s};\n", .{super_path, m_decl.name, cast_str.items, actual_name, m_decl.name});
-            } else if (class_decl.is_open or class_decl.superclass_name != null) {
-                try self.writer.writer().print("    instance->{s}_ptr = &{s}_{s};\n", .{m_decl.name, actual_name, m_decl.name});
-            }
-        }
-
-        // Initialize parent fields inline
-        if (class_decl.superclass_name) |super_name| {
-            const actual_super_name = if (self.alias_map) |am| (am.get(super_name) orelse super_name) else super_name;
-            const parent_node = self.classes_ast.?.get(actual_super_name).?;
-            const p_decl = parent_node.data.class_decl;
-            for (class_decl.superclass_args, 0..) |arg, i| {
-                const prop_name = p_decl.primary_constructor[i].name;
-                var prop_path: []const u8 = "";
-                if (self.getPropertyOwner(p_decl, prop_name)) |owner| {
-                    const super_path = try self.getSuperclassPath(actual_super_name, owner);
-                    prop_path = try std.fmt.allocPrint(self.allocator, "{s}.", .{super_path});
-                }
-                try self.writer.writer().print("    instance->parent.{s}{s} = ", .{prop_path, prop_name});
-                try self.emitExpression(arg);
-                try self.writer.appendSlice(";\n");
-            }
-        }
-
-        for (class_decl.primary_constructor) |prop| {
+        for (type_decl.primary_constructor) |prop| {
             if (!prop.is_property) continue;
             try self.writer.writer().print("    instance->{s} = {s};\n", .{prop.name, prop.name});
         }
         try self.writer.appendSlice("    return instance;\n}\n\n");
     }
-    
-    for (class_decl.methods) |method| {
+
+    for (type_decl.methods) |method| {
         try self.emitMethodDecl(actual_name, method, primitive_type);
     }
+}
+
+pub fn emitContractDecl(self: *CTranspiler, node: *ASTNode) !void {
+    const contract_decl = node.data.contract_decl;
+    const actual_name = contract_decl.resolved_c_name orelse contract_decl.name;
+    if (self.classes.contains(actual_name)) return;
+    try self.classes.put(actual_name, {});
+
+    try self.header_writer.writer().print("extern const AetherContractDescriptor {s}_contract;\n", .{actual_name});
+    try self.writer.writer().print("const AetherContractDescriptor {s}_contract = {{ \"{s}\" }};\n\n", .{ actual_name, contract_decl.name });
+}
+
+pub fn emitSkillDecl(self: *CTranspiler, node: *ASTNode) !void {
+    _ = self;
+    _ = node;
+    // Skills emit nothing: their methods are cloned into consuming types.
 }
 
 pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode, primitive_type: ?[]const u8) !void {
@@ -202,7 +167,7 @@ pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode
         if (ret_base.* == .Custom and !self.classes.contains(ret_base.Custom)) {
             try self.forward_writer.writer().print("typedef struct {s} {s};\n", .{ret_base.Custom, ret_base.Custom});
         }
-        const ret_str = try core.getCTypeStr(self.allocator, fun_type.return_type);
+        const ret_str = try self.cType(fun_type.return_type);
         try self.header_writer.writer().print("{s} ", .{ret_str});
     } else {
         try self.header_writer.appendSlice("void ");
@@ -218,7 +183,7 @@ pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode
         const fun_type = rt.Function;
         for (decl.params, 0..) |p, i| {
             try self.header_writer.appendSlice(", ");
-            const param_t_str = try core.getCTypeStr(self.allocator, fun_type.params[i]);
+            const param_t_str = try self.cType(fun_type.params[i]);
             try self.header_writer.writer().print("{s} {s}", .{param_t_str, p.name});
         }
     }
@@ -227,7 +192,7 @@ pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode
     // 2. Emit the implementation to writer
     if (node.resolved_type) |rt| {
         const fun_type = rt.Function;
-        const ret_str = try core.getCTypeStr(self.allocator, fun_type.return_type);
+        const ret_str = try self.cType(fun_type.return_type);
         if (ts.extractBaseType(fun_type.return_type).* == .Array) try self.emitArrayStruct(ts.extractBaseType(fun_type.return_type).Array);
         try self.writer.writer().print("{s} ", .{ret_str});
     } else {
@@ -244,7 +209,7 @@ pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode
         const fun_type = rt.Function;
         for (decl.params, 0..) |p, i| {
             try self.writer.appendSlice(", ");
-            const param_t_str = try core.getCTypeStr(self.allocator, fun_type.params[i]);
+            const param_t_str = try self.cType(fun_type.params[i]);
             if (ts.extractBaseType(fun_type.params[i]).* == .Array) try self.emitArrayStruct(ts.extractBaseType(fun_type.params[i]).Array);
             try self.writer.writer().print("{s} {s}", .{param_t_str, p.name});
         }
@@ -290,7 +255,7 @@ pub fn emitFunDecl(self: *CTranspiler, node: *ASTNode) !void {
         try sig.writer().print("int ", .{});
     } else if (node.resolved_type) |rt| {
         const fun_type = rt.Function;
-        const ret_str = try core.getCTypeStr(self.allocator, fun_type.return_type);
+        const ret_str = try self.cType(fun_type.return_type);
         if (ts.extractBaseType(fun_type.return_type).* == .Array) try self.emitArrayStruct(ts.extractBaseType(fun_type.return_type).Array);
         try sig.writer().print("{s} ", .{ret_str});
     } else {
@@ -300,11 +265,10 @@ pub fn emitFunDecl(self: *CTranspiler, node: *ASTNode) !void {
     try sig.writer().print("{s}(", .{func_name});
     if (is_main) {
         // main has no params or argc/argv if needed later
-    } else if (node.resolved_type) |rt| {
-        const fun_type = rt.Function;
+    } else if (node.resolved_type) |rt| {        const fun_type = rt.Function;
         for (decl.params, 0..) |p, i| {
             if (i > 0) try sig.writer().print(", ", .{});
-            const param_t_str = try core.getCTypeStr(self.allocator, fun_type.params[i]);
+            const param_t_str = try self.cType(fun_type.params[i]);
             if (ts.extractBaseType(fun_type.params[i]).* == .Array) try self.emitArrayStruct(ts.extractBaseType(fun_type.params[i]).Array);
             try sig.writer().print("{s} {s}", .{param_t_str, p.name});
         }
@@ -331,8 +295,11 @@ pub fn emitFunDecl(self: *CTranspiler, node: *ASTNode) !void {
             else => unreachable,
         }
     }
+    if (is_main) {
+        try self.writer.appendSlice("    return 0;\n");
+    }
     try self.writer.appendSlice("}\n\n");
-    
+
     if (is_main) {
         try self.writer.appendSlice("int main() {\n    GC_init();\n");
         for (self.static_initializers.items) |si| {
@@ -399,7 +366,7 @@ pub fn emitObjectDecl(self: *CTranspiler, node: *ASTNode) anyerror!void {
             
             var type_str: []const u8 = "int";
             if (member.resolved_type) |rt| {
-                type_str = try core.getCTypeStr(self.allocator, rt);
+                type_str = try self.cType(rt);
             }
             // Declarations in header
             try self.header_writer.writer().print("extern {s} {s};\n", .{type_str, var_name});

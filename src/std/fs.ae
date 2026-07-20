@@ -9,7 +9,7 @@ lib NativeFS {
     fun remove(path: String): Int
 }
 
-class File(val path: String) {
+type File(val path: String) {
 
     fun read(): String {
         val file = NativeFS.fopen(path, "rb")

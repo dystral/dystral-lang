@@ -1,6 +1,6 @@
 import { assert } from "std.core"
 
-class Box<T>(val item: T) {
+type Box<T>(val item: T) {
     fun get(): T = item
 }
 

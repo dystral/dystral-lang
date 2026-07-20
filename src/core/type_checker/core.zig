@@ -58,9 +58,13 @@ pub const TypeChecker = struct {
     current_class_props: ?*std.StringHashMap(void) = null,
     classes_ast: std.StringHashMap(*ASTNode),
     objects_ast: std.StringHashMap(*ASTNode),
+    contracts_ast: std.StringHashMap(*ASTNode),
+    skills_ast: std.StringHashMap(*ASTNode),
     functions_ast: std.StringHashMap(*ASTNode),
+    local_symbols: std.StringHashMap(void),
     monomorphized_nodes: std.ArrayList(*ASTNode),
     current_class_name: ?[]const u8 = null,
+    current_type_c_name: ?[]const u8 = null,
     registry: ?*ModuleRegistry = null,
     pass: enum { declaration, validation } = .validation,
     status: enum {
@@ -88,7 +92,8 @@ pub const TypeChecker = struct {
     pub const resolveImports = core_resolveImports;
     pub const checkBlock = infer_stmt_mod.checkBlock;
     pub const isCompatible = core_isCompatible;
-    pub const isSubclassOf = core_isSubclassOf;
+    pub const conformsTo = core_conformsTo;
+    pub const implementsContract = core_implementsContract;
     pub const injectImplicitImports = core_injectImplicitImports;
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, filename: []const u8) TypeChecker {
@@ -103,7 +108,10 @@ pub const TypeChecker = struct {
             .current_class_props = null,
             .classes_ast = std.StringHashMap(*ASTNode).init(allocator),
             .objects_ast = std.StringHashMap(*ASTNode).init(allocator),
+            .contracts_ast = std.StringHashMap(*ASTNode).init(allocator),
+            .skills_ast = std.StringHashMap(*ASTNode).init(allocator),
             .functions_ast = std.StringHashMap(*ASTNode).init(allocator),
+            .local_symbols = std.StringHashMap(void).init(allocator),
             .monomorphized_nodes = std.ArrayList(*ASTNode).init(allocator),
             .current_class_name = null,
             .registry = null,
@@ -119,7 +127,10 @@ pub const TypeChecker = struct {
         self.alias_map.deinit();
         self.classes_ast.deinit();
         self.objects_ast.deinit();
+        self.contracts_ast.deinit();
+        self.skills_ast.deinit();
         self.functions_ast.deinit();
+        self.local_symbols.deinit();
         self.monomorphized_nodes.deinit();
     }
 };
@@ -349,8 +360,8 @@ fn core_declareTypes(self: *TypeChecker, node: *ASTNode) anyerror!void {
 
         // Declare local types
         for (node.data.program.statements) |stmt| {
-            if (stmt.data == .class_decl) {
-                var c = &stmt.data.class_decl;
+            if (stmt.data == .type_decl) {
+                var c = &stmt.data.type_decl;
                 if (c.resolved_c_name == null) {
                     if (self.module_prefix) |prefix| {
                         c.resolved_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ prefix, c.name });
@@ -380,6 +391,38 @@ fn core_declareTypes(self: *TypeChecker, node: *ASTNode) anyerror!void {
                     _ = self.global_scope.define(actual_c_name, class_type, false, false) catch {};
                 }
                 try self.classes_ast.put(actual_c_name, stmt);
+                try self.local_symbols.put(c.name, {});
+            } else if (stmt.data == .contract_decl) {
+                var cd = &stmt.data.contract_decl;
+                if (cd.resolved_c_name == null) {
+                    if (self.module_prefix) |prefix| {
+                        cd.resolved_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ prefix, cd.name });
+                        try self.alias_map.put(cd.name, cd.resolved_c_name.?);
+                    } else {
+                        cd.resolved_c_name = cd.name;
+                    }
+                }
+                const actual_c_name = cd.resolved_c_name.?;
+                const contract_type = try self.allocator.create(AetherType);
+                contract_type.* = .{ .Custom = actual_c_name };
+                _ = self.global_scope.define(cd.name, contract_type, false, false) catch {};
+                if (!std.mem.eql(u8, cd.name, actual_c_name)) {
+                    _ = self.global_scope.define(actual_c_name, contract_type, false, false) catch {};
+                }
+                try self.contracts_ast.put(actual_c_name, stmt);
+                try self.local_symbols.put(cd.name, {});
+            } else if (stmt.data == .skill_decl) {
+                var sd = &stmt.data.skill_decl;
+                if (sd.resolved_c_name == null) {
+                    if (self.module_prefix) |prefix| {
+                        sd.resolved_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ prefix, sd.name });
+                        try self.alias_map.put(sd.name, sd.resolved_c_name.?);
+                    } else {
+                        sd.resolved_c_name = sd.name;
+                    }
+                }
+                try self.skills_ast.put(sd.resolved_c_name.?, stmt);
+                try self.local_symbols.put(sd.name, {});
             } else if (stmt.data == .object_decl) {
                 var o = &stmt.data.object_decl;
                 if (o.name) |o_name| {
@@ -395,6 +438,7 @@ fn core_declareTypes(self: *TypeChecker, node: *ASTNode) anyerror!void {
                     const obj_type = try self.allocator.create(AetherType);
                     obj_type.* = .{ .Custom = actual_c_name };
                     try self.objects_ast.put(actual_c_name, stmt);
+                    try self.local_symbols.put(o_name, {});
                     if (self.global_scope.lookupVariable(o_name) == null) {
                         _ = self.global_scope.define(o_name, obj_type, false, false) catch {};
                         if (!std.mem.eql(u8, o_name, actual_c_name)) {
@@ -452,7 +496,7 @@ fn core_declareSignatures(self: *TypeChecker, node: *ASTNode) anyerror!void {
 
         // Declare local signatures
         for (node.data.program.statements) |stmt| {
-            if (stmt.data == .lib_decl or stmt.data == .class_decl or stmt.data == .object_decl or stmt.data == .fun_decl) {
+            if (stmt.data == .lib_decl or stmt.data == .type_decl or stmt.data == .contract_decl or stmt.data == .skill_decl or stmt.data == .object_decl or stmt.data == .fun_decl) {
                 _ = try self.inferNode(stmt, &self.global_scope);
             }
         }
@@ -529,7 +573,7 @@ fn core_validate(self: *TypeChecker, node: *ASTNode) anyerror!void {
     while (mono_idx < self.monomorphized_nodes.items.len) : (mono_idx += 1) {
         const mono_node = self.monomorphized_nodes.items[mono_idx];
         const class_type = try self.allocator.create(AetherType);
-        try infer_decl_mod.inferClassDecl(self, mono_node, &self.global_scope, class_type);
+        try infer_decl_mod.inferTypeDecl(self, mono_node, &self.global_scope, class_type);
     }
 
     // Append any dynamically monomorphized classes to the AST
@@ -550,7 +594,7 @@ fn core_validate(self: *TypeChecker, node: *ASTNode) anyerror!void {
 fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*const AetherType {
     if (self.pass == .validation) {
         switch (node.data) {
-            .program, .class_decl, .object_decl, .fun_decl => {},
+            .program, .type_decl, .object_decl, .fun_decl => {},
             else => {
                 if (node.resolved_type) |rt| {
                     return rt;
@@ -577,7 +621,9 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
         },
         .import_stmt => try infer_decl_mod.inferImportStmt(self, node, scope, t),
         .lib_decl => try infer_decl_mod.inferLibDecl(self, node, scope, t),
-        .class_decl => try infer_decl_mod.inferClassDecl(self, node, scope, t),
+        .type_decl => try infer_decl_mod.inferTypeDecl(self, node, scope, t),
+        .contract_decl => try infer_decl_mod.inferContractDecl(self, node, scope, t),
+        .skill_decl => try infer_decl_mod.inferSkillDecl(self, node, scope, t),
         .object_decl => try infer_decl_mod.inferObjectDecl(self, node, scope, t),
         .fun_decl => try infer_decl_mod.inferFunDecl(self, node, scope, t),
         .var_decl => try infer_decl_mod.inferVarDecl(self, node, scope, t),
@@ -674,20 +720,27 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
     return t;
 }
 
-fn core_isSubclassOf(self: *TypeChecker, subclass_name: []const u8, superclass_name: []const u8) bool {
-    if (std.mem.eql(u8, subclass_name, superclass_name)) return true;
+fn core_conformsTo(self: *TypeChecker, actual_name: []const u8, target_name: []const u8) bool {
+    const actual = self.alias_map.get(actual_name) orelse actual_name;
+    const target = self.alias_map.get(target_name) orelse target_name;
+    if (std.mem.eql(u8, actual, target)) return true;
 
-    var current_name = subclass_name;
-    while (true) {
-        const class_node = self.classes_ast.get(current_name) orelse return false;
-        const c = class_node.data.class_decl;
-        if (c.superclass_name) |parent| {
-            const parent_actual = self.alias_map.get(parent) orelse parent;
-            if (std.mem.eql(u8, parent_actual, superclass_name)) return true;
-            current_name = parent_actual;
-        } else {
-            break;
-        }
+    if (self.contracts_ast.contains(target)) {
+        return self.implementsContract(actual, target);
+    }
+    return false;
+}
+
+fn core_implementsContract(self: *TypeChecker, type_name: []const u8, contract_name: []const u8) bool {
+    const actual_type = self.alias_map.get(type_name) orelse type_name;
+    const actual_contract = self.alias_map.get(contract_name) orelse contract_name;
+    if (std.mem.eql(u8, actual_type, actual_contract)) return true;
+
+    const node = self.classes_ast.get(actual_type) orelse return false;
+    if (node.data != .type_decl) return false;
+    for (node.data.type_decl.contracts) |c| {
+        const c_actual = self.alias_map.get(c) orelse c;
+        if (std.mem.eql(u8, c_actual, actual_contract)) return true;
     }
     return false;
 }
@@ -701,7 +754,7 @@ fn core_isCompatible(self: *TypeChecker, expected: *const AetherType, actual: *c
     const act_base = extractBaseType(actual);
 
     if (exp_base.* == .Custom and act_base.* == .Custom) {
-        return self.isSubclassOf(act_base.Custom, exp_base.Custom);
+        return self.conformsTo(act_base.Custom, exp_base.Custom);
     }
 
     if (std.meta.activeTag(exp_base.*) == std.meta.activeTag(act_base.*)) {

@@ -1,6 +1,6 @@
 import { MutableList } from "std.collections"
 
-class Body(
+type Body(
     var name: String,
     var x: Int,
     var y: Int,
@@ -21,7 +21,7 @@ class Body(
     }
 }
 
-class NBodySystem(val bodies: MutableList<Body>) {
+type NBodySystem(val bodies: MutableList<Body>) {
     fun step(dt: Int): Void {
         var i = 0
         while (i < this.bodies.size()) {

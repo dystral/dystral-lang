@@ -1,0 +1,89 @@
+// Composition Type System Tests (Phase 41 / ADR 25)
+
+contract Drawable {
+    fun draw(): String
+}
+
+skill Shadow : Drawable {
+
+    fun render(): String {
+        return draw() + " + shadow"
+    }
+
+}
+
+skill MouseInput {
+
+    fun click(): String {
+        return "mouse click"
+    }
+
+}
+
+skill TouchInput {
+
+    fun click(): String {
+        return "touch click"
+    }
+
+}
+
+type Button(val label: String)
+    : Drawable
+    + Shadow
+    + MouseInput
+    + TouchInput {
+
+    implement fun draw(): String {
+        return "draw " + label
+    }
+
+    // Explicit conflict resolution between MouseInput and TouchInput
+    implement fun click(): String {
+        return MouseInput.click()
+    }
+
+}
+
+type BoomException(val text: String) : Throwable {
+
+    implement fun message(): String {
+        return text
+    }
+
+}
+
+fun fail(): Int {
+    throw BoomException("boom")
+}
+
+test "composicao: type implementa contract" {
+    val button = Button("OK")
+    assert(button.draw() == "draw OK")
+}
+
+test "composicao: skill usa contract do tipo consumidor" {
+    val button = Button("OK")
+    assert(button.render() == "draw OK + shadow")
+}
+
+test "composicao: conflito de skills resolvido explicitamente" {
+    val button = Button("OK")
+    assert(button.click() == "mouse click")
+}
+
+test "composicao: polimorfismo via contract" {
+    val d: Drawable = Button("Save")
+    assert(d.draw() == "draw Save")
+}
+
+test "composicao: excecao via contract Throwable" {
+    var caught = ""
+    try {
+        fail()
+    }
+    catch (e: Throwable) {
+        caught = e.message()
+    }
+    assert(caught == "boom")
+}

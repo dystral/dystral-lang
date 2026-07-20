@@ -10,8 +10,8 @@ fn listItemType(self: *CTranspiler, t: *const ts.AetherType) ?*const ts.AetherTy
     if (base.* != .Custom) return null;
     const classes_ast = self.classes_ast orelse return null;
     const class_node = classes_ast.get(base.Custom) orelse return null;
-    if (class_node.data != .class_decl) return null;
-    for (class_node.data.class_decl.primary_constructor) |prop| {
+    if (class_node.data != .type_decl) return null;
+    for (class_node.data.type_decl.primary_constructor) |prop| {
         if (!std.mem.eql(u8, prop.name, "items")) continue;
         const prop_type = prop.resolved_type orelse continue;
         const prop_base = ts.extractBaseType(prop_type);
@@ -198,7 +198,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             if (self.objects_ast) |oa| {
                 if (g.object.data == .identifier) {
                     const class_name = g.object.data.identifier.name;
-                    const actual_class_name = if (self.alias_map) |am| (am.get(class_name) orelse class_name) else class_name;
+                    const actual_class_name = g.object.data.identifier.resolved_c_name orelse if (self.alias_map) |am| (am.get(class_name) orelse class_name) else class_name;
                     if (oa.contains(actual_class_name)) {
                         try self.writer.writer().print("{s}_{s}", .{actual_class_name, g.name});
                         return;
@@ -209,28 +209,17 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             const base_type = ts.extractBaseType(rt);
             if (base_type.* == .Custom) {
                 const class_name = base_type.Custom;
-                
-                var prop_path: []const u8 = "";
-                if (self.classes_ast) |ca| {
-                    if (ca.get(class_name)) |class_node| {
-                        const cd = class_node.data.class_decl;
-                        if (self.getPropertyOwner(cd, g.name)) |owner| {
-                            const super_path = try self.getSuperclassPath(class_name, owner);
-                            prop_path = try std.fmt.allocPrint(self.allocator, "{s}.", .{super_path});
-                        }
-                    }
-                }
-                
+
                 if (g.is_safe) {
                     try self.writer.appendSlice("((");
                     try self.emitExpression(g.object);
                     try self.writer.writer().print(") == 0 ? 0 : ((({s}*)(", .{class_name});
                     try self.emitExpression(g.object);
-                    try self.writer.writer().print("))->{s}{s}))", .{prop_path, g.name});
+                    try self.writer.writer().print("))->{s}))", .{g.name});
                 } else {
                     try self.writer.writer().print("((({s}*)(", .{class_name});
                     try self.emitExpression(g.object);
-                    try self.writer.writer().print("))->{s}{s})", .{prop_path, g.name});
+                    try self.writer.writer().print("))->{s})", .{g.name});
                 }
             } else {
                 if (g.is_safe) {
@@ -249,7 +238,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             if (self.objects_ast) |oa| {
                 if (s.object.data == .identifier) {
                     const class_name = s.object.data.identifier.name;
-                    const actual_class_name = if (self.alias_map) |am| (am.get(class_name) orelse class_name) else class_name;
+                    const actual_class_name = s.object.data.identifier.resolved_c_name orelse if (self.alias_map) |am| (am.get(class_name) orelse class_name) else class_name;
                     if (oa.contains(actual_class_name)) {
                         try self.writer.writer().print("({s}_{s} = ", .{actual_class_name, s.name});
                         try self.emitExpression(s.value);
@@ -262,21 +251,10 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             const base_type = ts.extractBaseType(rt);
             if (base_type.* == .Custom) {
                 const class_name = base_type.Custom;
-                
-                var prop_path: []const u8 = "";
-                if (self.classes_ast) |ca| {
-                    if (ca.get(class_name)) |class_node| {
-                        const cd = class_node.data.class_decl;
-                        if (self.getPropertyOwner(cd, s.name)) |owner| {
-                            const super_path = try self.getSuperclassPath(class_name, owner);
-                            prop_path = try std.fmt.allocPrint(self.allocator, "{s}.", .{super_path});
-                        }
-                    }
-                }
-                
+
                 try self.writer.writer().print("((({s}*)(", .{class_name});
                 try self.emitExpression(s.object);
-                try self.writer.writer().print("))->{s}{s} = ", .{prop_path, s.name});
+                try self.writer.writer().print("))->{s} = ", .{s.name});
                 try self.emitExpression(s.value);
                 try self.writer.appendSlice(")");
             } else {
@@ -300,7 +278,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                         const actual_cn = if (self.alias_map) |am| am.get(cn) orelse cn else cn;
                         if (self.classes_ast) |ca| {
                             if (ca.get(actual_cn)) |class_node| {
-                                const cd = class_node.data.class_decl;
+                                const cd = class_node.data.type_decl;
                                 for (cd.primary_constructor) |prop| {
                                     if (std.mem.eql(u8, prop.name, g.name)) {
                                         is_closure = true;
@@ -422,58 +400,58 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     }
                 }
                 
-                var is_virtual_call = false;
-                var owner_class_c_name: []const u8 = "";
-                if (self.classes_ast) |ca| {
-                    if (ca.get(class_name)) |class_node| {
-                        const cd = class_node.data.class_decl;
-                        if (cd.is_open or cd.superclass_name != null) {
-                            if (self.getMethodOwner(cd, g.name)) |owner| {
-                                is_virtual_call = true;
-                                owner_class_c_name = owner;
-                            } else {
-                                for (cd.methods) |m| {
-                                    if (std.mem.eql(u8, m.data.fun_decl.name, g.name)) {
-                                        is_virtual_call = true;
-                                        owner_class_c_name = class_name;
-                                        break;
-                                    }
-                                }
+                var is_contract_call = false;
+                var contract_method_index: usize = 0;
+                if (self.isContract(class_name)) {
+                    if (self.contracts_ast.?.get(class_name)) |cnode| {
+                        for (cnode.data.contract_decl.methods, 0..) |cm, idx| {
+                            if (cm.data == .fun_decl and std.mem.eql(u8, cm.data.fun_decl.name, g.name)) {
+                                is_contract_call = true;
+                                contract_method_index = idx;
+                                break;
                             }
                         }
                     }
                 }
 
-                if (g.is_safe) {
+                if (is_contract_call) {
+                    // Dynamic dispatch through the object header descriptor + contract vtable
+                    const cnode = self.contracts_ast.?.get(class_name).?;
+                    const cm = cnode.data.contract_decl.methods[contract_method_index];
+                    var ret_str: []const u8 = "void";
+                    var params_str = std.ArrayList(u8).init(self.allocator);
+                    if (cm.resolved_type) |crt| {
+                        if (crt.* == .Function) {
+                            ret_str = try self.cType(crt.Function.return_type);
+                            for (crt.Function.params) |p| {
+                                try params_str.appendSlice(", ");
+                                try params_str.appendSlice(try self.cType(p));
+                            }
+                        }
+                    }
+                    try self.writer.writer().print("(({s}(*)(void*{s}))aether_find_vtable(*(const AetherTypeDescriptor**)(", .{ ret_str, params_str.items });
+                    try self.emitExpression(g.object);
+                    try self.writer.writer().print("), &{s}_contract)[{d}])(", .{ class_name, contract_method_index });
+                    try self.emitExpression(g.object);
+                    for (c.arguments) |arg| {
+                        try self.writer.appendSlice(", ");
+                        try self.emitExpression(arg);
+                    }
+                    try self.writer.appendSlice(")");
+                } else if (g.is_safe) {
                     try self.writer.appendSlice("((");
                     try self.emitExpression(g.object);
                     try self.writer.appendSlice(") == 0 ? 0 : ");
-                    if (is_virtual_call) {
-                        try self.writer.writer().print("(({s}*)(", .{owner_class_c_name});
-                        try self.emitExpression(g.object);
-                        try self.writer.writer().print("))->{s}_ptr(({s}*)(", .{g.name, owner_class_c_name});
-                        try self.emitExpression(g.object);
-                        try self.writer.appendSlice(")");
-                    } else {
-                        try self.writer.writer().print("{s}_{s}(", .{class_name, g.name});
-                        try self.emitExpression(g.object);
-                    }
+                    try self.writer.writer().print("{s}_{s}(", .{class_name, g.name});
+                    try self.emitExpression(g.object);
                     for (c.arguments) |arg| {
                         try self.writer.appendSlice(", ");
                         try self.emitExpression(arg);
                     }
                     try self.writer.appendSlice("))");
                 } else {
-                    if (is_virtual_call) {
-                        try self.writer.writer().print("(({s}*)(", .{owner_class_c_name});
-                        try self.emitExpression(g.object);
-                        try self.writer.writer().print("))->{s}_ptr(({s}*)(", .{g.name, owner_class_c_name});
-                        try self.emitExpression(g.object);
-                        try self.writer.appendSlice(")");
-                    } else {
-                        try self.writer.writer().print("{s}_{s}(", .{class_name, g.name});
-                        try self.emitExpression(g.object);
-                    }
+                    try self.writer.writer().print("{s}_{s}(", .{class_name, g.name});
+                    try self.emitExpression(g.object);
                     for (c.arguments) |arg| {
                         try self.writer.appendSlice(", ");
                         try self.emitExpression(arg);
@@ -584,7 +562,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                         class_name = base.Custom;
                         if (self.classes_ast) |ca| {
                             if (ca.get(class_name)) |class_node| {
-                                const cd = class_node.data.class_decl;
+                                const cd = class_node.data.type_decl;
                                 for (cd.methods) |method| {
                                     if (method.data == .fun_decl and std.mem.eql(u8, method.data.fun_decl.name, "equals")) {
                                         has_equals = true;
@@ -675,9 +653,15 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             }
             try self.writer.appendSlice("((");
             try self.emitExpression(i.value);
-            try self.writer.writer().print(") != 0 && aether_is_instance(*(const AetherClassDescriptor**)(", .{});
-            try self.emitExpression(i.value);
-            try self.writer.writer().print("), &{s}_descriptor))", .{target_c_name});
+            if (self.isContract(target_c_name)) {
+                try self.writer.writer().print(") != 0 && aether_implements(*(const AetherTypeDescriptor**)(", .{});
+                try self.emitExpression(i.value);
+                try self.writer.writer().print("), &{s}_contract))", .{target_c_name});
+            } else {
+                try self.writer.writer().print(") != 0 && *(const AetherTypeDescriptor**)(", .{});
+                try self.emitExpression(i.value);
+                try self.writer.writer().print(") == &{s}_descriptor)", .{target_c_name});
+            }
             if (i.is_not) {
                 try self.writer.appendSlice(")");
             }
@@ -693,14 +677,14 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
 
             const res_var_name = try std.fmt.allocPrint(self.allocator, "_when_res_{}_{}", .{ node.line, node.column });
             if (!is_void) {
-                const res_c_type = try core.getCTypeStr(self.allocator, res_t);
+                const res_c_type = try self.cType(res_t);
                 try self.writer.writer().print("{s} {s}; ", .{ res_c_type, res_var_name });
             }
 
             const subj_var_name = try std.fmt.allocPrint(self.allocator, "_when_subj_{}_{}", .{ node.line, node.column });
             if (w.subject) |subj| {
                 const subj_t = subj.resolved_type.?;
-                const subj_c_type = try core.getCTypeStr(self.allocator, subj_t);
+                const subj_c_type = try self.cType(subj_t);
                 try self.writer.writer().print("{s} {s} = ", .{ subj_c_type, subj_var_name });
                 try self.emitExpression(subj);
                 try self.writer.appendSlice("; ");
@@ -732,8 +716,13 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                                 if (type_cond.is_not) {
                                     try self.writer.appendSlice("!(");
                                 }
-                                try self.writer.writer().print("(({s}) != 0 && aether_is_instance(*(const AetherClassDescriptor**)(", .{ subj_var_name });
-                                try self.writer.writer().print("{s}), &{s}_descriptor))", .{ subj_var_name, target_c_name });
+                                if (self.isContract(target_c_name)) {
+                                    try self.writer.writer().print("(({s}) != 0 && aether_implements(*(const AetherTypeDescriptor**)(", .{ subj_var_name });
+                                    try self.writer.writer().print("{s}), &{s}_contract))", .{ subj_var_name, target_c_name });
+                                } else {
+                                    try self.writer.writer().print("(({s}) != 0 && *(const AetherTypeDescriptor**)(", .{ subj_var_name });
+                                    try self.writer.writer().print("{s}) == &{s}_descriptor)", .{ subj_var_name, target_c_name });
+                                }
                                 if (type_cond.is_not) {
                                     try self.writer.appendSlice(")");
                                 }

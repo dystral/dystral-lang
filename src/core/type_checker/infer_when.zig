@@ -62,10 +62,10 @@ pub fn inferWhenExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                     const base_target = core.extractBaseType(target_t);
 
                     if (base_subj.* == .Custom and base_target.* == .Custom) {
-                        const is_upcast = self.isSubclassOf(base_subj.Custom, base_target.Custom);
-                        const is_downcast = self.isSubclassOf(base_target.Custom, base_subj.Custom);
+                        const is_upcast = self.conformsTo(base_subj.Custom, base_target.Custom);
+                        const is_downcast = self.conformsTo(base_target.Custom, base_subj.Custom);
                         if (!is_upcast and !is_downcast) {
-                            self.reportError(cond.line, cond.column, "TypeError: Incompatible types for when type check: {s} is not in the inheritance hierarchy of {s}.", .{ base_subj.Custom, base_target.Custom });
+                            self.reportError(cond.line, cond.column, "TypeError: Incompatible types for when type check: {s} does not conform to {s}.", .{ base_subj.Custom, base_target.Custom });
                             return error.TypeError;
                         }
                     } else {

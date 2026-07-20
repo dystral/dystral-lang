@@ -1,9 +1,9 @@
 import { Server, ServerConnection, Request } from "std.http"
 import { List, MutableList, Map, MutableMap, Node } from "std.collections"
 
-class Route(val method: String, val path: String, val handler: ApplicationCall.() -> Void)
+type Route(val method: String, val path: String, val handler: ApplicationCall.() -> Void)
 
-class RoutingBuilder(val routes: MutableList<Route?> = MutableList<Route?>()) {
+type RoutingBuilder(val routes: MutableList<Route?> = MutableList<Route?>()) {
     fun get(path: String, handler: ApplicationCall.() -> Void) {
         this.routes.add(Route("GET", path, handler))
     }
@@ -21,7 +21,7 @@ class RoutingBuilder(val routes: MutableList<Route?> = MutableList<Route?>()) {
     }
 }
 
-class ArestBuilder(
+type ArestBuilder(
     val port: Int,
     var running: Bool = true,
     val routingBuilder: RoutingBuilder = RoutingBuilder()
@@ -35,7 +35,7 @@ class ArestBuilder(
     }
 }
 
-class ApplicationCall(
+type ApplicationCall(
     val conn: ServerConnection,
     val request: Request,
     val server: ArestBuilder

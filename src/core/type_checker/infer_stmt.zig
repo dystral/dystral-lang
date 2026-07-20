@@ -123,48 +123,63 @@ pub fn checkBlock(self: *TypeChecker, block: []const *ASTNode, parent_scope: *Sc
 pub fn inferThrowStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const expr = node.data.throw_stmt.expr;
     const expr_type = try self.inferNode(expr, scope);
-    
-    const exception_type = self.resolveTypeName("Exception", false) catch {
-        self.reportError(node.line, node.column, "TypeError: Class 'Exception' must be declared in std.core.", .{});
+
+    const throwable_type = self.resolveTypeName("Throwable", false) catch {
+        self.reportError(node.line, node.column, "TypeError: Contract 'Throwable' must be declared in std.core.", .{});
         return error.TypeError;
     };
-    
-    if (!self.isCompatible(exception_type, expr_type)) {
-        self.reportError(node.line, node.column, "TypeError: Can only throw objects inheriting from Exception, found {}.", .{expr_type.*});
+
+    const expr_base = core.extractBaseType(expr_type);
+    var conforms = false;
+    if (expr_base.* == .Custom) {
+        const throwable_base = core.extractBaseType(throwable_type);
+        conforms = self.conformsTo(expr_base.Custom, throwable_base.Custom);
+    }
+    if (!conforms) {
+        self.reportError(node.line, node.column, "TypeError: Can only throw values of types implementing the 'Throwable' contract, found {}.", .{expr_type.*});
         return error.TypeError;
     }
-    
+
     t.* = .Void;
 }
 
 pub fn inferTryStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const ts = node.data.try_stmt;
     _ = try self.inferNode(ts.body, scope);
-    
-    const exception_type = self.resolveTypeName("Exception", false) catch {
-        self.reportError(node.line, node.column, "TypeError: Class 'Exception' must be declared in std.core.", .{});
+
+    const throwable_type = self.resolveTypeName("Throwable", false) catch {
+        self.reportError(node.line, node.column, "TypeError: Contract 'Throwable' must be declared in std.core.", .{});
         return error.TypeError;
     };
-    
+    const throwable_base = core.extractBaseType(throwable_type);
+
     for (ts.catches) |c| {
         var catch_scope = Scope.init(self.allocator, scope);
         defer catch_scope.deinit();
-        
+
         if (c.var_name) |var_name| {
-            try catch_scope.define(var_name, exception_type, false, false);
-            
+            var var_type: *const AetherType = throwable_type;
+            if (c.types.len == 1) {
+                var_type = try self.resolveTypeRef(c.types[0]);
+            }
+            try catch_scope.define(var_name, var_type, false, false);
+
             for (c.types) |tr| {
                 const target_t = try self.resolveTypeRef(tr);
-                if (!self.isCompatible(exception_type, target_t)) {
-                    self.reportError(node.line, node.column, "TypeError: Catch block type must inherit from Exception, found {}.", .{target_t.*});
-                    return error.TypeError;
+                const target_base = core.extractBaseType(target_t);
+                if (target_base.* == .Custom) {
+                    const is_contract = self.contracts_ast.contains(target_base.Custom);
+                    if (!is_contract and !self.conformsTo(target_base.Custom, throwable_base.Custom)) {
+                        self.reportError(node.line, node.column, "TypeError: Catch block type must be a contract or a type implementing 'Throwable', found {}.", .{target_t.*});
+                        return error.TypeError;
+                    }
                 }
             }
         }
-        
+
         _ = try self.inferNode(c.body, &catch_scope);
     }
-    
+
     t.* = .Void;
 }
 

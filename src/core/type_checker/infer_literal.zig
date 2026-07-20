@@ -40,7 +40,7 @@ pub fn inferArrayLiteral(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *
         self.reportError(node.line, node.column, "TypeError: Class 'List' not found for array literal.", .{});
         return error.TypeError;
     }
-    const class_decl = class_node.?.data.class_decl;
+    const type_decl = class_node.?.data.type_decl;
     var type_args = try self.allocator.alloc(*const AetherType, 1);
     type_args[0] = first_type;
     
@@ -50,7 +50,7 @@ pub fn inferArrayLiteral(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *
     try mangled.appendSlice("_");
     try first_type.formatSafe(mangled.writer());
     const mangled_name = try mangled.toOwnedSlice();
-    try self.monomorphizeClass(class_decl.name, type_args, mangled_name);
+    try self.monomorphizeClass(type_decl.name, type_args, mangled_name);
     
     t.* = .{ .Custom = self.alias_map.get(mangled_name) orelse mangled_name };
 }

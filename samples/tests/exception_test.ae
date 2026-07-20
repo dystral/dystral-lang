@@ -1,6 +1,15 @@
-// Custom exception hierarchy
-class CustomException(message: String) : Exception(message)
-class AnotherException(message: String) : Exception(message)
+// Custom exceptions via the Throwable contract (no hierarchy)
+type CustomException(val text: String) : Throwable {
+    implement fun message(): String {
+        return this.text
+    }
+}
+
+type AnotherException(val text: String) : Throwable {
+    implement fun message(): String {
+        return this.text
+    }
+}
 
 fun throwError(shouldThrow: Bool) {
     if (shouldThrow) {
@@ -19,9 +28,9 @@ test "exception: basic throw and catch" {
         throwError(true)
     } catch (e: CustomException) {
         caught = true
-        msg = e.message
+        msg = e.message()
     }
-    
+
     assert(caught == true)
     assert(msg == "Custom error thrown")
 }
@@ -48,27 +57,27 @@ test "exception: generic catch-all" {
 
 test "exception: multi-catch with union types" {
     var count = 0
-    
+
     // Test catch of the first type
     try {
         throw CustomException("error 1")
     } catch (e: CustomException | AnotherException) {
         count = count + 1
-        assert(e.message == "error 1")
+        assert(e.message() == "error 1")
         assert(e is CustomException)
         assert(e !is AnotherException)
     }
-    
+
     // Test catch of the second type in the same block
     try {
         throw AnotherException("error 2")
     } catch (e: CustomException | AnotherException) {
         count = count + 1
-        assert(e.message == "error 2")
+        assert(e.message() == "error 2")
         assert(e is AnotherException)
         assert(e !is CustomException)
     }
-    
+
     assert(count == 2)
 }
 
@@ -81,9 +90,9 @@ test "exception: rethrow of uncaught error" {
             // Should not catch AnotherException
             assert(false)
         }
-    } catch (e: Exception) {
+    } catch (e: Throwable) {
         caughtLevel2 = true
-        assert(e.message == "should propagate")
+        assert(e.message() == "should propagate")
     }
     assert(caughtLevel2 == true)
 }
@@ -103,11 +112,7 @@ test "exception: catching failed assertions" {
         assert(1 == 2)
     } catch (e: AssertionException) {
         caught = true
-        assert(e.message == "Assertion failed")
+        assert(e.message() == "Assertion failed")
     }
     assert(caught == true)
 }
-
-
-
-

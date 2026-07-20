@@ -91,8 +91,10 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, text, "val")) return .kw_val;
         if (std.mem.eql(u8, text, "var")) return .kw_var;
         if (std.mem.eql(u8, text, "fun")) return .kw_fun;
-        if (std.mem.eql(u8, text, "class")) return .kw_class;
-        if (std.mem.eql(u8, text, "override")) return .kw_override;
+        if (std.mem.eql(u8, text, "type")) return .kw_type;
+        if (std.mem.eql(u8, text, "contract")) return .kw_contract;
+        if (std.mem.eql(u8, text, "skill")) return .kw_skill;
+        if (std.mem.eql(u8, text, "implement")) return .kw_implement;
         if (std.mem.eql(u8, text, "operator")) return .kw_operator;
         if (std.mem.eql(u8, text, "null")) return .kw_null;
         if (std.mem.eql(u8, text, "if")) return .kw_if;
@@ -106,7 +108,6 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, text, "test")) return .kw_test;
         if (std.mem.eql(u8, text, "lib")) return .kw_lib;
         if (std.mem.eql(u8, text, "of")) return .kw_of;
-        if (std.mem.eql(u8, text, "open")) return .kw_open;
         if (std.mem.eql(u8, text, "as")) return .kw_as;
         if (std.mem.eql(u8, text, "is")) return .kw_is;
         if (std.mem.eql(u8, text, "try")) return .kw_try;

@@ -1,7 +1,7 @@
 import { CircularGroup } from "circular_group"
 import { print } from "std.core"
 
-class CircularUser(val name: String, val group: CircularGroup) {
+type CircularUser(val name: String, val group: CircularGroup) {
     fun show() {
         print("User: " + name + " in group " + group.name)
     }

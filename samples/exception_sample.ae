@@ -1,4 +1,8 @@
-class InvalidAgeException(message: String) : Exception(message)
+type InvalidAgeException(val text: String) : Throwable {
+    implement fun message(): String {
+        return this.text
+    }
+}
 
 fun checkAge(age: Int) {
     if (age < 18) {
@@ -13,7 +17,7 @@ fun main() {
         checkAge(16)
         print("Valid age!")
     } catch (e: InvalidAgeException) {
-        print("Caught expected error: " + e.message)
+        print("Caught expected error: " + e.message())
     }
     
     try {

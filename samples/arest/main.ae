@@ -2,30 +2,30 @@ import { arest } from "./arest.ae"
 
 fun main() {
     print("--- Starting Arest Web Server Sample ---")
-    
+
     arest(8082) {
         routing {
             get("/") {
-                val body: Map<String, String | Int | Boolean> = [
+                val body: Map<String, String> = [
                     "welcome" of "Welcome json!",
                     "description" of "Arest is a Web Framework for Aether!",
                     "date" of now().toString(),
-                    "isRunning" of true,
-                    "version" of 1.0,
+                    "isRunning" of "true",
+                    "version" of "1.0"
                 ]
                 respond(200, "application/json", toJson(body))
             }
-            
+
             get("/hello") {
                 val name = request.queries["name"] ?: "Guest"
                 respondText("Hello, " + name + "!")
             }
-            
+
             post("/echo") {
                 val contentType = request.headers["Content-Type"] ?: "text/plain"
                 respond(200, contentType, request.body)
             }
-            
+
             get("/shutdown") {
                 server.shutdown()
                 respondText("Server is shutting down...")

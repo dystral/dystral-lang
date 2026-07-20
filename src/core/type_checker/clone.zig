@@ -218,6 +218,26 @@ pub fn cloneNode(self: *TypeChecker, node: *ASTNode) anyerror!*ASTNode {
                 .body = new_body,
             } };
         },
+        .fun_decl => |f| {
+            var new_params = try self.allocator.alloc(ast.Param, f.params.len);
+            for (f.params, 0..) |p, i| {
+                new_params[i] = .{
+                    .name = p.name,
+                    .type_ref = if (p.type_ref) |tr| try self.cloneTypeRef(tr) else null,
+                    .initializer = if (p.initializer) |init| try self.cloneNode(init) else null,
+                };
+            }
+            new_node.data = .{ .fun_decl = .{
+                .annotations = f.annotations,
+                .modifiers = f.modifiers,
+                .name = f.name,
+                .params = new_params,
+                .type_ref = if (f.type_ref) |tr| try self.cloneTypeRef(tr) else null,
+                .body = try self.cloneNode(f.body),
+                .is_expr_body = f.is_expr_body,
+                .resolved_c_name = null,
+            } };
+        },
         else => {}, // For identifiers and literals, shallow copy is fine as long as we cleared resolved_type
     }
     

@@ -1,7 +1,7 @@
 // std.collections
 // Powered by True Generics and Native Arrays!
 
-class MutableList<T>(val list: List<T> = []) {
+type MutableList<T>(val list: List<T> = []) {
     fun add(element: T): Void {
         this.list.items.push(element)
     }
@@ -36,7 +36,7 @@ class MutableList<T>(val list: List<T> = []) {
     }
 }
 
-class List<T>(val items: NativeArray<T> = []) {
+type List<T>(val items: NativeArray<T> = []) {
     fun get(index: Int): T {
         return this.items[index]
     }
@@ -54,9 +54,9 @@ class List<T>(val items: NativeArray<T> = []) {
     }
 }
 
-class Node<K, V>(val key: K, var value: V, var next: Node<K, V>?)
+type Node<K, V>(val key: K, var value: V, var next: Node<K, V>?)
 
-class MutableMap<K, V>(val list: List<Node<K, V>?> = []) {
+type MutableMap<K, V>(val list: List<Node<K, V>?> = []) {
     fun put(key: K, value: V): Void {
         var capacity = this.list.size()
         if (capacity == 0) {
@@ -132,7 +132,7 @@ class MutableMap<K, V>(val list: List<Node<K, V>?> = []) {
     fun freeze(): Map<K, V> = Map(this.list)
 }
 
-class Map<K, V>(val list: List<Node<K, V>?> = []) {
+type Map<K, V>(val list: List<Node<K, V>?> = []) {
     fun get(key: K): V? {
         val capacity = this.list.size()
         if (capacity == 0) {
@@ -178,7 +178,7 @@ class Map<K, V>(val list: List<Node<K, V>?> = []) {
     fun mut(): MutableMap<K, V> = MutableMap(this.list)
 }
 
-class MutableSet<T>(val map: MutableMap<T, Bool> = MutableMap<T, Bool>()) {
+type MutableSet<T>(val map: MutableMap<T, Bool> = MutableMap<T, Bool>()) {
     fun add(element: T): Void {
         this.map.put(element, true)
     }
@@ -198,7 +198,7 @@ class MutableSet<T>(val map: MutableMap<T, Bool> = MutableMap<T, Bool>()) {
     fun freeze(): Set<T> = Set(this.map.freeze())
 }
 
-class Set<T>(val map: Map<T, Bool> = Map<T, Bool>()) {
+type Set<T>(val map: Map<T, Bool> = Map<T, Bool>()) {
     fun contains(element: T): Bool {
         return this.map.containsKey(element)
     }

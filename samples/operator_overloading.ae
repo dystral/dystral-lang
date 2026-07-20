@@ -1,4 +1,4 @@
-class Vector(val x: Int, val y: Int) {
+type Vector(val x: Int, val y: Int) {
     operator fun plus(other: Vector) = Vector(this.x + other.x, this.y + other.y)
 }
 

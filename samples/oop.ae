@@ -1,4 +1,4 @@
-class Person(val name: String, var age: Int)
+type Person(val name: String, var age: Int)
 
 fun main() {
     val p = Person("Leo", 28)
