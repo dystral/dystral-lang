@@ -14,12 +14,13 @@ Instead of running inside a heavy JVM or relying on interpreted bytecode, Aether
 ## ✨ Key Features
 
 - 💎 **Kotlin Familiarity + Pragmatism:** If you know Kotlin, you already know Aether. Supports `val`/`var`, implicit instantiation, expression bodies, and more.
+- 🧩 **Composition over Inheritance:** No classes, no `extends`. `type` owns state, `contract` defines behavioral APIs (like interfaces), and `skill` provides reusable implementation (like traits) — code reuse through composition, polymorphism through contracts.
 - ⚡ **Top-Level Execution:** Start scripting immediately without boilerplate. No `fun main()` required unless you want it (Hybrid Main approach).
 - 🛡️ **Compile-Time Null Safety:** Null is treated as a strict Union Type (`.String | .Null`). The compiler strictly forbids unsafe access, forcing the use of `?.`, `?:`, and `!!`.
 - 📦 **File-Based Modules & Standard Library:** A modern module system with destructured imports (`import { fun1 } from "file.ae"`). Features an ever-growing Standard Library built natively (`std.core`, `std.math`, `std.time`).
 - 🕒 **Epoch-First Time API:** Time handling done right, inspired by Go. Zero-overhead Time and Duration mathematics leveraging the language's native Operator Overloading.
 - 🔁 **Native Collections:** First-class support for typed `List<T>`, `Map<K,V>`, and `Set<T>` literals — and their mutable counterparts. Write `[1, 2, 3]` for a list and `["key" of "value"]` for a map. Read and write with the familiar `collection[key]` bracket syntax.
-- ⚙️ **Operator Overloading:** Overload math operators in classes with explicit contracts via the `operator` modifier (e.g., `operator fun plus()`).
+- ⚙️ **Operator Overloading:** Overload math operators in types with explicit contracts via the `operator` modifier (e.g., `operator fun plus()`).
 - 🧪 **Native Test System:** First-class testing support. Write `test "name" {}` blocks directly and run `aether test` for an isolated and fast native testing suite.
 - 🗑️ **Memory Safe:** Native integration with a conservative Garbage Collector (Boehm GC) eliminates memory leaks without the overhead of reference counting or pausing VMs.
 
@@ -36,7 +37,7 @@ Here's a quick look at top-level statements, operator overloading, the native Ti
 import { date, hours, now, Time, Duration } from "std.time"
 import { MutableList, MutableMap } from "std.collections"
 
-class Flight(val destination: String, val departure: Time) {
+type Flight(val destination: String, val departure: Time) {
     fun isDelayed() = now() > departure
     
     // Custom Operator Overloading
@@ -150,11 +151,11 @@ Aether's compiler is fully documented. If you are curious about how we process A
 
 ## 🛣️ What's Next? (Roadmap)
 
-We are currently finishing the stabilization of **v0.1.x** (Phase 27). The immediate next steps include:
-- **Phase 28:** File I/O nativo (Desenvolvimento do `std.fs` para manipulação de arquivos).
-- **Phase 29:** Custom Module Imports e caminhos relativos avançados (`import { x } from "./../utils"`).
-- **Phase 30:** JSON Serialization/Deserialization.
-- **Phase 31:** Network Sockets / HTTP Foundation.
-- **Phase 32:** LLVM IR Native Release Backend for maximum optimization (Production build transition).
+The **composition type system** (Phase 41) just landed: `type`, `contract`, `skill` and `implement` replaced classes and inheritance entirely. The immediate next steps include:
+- **Phase 42:** Null safety on contract receivers (`?.` dispatch on nullable contracts).
+- **Phase 43:** Heterogeneous contract collections (`List<Drawable>` with dynamic dispatch per element).
+- **Phase 44:** Composition test coverage hardening (cross-module skills, negative fixtures).
+- **Phase 36:** Fiber-based concurrency & event loop runtime.
+- **Phase 20:** LLVM IR Native Release Backend for maximum optimization (Production build transition).
 
 *(See [docs/roadmap.md](docs/roadmap.md) for the full granular roadmap and historic evolution).*
