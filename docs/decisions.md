@@ -221,5 +221,30 @@ Regras centrais:
 3. **Transpilação:** As sequências de escape em C coincidem exatamente com as do Kotlin, portanto o backend do transpiler pode ejetar a string diretamente sem a necessidade de re-mapeamento complexo em tempo de transpilação.
 **Razão:** Traz conformidade com o padrão do Kotlin e de outras linguagens modernas de forma extremamente simples e robusta, com impacto mínimo no parser e garantia de consistência de tamanho e integridade de memória.
 
+## ADR 28: General Union Types (T1 | T2) e Autoboxing de Primitivos
+**Data:** Fase 46 (Julho 2026)
+**Contexto:** Originalmente, Union Types (`|`) eram usados internamente apenas para *Null Safety* (`String?` ➔ `String | Null`). A linguagem não suportava uniões arbitrárias de tipos em declarações de variáveis ou estruturas de dados genéricas como `Map<String, String | Int>`.
+**Decisão:**
+1. **Parsing Generalizado:** O parser passa a aceitar encadeamentos arbitrários de tipos no operador `|` em anotações de tipo e argumentos genéricos (`Type1 | Type2 | ...`).
+2. **Subtipagem e Resolução Semântica:** No TypeChecker, uma expressão é compatível com `T1 | T2` se for compatível com `T1` ou `T2`. Se a expressão origem for ela própria uma união, todos os seus componentes devem ser aceitos pelo tipo destino.
+3. **Representação no C Transpiler:** Uniões gerais não-nulas entre tipos distintos (ex: `String | Int`) são representadas no backend C como `void*`. Valores de tipos primitivos (`Int`, `Bool`) atribuídos a uma variável do tipo Union passam por autoboxing/unboxing de ponteiro `(void*)(intptr_t)val` e `(int)(intptr_t)val`.
+4. **Coleções Genéricas Heterogêneas:** Monomorphizações como `Map<String, String | Int>` operam transparentemente com a união tratada como tipo de valor `V`, permitindo armazenar múltiplos tipos na mesma coleção de forma segura.
+**Razão:** Expande o sistema de tipos para permitir mapas e variáveis dinâmicas de múltiplos tipos sem perder a checagem de tipos estática na linguagem base.
+
+## ADR 29: Contratos Principais do Sistema e Derivação Automática de Skills (`Stringable`, `Hashable`, `Equatable`)
+**Data:** Fase 47 (Planejada)
+**Contexto:** A conversão de objetos, tipos primitivos e uniões para string ou hash dependia historicamente de métodos soltos ou de helpers procedurais em C (como `aether_to_string` no `aether_runtime.h` para inspecionar uniões `void*`). Do ponto de vista de arquitetura de linguagem, todas as abstrações fundamentais devem ser expressas nativamente em código `.ae` usando o modelo de composição (`contract` + `skill` do ADR 25).
+**Decisão:**
+1. **Contratos Nativos do Sistema:** A Standard Library (`src/std/core.ae`) definirá os contratos fundamentais da linguagem:
+   - `contract Stringable { fun toString(): String }`
+   - `contract Equatable { operator fun equals(other: Any): Bool }`
+   - `contract Hashable { fun hashCode(): Int }`
+   - `skill Printable : Stringable { fun print(): Void = Standard.puts(this.toString().ptr) }`
+2. **Conformidade Automática e Sintetização:** Todo `type` e `object` declarado no Aether implementa automaticamente os contratos `Stringable`, `Equatable` e `Hashable`. Caso o tipo não forneça uma implementação explícita, o TypeChecker sintetiza automaticamente a implementação padrão (ex: `toString()` baseado no nome e membros da struct, `hashCode()` combinando hashes dos campos, e `equals()` por comparação estrutural de membros).
+3. **Tipos Primitivos Conformes:** Os tipos primitivos (`Int`, `Bool`, `String`, `Pointer`) são declarados explicitamente em `src/std/core.ae` como implementadores dos contratos `Stringable`, `Hashable` e `Equatable`.
+4. **Eliminação de Helpers Procedurais em C:** Em uniões (`String | Int`) ou genéricos apagados (`void*`), chamadas a `.toString()` utilizam a vtable do contrato `Stringable`, eliminando fallbacks manuais no C runtime (`aether_to_string`).
+**Razão:** Unifica a infraestrutura fundamental de conversão para texto, hashing de coleções (`Set`, `Map`) e igualdade no próprio modelo de composição da linguagem Aether, garantindo pureza de design e reusabilidade.
+
+
 
 

@@ -137,6 +137,7 @@ pub const TypeChecker = struct {
 
 fn core_reportError(self: *TypeChecker, line: usize, column: usize, comptime message: []const u8, args: anytype) void {
     std.debug.print("\n\x1b[31mError\x1b[0m in {s}:{}:{}:\n", .{ self.filename, line, column });
+    std.debug.print("REPORT_ERROR: " ++ message ++ "\n", args);
 
     var current_line: usize = 1;
     var start_idx: usize = 0;
@@ -168,7 +169,19 @@ fn core_resolveTypeRef(self: *TypeChecker, ref: *const ast.ASTTypeRef) anyerror!
     var base_type: AetherType = .Void;
     var actual_is_nullable = ref.is_nullable;
 
-    if (ref.is_function) {
+    if (ref.union_types.len > 0) {
+        var acc = try self.resolveTypeRef(ref.union_types[0]);
+        for (ref.union_types[1..]) |u_item| {
+            const resolved_u = try self.resolveTypeRef(u_item);
+            const union_t = try self.allocator.create(AetherType);
+            union_t.* = .{ .Union = .{
+                .left = acc,
+                .right = resolved_u,
+            } };
+            acc = union_t;
+        }
+        base_type = acc.*;
+    } else if (ref.is_function) {
         var params = std.ArrayList(*const AetherType).init(self.allocator);
         for (ref.generic_args) |arg| {
             try params.append(try self.resolveTypeRef(arg));
@@ -214,11 +227,11 @@ fn core_resolveTypeRef(self: *TypeChecker, ref: *const ast.ASTTypeRef) anyerror!
         }
 
         // Check primitives first
-        if (std.mem.eql(u8, alias, "Int")) {
+        if (std.mem.eql(u8, alias, "Int") or std.mem.eql(u8, alias, "core_Int")) {
             base_type = .Int;
-        } else if (std.mem.eql(u8, alias, "Bool")) {
+        } else if (std.mem.eql(u8, alias, "Bool") or std.mem.eql(u8, alias, "core_Bool")) {
             base_type = .Bool;
-        } else if (std.mem.eql(u8, alias, "Void")) {
+        } else if (std.mem.eql(u8, alias, "Void") or std.mem.eql(u8, alias, "core_Void")) {
             base_type = .Void;
         } else if (std.mem.eql(u8, alias, "OpaquePointer")) {
             base_type = .{ .Pointer = try self.allocator.create(AetherType) };
@@ -242,8 +255,9 @@ fn core_resolveTypeRef(self: *TypeChecker, ref: *const ast.ASTTypeRef) anyerror!
             } else {
                 base_type = .{ .GenericInstance = .{ .base_name = alias, .type_args = type_args } };
 
+                const actual_base = self.alias_map.get(alias) orelse alias;
                 var mangled = std.ArrayList(u8).init(self.allocator);
-                try mangled.appendSlice(alias);
+                try mangled.appendSlice(actual_base);
                 try mangled.appendSlice("_");
                 for (type_args, 0..) |t_arg, i| {
                     if (i > 0) try mangled.appendSlice("_");
@@ -256,6 +270,25 @@ fn core_resolveTypeRef(self: *TypeChecker, ref: *const ast.ASTTypeRef) anyerror!
                 const actual_mangled = self.alias_map.get(mangled_name) orelse mangled_name;
                 base_type = .{ .Custom = actual_mangled };
             }
+        } else if (self.classes_ast.contains(alias) or (self.alias_map.get(alias) != null and self.classes_ast.contains(self.alias_map.get(alias).?))) {
+            const actual_class = self.alias_map.get(alias) orelse alias;
+            base_type = .{ .Custom = actual_class };
+        } else if (std.mem.indexOf(u8, alias, "_or_") != null or std.mem.indexOf(u8, alias, " | ") != null) {
+            const sep = if (std.mem.indexOf(u8, alias, "_or_") != null) "_or_" else " | ";
+            const sep_idx = std.mem.indexOf(u8, alias, sep).?;
+            var raw_p1 = alias[0..sep_idx];
+            var raw_p2 = alias[sep_idx + sep.len ..];
+            const t1 = (self.resolveTypeName(raw_p1, false) catch null) orelse (if (std.mem.startsWith(u8, raw_p1, "core_")) self.resolveTypeName(raw_p1[5..], false) catch null else null);
+            const t2 = (self.resolveTypeName(raw_p2, false) catch null) orelse (if (std.mem.startsWith(u8, raw_p2, "core_")) self.resolveTypeName(raw_p2[5..], false) catch null else null);
+            if (t1 != null and t2 != null) {
+                const union_t = try self.allocator.create(AetherType);
+                union_t.* = .{ .Union = .{ .left = t1.?, .right = t2.? } };
+                base_type = union_t.*;
+            } else {
+                base_type = .{ .Custom = alias };
+            }
+        } else if (self.global_scope.lookupVariable(alias)) |found_t| {
+            base_type = found_t.*;
         } else {
             base_type = .{ .Custom = alias };
         }
@@ -349,7 +382,8 @@ fn core_declareTypes(self: *TypeChecker, node: *ASTNode) anyerror!void {
                         const pkg_name = actual_module_path[4..];
                         mod_path = try std.fmt.allocPrint(self.allocator, "std/{s}", .{pkg_name});
                     } else {
-                        mod_path = try std.fs.path.join(self.allocator, &.{ dir_path, actual_module_path });
+                        const raw_path = try std.fs.path.join(self.allocator, &.{ dir_path, actual_module_path });
+                        mod_path = try std.fs.path.relative(self.allocator, ".", raw_path);
                     }
                     if (reg.modules.get(mod_path)) |m| {
                         try m.checker.declareTypes(m.ast_root);
@@ -649,6 +683,10 @@ fn core_inferNode(self: *TypeChecker, node: *ASTNode, scope: *Scope) anyerror!*c
             t.* = .Void;
         },
         .test_decl => |td| {
+            if (self.pass == .declaration) {
+                t.* = .Void;
+                return t;
+            }
             _ = try self.inferNode(td.body, scope);
             t.* = .Void;
         },
@@ -781,7 +819,20 @@ fn core_implementsContract(self: *TypeChecker, type_name: []const u8, contract_n
 fn core_isCompatible(self: *TypeChecker, expected: *const AetherType, actual: *const AetherType) bool {
     if (expected.* == .Unknown or actual.* == .Unknown) return true;
     if (isNullable(expected) and actual.* == .Null) return true;
-    if (isNullable(actual) and !isNullable(expected)) return false;
+    if (expected.* == .Custom and actual.* == .Custom and std.mem.eql(u8, expected.Custom, actual.Custom)) {
+        return true;
+    }
+
+    if (expected.* == .Union) {
+        if (self.isCompatible(expected.Union.left, actual) or self.isCompatible(expected.Union.right, actual)) {
+            return true;
+        }
+    }
+    if (actual.* == .Union) {
+        if (self.isCompatible(expected, actual.Union.left) and self.isCompatible(expected, actual.Union.right)) {
+            return true;
+        }
+    }
 
     const exp_base = extractBaseType(expected);
     const act_base = extractBaseType(actual);

@@ -38,8 +38,11 @@ fn isValidType(self: *TypeChecker, t: *const AetherType) bool {
 
 pub fn inferAssignment(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const a = node.data.assignment;
-    const assigned_type = try self.inferNode(a.value, scope);
+    var assigned_type: *const AetherType = undefined;
     if (scope.lookupVariableSymbol(a.name)) |vs| {
+        a.value.expected_type = vs.aether_type;
+        a.value.resolved_type = null;
+        assigned_type = try self.inferNode(a.value, scope);
         if (!vs.is_mut) {
             self.reportError(node.line, node.column, "TypeError: Cannot reassign constant variable '{s}'.", .{a.name});
             return error.TypeError;
@@ -146,7 +149,7 @@ pub fn inferBinaryExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
         },
         .kw_of => {
             const node_ident = try self.allocator.create(ASTNode);
-            node_ident.* = .{ .line = node.line, .column = node.column, .resolved_type = null, .data = .{ .identifier = .{ .name = "Node", .resolved_c_name = null } } };
+            node_ident.* = .{ .line = node.line, .column = node.column, .expected_type = node.expected_type, .resolved_type = null, .data = .{ .identifier = .{ .name = "Node", .resolved_c_name = null } } };
             
             const null_lit = try self.allocator.create(ASTNode);
             null_lit.* = .{ .line = node.line, .column = node.column, .resolved_type = null, .data = .null_literal };
@@ -235,7 +238,8 @@ pub fn inferAsExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aether
             return error.TypeError;
         }
     } else {
-        if (!self.isCompatible(target_type, val_type)) {
+        const is_compat = self.isCompatible(target_type, val_type) or (base_val.* == .Union and self.isCompatible(base_val, base_target));
+        if (!is_compat) {
             self.reportError(node.line, node.column, "TypeError: Cannot cast {} to {}.", .{ val_type.*, target_type.* });
             return error.TypeError;
         }
@@ -260,7 +264,8 @@ pub fn inferIsExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aether
             return error.TypeError;
         }
     } else {
-        if (!self.isCompatible(target_type, val_type)) {
+        const is_compat = self.isCompatible(target_type, val_type) or self.isCompatible(val_type, target_type);
+        if (!is_compat) {
             self.reportError(node.line, node.column, "TypeError: Cannot check if {} is {}.", .{ val_type.*, target_type.* });
             return error.TypeError;
         }

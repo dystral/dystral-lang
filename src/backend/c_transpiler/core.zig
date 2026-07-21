@@ -37,10 +37,12 @@ pub fn getCTypeStr(allocator: std.mem.Allocator, t: *const type_system.AetherTyp
             return try std.fmt.allocPrint(allocator, "AetherArray_{s}*", .{safe_inner.items});
         },
         .Union => |u| {
-            if (u.left.* != .Null) {
+            if (u.right.* == .Null) {
                 return try getCTypeStr(allocator, u.left);
-            } else {
+            } else if (u.left.* == .Null) {
                 return try getCTypeStr(allocator, u.right);
+            } else {
+                return "void*";
             }
         },
         .Function => return "AetherClosure",
@@ -151,8 +153,8 @@ pub const CTranspiler = struct {
             while (pre_it.next()) |entry| {
                 if (entry.value_ptr.*.data == .type_decl) {
                     const cd = entry.value_ptr.*.data.type_decl;
-                    if (cd.generic_params.len == 0) {
-                        const actual_name = cd.resolved_c_name orelse cd.name;
+                    const actual_name = entry.key_ptr.*;
+                    if (cd.generic_params.len == 0 and !std.mem.endsWith(u8, actual_name, "_K") and !std.mem.endsWith(u8, actual_name, "_V")) {
                         if (!self.known_constructors.contains(actual_name)) {
                             try self.known_constructors.put(actual_name, {});
                             try self.forward_writer.writer().print("typedef struct {s} {s};\n", .{actual_name, actual_name});
@@ -169,7 +171,9 @@ pub const CTranspiler = struct {
             var it = ca.iterator();
             while (it.next()) |entry| {
                 if (entry.value_ptr.*.data == .type_decl) {
-                    if (entry.value_ptr.*.data.type_decl.generic_params.len == 0) {
+                    const cd = entry.value_ptr.*.data.type_decl;
+                    const actual_name = entry.key_ptr.*;
+                    if (cd.generic_params.len == 0 and !std.mem.endsWith(u8, actual_name, "_K") and !std.mem.endsWith(u8, actual_name, "_V")) {
                         try self.emitTypeDecl(entry.value_ptr.*);
                     }
                 }
@@ -248,7 +252,9 @@ pub const CTranspiler = struct {
                             }
                         }
                     } else if (stmt.data == .type_decl) {
-                        if (stmt.data.type_decl.generic_params.len == 0) {
+                        const cd = stmt.data.type_decl;
+                        const actual_name = cd.resolved_c_name orelse cd.name;
+                        if (cd.generic_params.len == 0 and std.mem.indexOf(u8, actual_name, "_K") == null and std.mem.indexOf(u8, actual_name, "_V") == null) {
                             try self.emitTypeDecl(stmt);
                         }
                     } else if (stmt.data == .contract_decl) {

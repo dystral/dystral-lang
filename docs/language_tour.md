@@ -112,9 +112,44 @@ The compiler's Type Checker automatically calculates the correct length of strin
 
 ---
 
-## 5. Compile-Time Null Safety (Union Types)
+## 5. Union Types & Compile-Time Null Safety
 
-Null Pointer Exceptions (NPEs) are the bane of native systems programming, often resulting in fatal `Segmentation Faults` in C/C++. Aether prevents this statically.
+Aether provides first-class support for **Union Types** (`Type1 | Type2`). Union types allow a variable, parameter, or generic collection to hold values of multiple distinct types statically.
+
+### 5.1 General Union Types (`T1 | T2`)
+
+You can declare variables and generic containers with union types:
+
+```kotlin
+// Variable holding either a String or an Int
+var payload: String | Int = "Aether"
+assert(payload == "Aether")
+
+// Re-assigning to another valid variant type of the union
+payload = 42
+assert(payload == 42)
+```
+
+**Multi-Type Maps (`Map<K, V1 | V2>`)**
+Union types integrate natively with generic collections like `Map` and `MutableMap`:
+
+```kotlin
+import { MutableMap } from "std.collections"
+
+fun main() {
+    // Map with values that can be String or Int
+    val map: MutableMap<String, String | Int> = MutableMap()
+    map["name"] = "Aether"
+    map["version"] = 1
+    
+    assert(map["name"] == "Aether")
+    assert(map["version"] == 1)
+}
+```
+
+### 5.2 Compile-Time Null Safety (`T | Null`)
+
+Null Pointer Exceptions (NPEs) are the bane of native systems programming, often resulting in fatal `Segmentation Faults` in C/C++. Aether prevents this statically by modeling nullability as a Union Type (`T | Null` or `T?`).
 
 In Aether, `null` is not a primitive value that can be assigned anywhere. It is a strictly enforced **Union Type**.
 

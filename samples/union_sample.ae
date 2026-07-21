@@ -1,0 +1,26 @@
+import { assert } from "std.core"
+import { MutableMap } from "std.collections"
+
+fun main() {
+    print("=== General Union Types Sample ===")
+
+    var value: String | Int = "Initial String"
+    print("Value (String): " + (value as String))
+    assert(value == "Initial String")
+
+    value = 42
+    print("Value (Int): " + (value as Int).toString())
+    assert(value == 42)
+
+    val map: MutableMap<String, String | Int> = MutableMap()
+    map["language"] = "Aether"
+    map["year"] = 2026
+
+    print("Map language: " + ((map["language"]) as String))
+    print("Map year: " + ((map["year"]) as Int).toString())
+
+    assert(map["language"] == "Aether")
+    assert(map["year"] == 2026)
+
+    print("Union types sample executed successfully!")
+}

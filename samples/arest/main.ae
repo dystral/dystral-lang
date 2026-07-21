@@ -13,11 +13,10 @@ fun main() {
     arest(8082) {
         routing {
             get("/") {
-                val body: Map<String, String> = [
-                    "welcome" of "Welcome json!",
-                    "description" of "Arest is a Web Framework for Aether!",
-                    "date" of now().toString()
-                ]
+                val body = MutableMap<String, String>()
+                body["welcome"] = "Hi there!"
+                body["description"] = "Arest is a Web Framework for Aether!"
+                body["date"] = now().toString()
 
                 respond(200, "application/json", body.toJson())
             }

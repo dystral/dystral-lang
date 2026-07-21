@@ -95,6 +95,7 @@ pub const ASTTypeRef = struct {
     is_array: bool,
     is_nullable: bool,
     is_function: bool = false,
+    union_types: []const *const ASTTypeRef = &.{},
     receiver_type: ?*const ASTTypeRef = null,
     return_type: ?*const ASTTypeRef = null,
     resolved_type: ?*const type_system.AetherType = null,

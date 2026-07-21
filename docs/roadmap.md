@@ -281,6 +281,23 @@ The composition model (Phase 41) currently has only 5 dedicated tests (`composit
 - [ ] **Task 44.5:** Improve ambiguity error to list all conflicting skills when 3+ collide.
 - [ ] **Verify:** New tests pass; negative fixtures fail with the exact expected diagnostics.
 
+### Phase 46: General Union Types & Multi-Type Collections (COMPLETED)
+General Union types (e.g., `String | Int` or `T1 | T2`) across variable declarations, function parameters, and generic collections like `Map<String, String | Int>`.
+- [x] **Task 46.1:** Update Parser (`core_parseType`) to support general Union types (`Type1 | Type2 | ...`) in type annotations and generic type arguments.
+- [x] **Task 46.2:** Update TypeChecker (`core_resolveTypeRef` and `core_isCompatible`) to resolve general Union types and perform subtyping checks across union variants.
+- [x] **Task 46.3:** Update C Transpiler (`getCTypeStr`) to represent general non-null unions as `void*` with primitive autoboxing/unboxing.
+- [x] **Task 46.4:** Support multi-type generic collections such as `Map<String, String | Int>` and `MutableMap<String, String | Int>`.
+- [x] **Task 46.5:** Update documentation (`docs/roadmap.md`, `docs/decisions.md`, `docs/language_tour.md`) and add samples (`samples/union_sample.ae`) and tests (`samples/tests/union_test.ae`).
+
+### Phase 47: Core System Contracts & Fundamental Skill Derivation (`Stringable`, `Hashable`, `Equatable`) (PLANNED)
+Establish a unified language-wide contract hierarchy and automatic skill derivation for all Aether types (`type`, `object`, and primitives `Int`, `Bool`, `String`).
+- [ ] **Task 47.1:** Declare core contracts (`contract Stringable`, `contract Equatable`, `contract Hashable`) and core skills (`skill Printable`) in `src/std/core.ae`.
+- [ ] **Task 47.2:** Update TypeChecker to automatically inject core contracts (`Stringable`, `Hashable`, `Equatable`) into the implicit contract implementations of every user-declared `type` and `object`.
+- [ ] **Task 47.3:** Synthesize missing default method implementations (`toString()`, `equals()`, `hashCode()`) in the TypeChecker for types that do not explicitly provide custom implementations.
+- [ ] **Task 47.4:** Declare primitive types (`Int`, `Bool`, `String`, `Pointer`) in `src/std/core.ae` as implementers of `Stringable`, `Hashable`, and `Equatable`.
+- [ ] **Task 47.5:** Refactor compiler dynamic dispatch and C Transpiler to use contract vtables for `Stringable.toString()` calls across Union types (`String | Int`) and erased generics (`void*`), replacing procedural C runtime helpers (`aether_to_string`).
+- [ ] **Verify:** Compile and run test suites verifying polymorphic `.toString()` calls, generic `Stringable` parameters, and contract-based dynamic dispatch on custom types, primitives, and union types.
+
 ---
 
 ## ✅ Definition of Done (Per Phase)

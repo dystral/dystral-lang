@@ -125,6 +125,13 @@ fn core_parseType(self: *Parser) anyerror!*const ast.ASTTypeRef {
             .is_array = true,
             .is_nullable = false,
         };
+    } else if (self.match(.kw_null)) {
+        ref.* = .{
+            .name = "Null",
+            .generic_args = &.{},
+            .is_array = false,
+            .is_nullable = true,
+        };
     } else {
         try self.consume(.identifier, "Expected type name.");
         const name = self.previous.lexeme;
@@ -177,20 +184,45 @@ fn core_parseType(self: *Parser) anyerror!*const ast.ASTTypeRef {
     var is_nullable = false;
     if (self.match(.question)) {
         is_nullable = true;
-    } else if (self.check(.pipe)) {
-        var temp_lexer = self.lexer;
-        const next_tok = temp_lexer.scanToken();
-        const is_null_ref = next_tok.token_type == .kw_null or 
-            (next_tok.token_type == .identifier and std.mem.eql(u8, next_tok.lexeme, "Null"));
-        
-        if (is_null_ref) {
-            _ = self.match(.pipe);
-            self.advance();
-            is_nullable = true;
-        }
     }
     
-    ref.is_nullable = is_nullable;
+    if (self.check(.pipe)) {
+        var union_list = std.ArrayList(*const ast.ASTTypeRef).init(self.allocator);
+        if (ref.union_types.len > 0) {
+            for (ref.union_types) |ut| try union_list.append(ut);
+        } else {
+            try union_list.append(ref);
+        }
+        while (self.match(.pipe)) {
+            const next_ref = try self.parseType();
+            if (next_ref.name.len > 0 and (std.mem.eql(u8, next_ref.name, "Null") or std.mem.eql(u8, next_ref.name, "null"))) {
+                is_nullable = true;
+            } else if (next_ref.union_types.len > 0) {
+                for (next_ref.union_types) |nut| try union_list.append(nut);
+                if (next_ref.is_nullable) is_nullable = true;
+            } else {
+                try union_list.append(next_ref);
+                if (next_ref.is_nullable) is_nullable = true;
+            }
+        }
+        const u_slice = try union_list.toOwnedSlice();
+        if (u_slice.len > 1) {
+            const union_ref = try self.allocator.create(ast.ASTTypeRef);
+            union_ref.* = .{
+                .name = "",
+                .generic_args = &.{},
+                .is_array = false,
+                .is_nullable = is_nullable or ref.is_nullable,
+                .union_types = u_slice,
+            };
+            ref = union_ref;
+        } else {
+            ref.is_nullable = is_nullable or ref.is_nullable;
+        }
+    } else {
+        ref.is_nullable = is_nullable or ref.is_nullable;
+    }
+    
     return ref;
 }
 

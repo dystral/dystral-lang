@@ -40,17 +40,24 @@ pub fn main() !void {
         if (args.len > 2) {
             search_path = args[2];
         }
-        var dir = try std.fs.cwd().openDir(search_path, .{ .iterate = true });
-        defer dir.close();
-        var walker = try dir.walk(allocator);
-        defer walker.deinit();
+        if (std.mem.endsWith(u8, search_path, ".ae")) {
+            try source_alloc.writer().print("import {{}} from \"{s}\"\n", .{search_path});
+        } else {
+            var dir = std.fs.cwd().openDir(search_path, .{ .iterate = true }) catch |err| {
+                std.debug.print("Failed to open test path '{s}': {}\n", .{ search_path, err });
+                return;
+            };
+            defer dir.close();
+            var walker = try dir.walk(allocator);
+            defer walker.deinit();
 
-        while (try walker.next()) |entry| {
-            if (entry.kind == .file) {
-                if (std.mem.endsWith(u8, entry.basename, "_test.ae")) {
-                    const full_import_path = try std.fs.path.join(allocator, &.{ search_path, entry.path });
-                    defer allocator.free(full_import_path);
-                    try source_alloc.writer().print("import {{}} from \"{s}\"\n", .{full_import_path});
+            while (try walker.next()) |entry| {
+                if (entry.kind == .file) {
+                    if (std.mem.endsWith(u8, entry.basename, "_test.ae")) {
+                        const full_import_path = try std.fs.path.join(allocator, &.{ search_path, entry.path });
+                        defer allocator.free(full_import_path);
+                        try source_alloc.writer().print("import {{}} from \"{s}\"\n", .{full_import_path});
+                    }
                 }
             }
         }
@@ -73,6 +80,7 @@ pub fn main() !void {
         try source_alloc.appendSlice(file_content);
     }
     const source = source_alloc.items;
+    try std.fs.cwd().writeFile(.{ .sub_path = "synthetic_test.ae", .data = source });
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -164,7 +172,8 @@ pub fn main() !void {
                         const pkg_name = actual_module_path[4..];
                         import_resolved_path = try std.fmt.allocPrint(arena.allocator(), "std/{s}", .{pkg_name});
                     } else {
-                        import_resolved_path = try std.fs.path.join(arena.allocator(), &.{ dir_path, actual_module_path });
+                        const raw_path = try std.fs.path.join(arena.allocator(), &.{ dir_path, actual_module_path });
+                        import_resolved_path = try std.fs.path.relative(arena.allocator(), ".", raw_path);
                     }
                     try queue.append(import_resolved_path);
                 }
@@ -172,26 +181,38 @@ pub fn main() !void {
         }
     }
 
-    // Pass 2a: Declare Class and Object Types
-    for (registry.ordered_modules.items) |path| {
+    // Pass 2a: Declare Class and Object Types (Dependencies first: reverse queue order)
+    var idx: usize = registry.ordered_modules.items.len;
+    while (idx > 0) {
+        idx -= 1;
+        const path = registry.ordered_modules.items[idx];
         const mod = registry.modules.get(path).?;
         try mod.checker.declareTypes(mod.ast_root);
     }
 
     // Pass 2b: Declare Signatures (constructors, methods, functions, libraries)
-    for (registry.ordered_modules.items) |path| {
+    idx = registry.ordered_modules.items.len;
+    while (idx > 0) {
+        idx -= 1;
+        const path = registry.ordered_modules.items[idx];
         const mod = registry.modules.get(path).?;
         try mod.checker.declareSignatures(mod.ast_root);
     }
 
     // Pass 2c: Resolve Imports (link/copy symbols between modules)
-    for (registry.ordered_modules.items) |path| {
+    idx = registry.ordered_modules.items.len;
+    while (idx > 0) {
+        idx -= 1;
+        const path = registry.ordered_modules.items[idx];
         const mod = registry.modules.get(path).?;
         try mod.checker.resolveImports(mod.ast_root);
     }
 
     // Pass 3: Validate Bodies
-    for (registry.ordered_modules.items) |path| {
+    idx = registry.ordered_modules.items.len;
+    while (idx > 0) {
+        idx -= 1;
+        const path = registry.ordered_modules.items[idx];
         const mod = registry.modules.get(path).?;
         mod.checker.validate(mod.ast_root) catch {
             std.process.exit(1);
