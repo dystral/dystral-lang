@@ -80,7 +80,7 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                     const prop = mono_decl.primary_constructor[i];
                     if (prop.initializer) |init_node| {
                         const cloned = try self.cloneNode(init_node);
-                        cloned.expected_type = prop.resolved_type;
+                        cloned.expected_type = prop.resolved_type orelse self.resolveTypeRef(prop.type_ref) catch null;
                         new_args[i] = cloned;
                         _ = try self.inferNode(cloned, scope);
                     } else {
@@ -291,32 +291,63 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                 if (class_node) |cn| {
                     const type_decl = cn.data.type_decl;
                     if (type_decl.generic_params.len > 0) {
-                        if (c.arguments.len < type_decl.primary_constructor.len) {
-                            var new_args = try self.allocator.alloc(*ASTNode, type_decl.primary_constructor.len);
-                            for (c.arguments, 0..) |arg, arg_i| {
-                                new_args[arg_i] = arg;
-                            }
-                            var i = c.arguments.len;
-                            while (i < type_decl.primary_constructor.len) : (i += 1) {
-                                const prop = type_decl.primary_constructor[i];
-                                if (prop.initializer) |init_node| {
-                                    const cloned = try self.cloneNode(init_node);
-                                    new_args[i] = cloned;
-                                    _ = try self.inferNode(cloned, scope);
-                                } else {
-                                    self.reportError(node.line, node.column, "TypeError: Missing argument for generic constructor parameter '{s}' of '{s}' which has no default value.", .{ prop.name, name });
-                                    return error.TypeError;
-                                }
-                            }
-                            c.arguments = new_args;
-                        } else if (c.arguments.len > type_decl.primary_constructor.len) {
-                            self.reportError(node.line, node.column, "TypeError: Expected at most {} arguments for generic constructor of '{s}', got {}.", .{ type_decl.primary_constructor.len, name, c.arguments.len });
-                            return error.TypeError;
-                        }
                         var type_args = try self.allocator.alloc(*const AetherType, type_decl.generic_params.len);
                         for (type_decl.generic_params, 0..) |g_param, i| {
                             var found_type: ?*const AetherType = null;
-                            for (type_decl.primary_constructor, 0..) |prop, prop_i| {
+                            if (node.expected_type) |exp_t| {
+                                const exp_base = extractBaseType(exp_t);
+                                if (exp_base.* == .GenericInstance and std.mem.eql(u8, exp_base.GenericInstance.base_name, name)) {
+                                    if (i < exp_base.GenericInstance.type_args.len) {
+                                        found_type = exp_base.GenericInstance.type_args[i];
+                                    }
+                                } else if (exp_base.* == .Custom) {
+                                    const c_name = exp_base.Custom;
+                                    var prefix_len: ?usize = null;
+                                    if (std.mem.indexOf(u8, c_name, name)) |idx| {
+                                        prefix_len = idx + name.len + 1;
+                                    }
+                                    if (prefix_len != null and prefix_len.? < c_name.len) {
+                                        var inner = c_name[prefix_len.?..];
+                                        if (std.mem.endsWith(u8, inner, "Opt")) {
+                                            inner = inner[0 .. inner.len - 3];
+                                        }
+                                        if (type_decl.generic_params.len == 1) {
+                                            if (std.mem.indexOf(u8, inner, "_or_")) |or_idx| {
+                                                var raw_p1 = inner[0..or_idx];
+                                                var raw_p2 = inner[or_idx + 4 ..];
+                                                const t1 = (self.resolveTypeName(raw_p1, false) catch null) orelse (if (std.mem.startsWith(u8, raw_p1, "core_")) self.resolveTypeName(raw_p1[5..], false) catch null else null);
+                                                const t2 = (self.resolveTypeName(raw_p2, false) catch null) orelse (if (std.mem.startsWith(u8, raw_p2, "core_")) self.resolveTypeName(raw_p2[5..], false) catch null else null);
+                                                if (t1 != null and t2 != null) {
+                                                    const union_t = try self.allocator.create(AetherType);
+                                                    union_t.* = .{ .Union = .{ .left = t1.?, .right = t2.? } };
+                                                    found_type = union_t;
+                                                }
+                                            } else {
+                                                found_type = self.resolveTypeName(inner, false) catch null;
+                                            }
+                                        } else {
+                                            var split_idx: usize = 0;
+                                            while (split_idx < inner.len) {
+                                                const next_split = std.mem.indexOfPos(u8, inner, split_idx, "_");
+                                                const part1 = if (next_split) |ns| inner[0..ns] else inner;
+                                                const part2 = if (next_split) |ns| inner[ns + 1..] else "";
+                                                const t1 = self.resolveTypeName(part1, false) catch null;
+                                                const t2 = if (part2.len > 0) self.resolveTypeName(part2, false) catch null else null;
+                                                if (t1 != null and t2 != null and isValidType(self, t1.?) and isValidType(self, t2.?)) {
+                                                    if (i == 0) found_type = t1;
+                                                    if (i == 1) found_type = t2;
+                                                    break;
+                                                }
+                                                if (next_split) |ns| {
+                                                    split_idx = ns + 1;
+                                                } else break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (found_type == null) {
+                                for (type_decl.primary_constructor, 0..) |prop, prop_i| {
                                 if (std.mem.eql(u8, prop.type_ref.name, g_param) and prop.type_ref.generic_args.len == 0 and !prop.type_ref.is_array) {
                                     found_type = c.arguments[prop_i].resolved_type.?;
                                     break;
@@ -422,6 +453,7 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                                     }
                                 }
                             }
+                            }
                             if (found_type) |ft| {
                                 type_args[i] = ft;
                             } else {
@@ -443,6 +475,48 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                         try self.monomorphizeClass(variable.Custom, type_args, final_mangled);
                         
                         const actual_mangled = self.alias_map.get(final_mangled) orelse final_mangled;
+
+                        const mono_class_node = self.classes_ast.get(actual_mangled) orelse cn;
+                        const mono_type_decl = mono_class_node.data.type_decl;
+                        if (c.arguments.len < mono_type_decl.primary_constructor.len) {
+                            var new_args = try self.allocator.alloc(*ASTNode, mono_type_decl.primary_constructor.len);
+                            for (c.arguments, 0..) |arg, arg_i| {
+                                new_args[arg_i] = arg;
+                            }
+                            var i = c.arguments.len;
+                            while (i < mono_type_decl.primary_constructor.len) : (i += 1) {
+                                const prop = mono_type_decl.primary_constructor[i];
+                                if (prop.initializer) |init_node| {
+                                    const cloned = try self.cloneNode(init_node);
+                                    cloned.expected_type = prop.resolved_type orelse self.resolveTypeRef(prop.type_ref) catch null;
+                                    new_args[i] = cloned;
+                                    _ = try self.inferNode(cloned, scope);
+                                } else {
+                                    self.reportError(node.line, node.column, "TypeError: Missing argument for generic constructor parameter '{s}' of '{s}' which has no default value.", .{ prop.name, name });
+                                    return error.TypeError;
+                                }
+                            }
+                            c.arguments = new_args;
+                        } else if (c.arguments.len > mono_type_decl.primary_constructor.len) {
+                            self.reportError(node.line, node.column, "TypeError: Expected at most {} arguments for generic constructor of '{s}', got {}.", .{ mono_type_decl.primary_constructor.len, name, c.arguments.len });
+                            return error.TypeError;
+                        }
+
+                        for (c.arguments, 0..) |arg, arg_i| {
+                            if (arg_i < mono_type_decl.primary_constructor.len) {
+                                const p = mono_type_decl.primary_constructor[arg_i];
+                                if (p.resolved_type orelse self.resolveTypeRef(p.type_ref) catch null) |pt| {
+                                    arg.expected_type = pt;
+                                    arg.resolved_type = null;
+                                    _ = try self.inferNode(arg, scope);
+                                    if (!self.isCompatible(pt, arg.resolved_type.?)) {
+                                        self.reportError(node.line, node.column, "TypeError: Expected {} but found {} for argument {}.", .{ pt.*, arg.resolved_type.?.*, arg_i + 1 });
+                                        return error.TypeError;
+                                    }
+                                }
+                            }
+                        }
+
                         t.* = .{ .Custom = actual_mangled };
                         c.callee.data.identifier.resolved_c_name = actual_mangled;
                         return;
@@ -457,6 +531,7 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                                 const prop = type_decl.primary_constructor[i];
                                 if (prop.initializer) |init_node| {
                                     const cloned = try self.cloneNode(init_node);
+                                    cloned.expected_type = prop.resolved_type orelse self.resolveTypeRef(prop.type_ref) catch null;
                                     new_args[i] = cloned;
                                     _ = try self.inferNode(cloned, scope);
                                 } else {
@@ -498,6 +573,7 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                                 const prop = type_decl.primary_constructor[i];
                                 if (prop.initializer) |init_node| {
                                     const cloned = try self.cloneNode(init_node);
+                                    cloned.expected_type = prop.resolved_type orelse self.resolveTypeRef(prop.type_ref) catch null;
                                     new_args[i] = cloned;
                                     _ = try self.inferNode(cloned, scope);
                                 } else {
@@ -645,6 +721,13 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                     
                     if (found_method) |m| {
                         const f = &m.data.fun_decl;
+                        for (c.arguments, 0..) |arg, arg_i| {
+                            if (arg_i < f.params.len) {
+                                if (f.params[arg_i].type_ref) |tr| {
+                                    arg.expected_type = self.resolveTypeRef(tr) catch null;
+                                }
+                            }
+                        }
                         if (c.arguments.len < f.params.len) {
                             var new_args = try self.allocator.alloc(*ASTNode, f.params.len);
                             for (c.arguments, 0..) |arg, arg_i| {
@@ -679,10 +762,10 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                 const f = rt_base.Function;
                 // Infer lambda arguments:
                 for (c.arguments, 0..) |arg, arg_i| {
+                    if (arg_i < f.params.len) {
+                        arg.expected_type = f.params[arg_i];
+                    }
                     if (arg.data == .lambda_expr) {
-                        if (arg_i < f.params.len) {
-                            arg.expected_type = f.params[arg_i];
-                        }
                         _ = try self.inferNode(arg, scope);
                     }
                 }
@@ -695,8 +778,10 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                         }
                     }
                 }
+                t.* = f.return_type.*;
+            } else {
+                t.* = rt.*;
             }
-            t.* = rt.*;
         }
     } else {
         _ = try self.inferNode(c.callee, scope);
@@ -707,10 +792,10 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                 const f = rt_base.Function;
                 // Infer lambda arguments:
                 for (c.arguments, 0..) |arg, arg_i| {
+                    if (arg_i < f.params.len) {
+                        arg.expected_type = f.params[arg_i];
+                    }
                     if (arg.data == .lambda_expr) {
-                        if (arg_i < f.params.len) {
-                            arg.expected_type = f.params[arg_i];
-                        }
                         _ = try self.inferNode(arg, scope);
                     }
                 }
@@ -723,8 +808,10 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                         }
                     }
                 }
+                t.* = f.return_type.*;
+            } else {
+                t.* = rt.*;
             }
-            t.* = rt.*;
         }
     }
 }

@@ -11,6 +11,96 @@ const AetherType = core.AetherType;
 const isNullable = core.isNullable;
 const extractBaseType = core.extractBaseType;
 
+fn inferGetExprForSingleType(self: *TypeChecker, target_type: *const AetherType, member_name: []const u8) ?*const AetherType {
+    const base_type = extractBaseType(target_type);
+    var name_opt: ?[]const u8 = null;
+    switch (base_type.*) {
+        .Custom => |n| name_opt = n,
+        .GenericInstance => |gi| {
+            const actual_gi_base = self.alias_map.get(gi.base_name) orelse gi.base_name;
+            var mangled = std.ArrayList(u8).init(self.allocator);
+            mangled.appendSlice(actual_gi_base) catch return null;
+            mangled.appendSlice("_") catch return null;
+            for (gi.type_args, 0..) |t_arg, idx| {
+                if (idx > 0) mangled.appendSlice("_") catch return null;
+                t_arg.formatSafe(mangled.writer()) catch return null;
+            }
+            name_opt = mangled.toOwnedSlice() catch return null;
+        },
+        else => {},
+    }
+    if (name_opt == null) return null;
+    const lookup = self.alias_map.get(name_opt.?) orelse name_opt.?;
+    const actual_name = lookup;
+    var class_node_opt = self.classes_ast.get(actual_name);
+    if (class_node_opt == null and self.registry != null) {
+        var mod_it = self.registry.?.modules.iterator();
+        while (mod_it.next()) |entry| {
+            const mod_actual = entry.value_ptr.checker.alias_map.get(actual_name) orelse actual_name;
+            if (entry.value_ptr.checker.classes_ast.get(mod_actual)) |bn| {
+                class_node_opt = bn;
+                break;
+            }
+        }
+    }
+    if (class_node_opt) |cn| {
+        const c = cn.data.type_decl;
+        for (c.primary_constructor) |prop| {
+            if (std.mem.eql(u8, prop.name, member_name)) {
+                return prop.resolved_type orelse (self.resolveTypeRef(prop.type_ref) catch null);
+            }
+        }
+        for (c.methods) |method| {
+            if (method.data == .fun_decl and std.mem.eql(u8, method.data.fun_decl.name, member_name)) {
+                if (method.data.fun_decl.type_ref) |tr| {
+                    return self.resolveTypeRef(tr) catch null;
+                } else if (method.data.fun_decl.is_expr_body) {
+                    if (method.data.fun_decl.body.resolved_type) |rt| return rt;
+                }
+                const void_type = self.allocator.create(AetherType) catch return null;
+                void_type.* = .Void;
+                return void_type;
+            }
+        }
+        for (c.contracts) |contract_name| {
+            const actual_contract = self.alias_map.get(contract_name) orelse contract_name;
+            if (self.contracts_ast.get(actual_contract)) |contract_node| {
+                for (contract_node.data.contract_decl.methods) |method| {
+                    if (method.data == .fun_decl and std.mem.eql(u8, method.data.fun_decl.name, member_name)) {
+                        if (method.data.fun_decl.type_ref) |tr| {
+                            return self.resolveTypeRef(tr) catch null;
+                        } else {
+                            const void_type = self.allocator.create(AetherType) catch return null;
+                            void_type.* = .Void;
+                            return void_type;
+                        }
+                    }
+                }
+            } else if (self.classes_ast.get(actual_contract)) |super_node| {
+                const sc = super_node.data.type_decl;
+                for (sc.primary_constructor) |prop| {
+                    if (std.mem.eql(u8, prop.name, member_name)) {
+                        return prop.resolved_type orelse (self.resolveTypeRef(prop.type_ref) catch null);
+                    }
+                }
+                for (sc.methods) |method| {
+                    if (method.data == .fun_decl and std.mem.eql(u8, method.data.fun_decl.name, member_name)) {
+                        if (method.data.fun_decl.type_ref) |tr| {
+                            return self.resolveTypeRef(tr) catch null;
+                        } else if (method.data.fun_decl.is_expr_body) {
+                            if (method.data.fun_decl.body.resolved_type) |rt| return rt;
+                        }
+                        const void_type = self.allocator.create(AetherType) catch return null;
+                        void_type.* = .Void;
+                        return void_type;
+                    }
+                }
+            }
+        }
+    }
+    return null;
+}
+
 pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     var g = &node.data.get_expr;
 
@@ -112,6 +202,17 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     var base_name: ?[]const u8 = null;
     switch (base_type.*) {
         .Custom => |n| base_name = n,
+        .GenericInstance => |gi| {
+            const actual_gi_base = self.alias_map.get(gi.base_name) orelse gi.base_name;
+            var mangled = std.ArrayList(u8).init(self.allocator);
+            try mangled.appendSlice(actual_gi_base);
+            try mangled.appendSlice("_");
+            for (gi.type_args, 0..) |t_arg, i| {
+                if (i > 0) try mangled.appendSlice("_");
+                try t_arg.formatSafe(mangled.writer());
+            }
+            base_name = try mangled.toOwnedSlice();
+        },
         .Int => base_name = "core_Int",
         .String => base_name = "core_String",
         .Bool => base_name = "core_Bool",
@@ -123,6 +224,42 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     }
     
     if (lookup_name) |name| {
+        var actual_name = name;
+        if (!self.classes_ast.contains(actual_name) and std.mem.indexOf(u8, actual_name, " | ") != null) {
+            var buf = std.ArrayList(u8).init(self.allocator);
+            var it = std.mem.splitSequence(u8, actual_name, " | ");
+            var idx: usize = 0;
+            while (it.next()) |part| : (idx += 1) {
+                if (idx > 0) try buf.appendSlice("_or_");
+                try buf.appendSlice(part);
+            }
+            actual_name = try buf.toOwnedSlice();
+        }
+        var class_node_opt = self.classes_ast.get(actual_name);
+        if (class_node_opt == null and self.registry != null) {
+            var mod_it = self.registry.?.modules.iterator();
+            while (mod_it.next()) |entry| {
+                const mod_actual = entry.value_ptr.checker.alias_map.get(actual_name) orelse actual_name;
+                if (entry.value_ptr.checker.classes_ast.get(mod_actual)) |bn| {
+                    class_node_opt = bn;
+                    break;
+                }
+            }
+        }
+        if (class_node_opt == null and base_type.* == .GenericInstance) {
+            const gi_base = self.alias_map.get(base_type.GenericInstance.base_name) orelse base_type.GenericInstance.base_name;
+            class_node_opt = self.classes_ast.get(gi_base);
+            if (class_node_opt == null and self.registry != null) {
+                var mod_it = self.registry.?.modules.iterator();
+                while (mod_it.next()) |entry| {
+                    const mod_actual = entry.value_ptr.checker.alias_map.get(gi_base) orelse gi_base;
+                    if (entry.value_ptr.checker.classes_ast.get(mod_actual)) |bn| {
+                        class_node_opt = bn;
+                        break;
+                    }
+                }
+            }
+        }
         if (self.contracts_ast.get(name)) |contract_node| {
             // Member lookup on a contract-typed receiver
             for (contract_node.data.contract_decl.methods) |method| {
@@ -137,11 +274,11 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
                     break;
                 }
             }
-        } else if (self.classes_ast.get(name)) |class_node| {
+        } else if (class_node_opt) |class_node| {
             const c = class_node.data.type_decl;
             for (c.primary_constructor) |prop| {
                 if (std.mem.eql(u8, prop.name, g.name)) {
-                    prop_type = try self.resolveTypeRef(prop.type_ref);
+                    prop_type = prop.resolved_type orelse self.resolveTypeRef(prop.type_ref) catch null;
                     break;
                 }
             }
@@ -211,6 +348,34 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         }
     }
 
+    if (prop_type == null and std.mem.eql(u8, g.name, "toString")) {
+        const fn_type = try self.allocator.create(AetherType);
+        const str_type = try self.allocator.create(AetherType);
+        const actual_str_name = self.alias_map.get("String") orelse "core_String";
+        str_type.* = .{ .Custom = actual_str_name };
+        fn_type.* = .{ .Function = .{
+            .params = &.{},
+            .return_type = str_type,
+            .receiver = obj_type,
+            .c_name = if (base_type.* == .Bool) "core_Bool_toString" else (if (base_type.* == .Int) "core_Int_toString" else "aether_to_string"),
+        } };
+        prop_type = fn_type;
+    }
+
+    if (prop_type == null and base_type.* == .Union) {
+        const left_t = inferGetExprForSingleType(self, base_type.Union.left, g.name);
+        const right_t = inferGetExprForSingleType(self, base_type.Union.right, g.name);
+        if (left_t != null and right_t != null) {
+            if (self.isCompatible(left_t.?, right_t.?)) {
+                prop_type = left_t.?;
+            } else {
+                const union_res = try self.allocator.create(AetherType);
+                union_res.* = .{ .Union = .{ .left = left_t.?, .right = right_t.? } };
+                prop_type = union_res;
+            }
+        }
+    }
+
     if (prop_type == null) {
         self.reportError(node.line, node.column, "TypeError: Unresolved property '{s}' on type {}.", .{ g.name, obj_type.* });
         return error.TypeError;
@@ -272,12 +437,60 @@ pub fn inferSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     var lookup_name: ?[]const u8 = null;
     switch (base_type.*) {
         .Custom => |n| lookup_name = self.alias_map.get(n) orelse n,
+        .GenericInstance => |gi| {
+            const actual_gi_base = self.alias_map.get(gi.base_name) orelse gi.base_name;
+            var mangled = std.ArrayList(u8).init(self.allocator);
+            try mangled.appendSlice(actual_gi_base);
+            try mangled.appendSlice("_");
+            for (gi.type_args, 0..) |t_arg, i| {
+                if (i > 0) try mangled.appendSlice("_");
+                try t_arg.formatSafe(mangled.writer());
+            }
+            const m_name = try mangled.toOwnedSlice();
+            lookup_name = self.alias_map.get(m_name) orelse m_name;
+        },
         else => {},
     }
 
     if (lookup_name) |name| {
+        var actual_name = name;
+        if (!self.classes_ast.contains(actual_name) and std.mem.indexOf(u8, actual_name, " | ") != null) {
+            var buf = std.ArrayList(u8).init(self.allocator);
+            var it = std.mem.splitSequence(u8, actual_name, " | ");
+            var idx: usize = 0;
+            while (it.next()) |part| : (idx += 1) {
+                if (idx > 0) try buf.appendSlice("_or_");
+                try buf.appendSlice(part);
+            }
+            actual_name = try buf.toOwnedSlice();
+        }
+        var class_node_opt = self.classes_ast.get(actual_name);
+        if (class_node_opt == null and self.registry != null) {
+            var mod_it = self.registry.?.modules.iterator();
+            while (mod_it.next()) |entry| {
+                const mod_actual = entry.value_ptr.checker.alias_map.get(actual_name) orelse actual_name;
+                if (entry.value_ptr.checker.classes_ast.get(mod_actual)) |bn| {
+                    class_node_opt = bn;
+                    break;
+                }
+            }
+        }
+        if (class_node_opt == null and base_type.* == .GenericInstance) {
+            const gi_base = self.alias_map.get(base_type.GenericInstance.base_name) orelse base_type.GenericInstance.base_name;
+            class_node_opt = self.classes_ast.get(gi_base);
+            if (class_node_opt == null and self.registry != null) {
+                var mod_it = self.registry.?.modules.iterator();
+                while (mod_it.next()) |entry| {
+                    const mod_actual = entry.value_ptr.checker.alias_map.get(gi_base) orelse gi_base;
+                    if (entry.value_ptr.checker.classes_ast.get(mod_actual)) |bn| {
+                        class_node_opt = bn;
+                        break;
+                    }
+                }
+            }
+        }
         var found_prop = false;
-        if (self.classes_ast.get(name)) |class_node| {
+        if (class_node_opt) |class_node| {
             const c = class_node.data.type_decl;
             for (c.primary_constructor) |prop| {
                 if (std.mem.eql(u8, prop.name, s.name)) {
@@ -286,10 +499,12 @@ pub fn inferSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
                         self.reportError(node.line, node.column, "TypeError: Cannot assign to constant property '{s}' of type {}.", .{ s.name, base_type.* });
                         return error.TypeError;
                     }
-                    const prop_type = try self.resolveTypeRef(prop.type_ref);
-                    if (!self.isCompatible(prop_type, assigned_type)) {
-                        self.reportError(node.line, node.column, "TypeError: Expected {} but found {} when setting property '{s}'.", .{ prop_type.*, assigned_type.*, s.name });
-                        return error.TypeError;
+                    const prop_type = prop.resolved_type orelse (self.resolveTypeRef(prop.type_ref) catch null);
+                    if (prop_type) |pt| {
+                        if (!self.isCompatible(pt, assigned_type)) {
+                            self.reportError(node.line, node.column, "TypeError: Expected {} but found {} when setting property '{s}'.", .{ pt.*, assigned_type.*, s.name });
+                            return error.TypeError;
+                        }
                     }
                     break;
                 }
@@ -304,11 +519,41 @@ pub fn inferSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     t.* = assigned_type.*;
 }
 
+fn isNativeArrayType(t: *const AetherType) bool {
+    switch (t.*) {
+        .Array => return true,
+        .Custom => |n| return std.mem.startsWith(u8, n, "NativeArray") or std.mem.startsWith(u8, n, "AetherArray"),
+        .GenericInstance => |gi| return std.mem.startsWith(u8, gi.base_name, "NativeArray") or std.mem.startsWith(u8, gi.base_name, "Array"),
+        else => return false,
+    }
+}
+
+fn extractArrayElemType(self: *TypeChecker, obj_type: *const AetherType) !*const AetherType {
+    switch (obj_type.*) {
+        .Array => |elem| return elem,
+        .GenericInstance => |gi| {
+            if (gi.type_args.len > 0) return gi.type_args[0];
+        },
+        .Custom => |name| {
+            if (std.mem.startsWith(u8, name, "NativeArray<") and std.mem.endsWith(u8, name, ">")) {
+                const elem_str = name[12 .. name.len - 1];
+                const dummy_ref = try self.allocator.create(ast.ASTTypeRef);
+                dummy_ref.* = .{ .name = elem_str, .generic_args = &.{}, .is_array = false, .is_nullable = false };
+                return try self.resolveTypeRef(dummy_ref);
+            }
+        },
+        else => {},
+    }
+    const void_t = try self.allocator.create(AetherType);
+    void_t.* = .Void;
+    return void_t;
+}
+
 pub fn inferIndexExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const i = node.data.index_expr;
     const obj_type = try self.inferNode(i.object, scope);
     
-    if (obj_type.* == .Custom or obj_type.* == .GenericInstance) {
+    if (!isNativeArrayType(obj_type) and (obj_type.* == .Custom or obj_type.* == .GenericInstance)) {
         // Redireciona para object.get(index)
         const get_ident = try self.allocator.create(ASTNode);
         get_ident.* = .{ .line = node.line, .column = node.column, .resolved_type = null, .data = .{ .identifier = .{ .name = "get", .resolved_c_name = null } } };
@@ -325,7 +570,7 @@ pub fn inferIndexExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
         return;
     }
     
-    if (obj_type.* != .Array) {
+    if (!isNativeArrayType(obj_type)) {
         self.reportError(node.line, node.column, "TypeError: Index operator '[]' can only be used on arrays or objects with .get(). Found {}.", .{obj_type.*});
         return error.TypeError;
     }
@@ -336,14 +581,14 @@ pub fn inferIndexExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aet
         return error.TypeError;
     }
     
-    t.* = obj_type.Array.*;
+    t.* = (try extractArrayElemType(self, obj_type)).*;
 }
 
 pub fn inferIndexSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     const i = node.data.index_set_expr;
     const obj_type = try self.inferNode(i.object, scope);
     
-    if (obj_type.* == .Custom or obj_type.* == .GenericInstance) {
+    if (!isNativeArrayType(obj_type) and (obj_type.* == .Custom or obj_type.* == .GenericInstance)) {
         // Redireciona para object.put(index, value) ou object.set(index, value)
         const get_ident = try self.allocator.create(ASTNode);
         get_ident.* = .{ .line = node.line, .column = node.column, .resolved_type = null, .data = .{ .identifier = .{ .name = "put", .resolved_c_name = null } } };
@@ -361,12 +606,12 @@ pub fn inferIndexSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *
         return;
     }
     
-    if (obj_type.* != .Array) {
+    if (!isNativeArrayType(obj_type)) {
         self.reportError(node.line, node.column, "TypeError: Index assignment operator '[]=' can only be used on arrays or objects with .put(). Found {}.", .{obj_type.*});
         return error.TypeError;
     }
     
-    const target_type = obj_type.*;
+    const elem_type = try extractArrayElemType(self, obj_type);
     const index_type = try self.inferNode(i.index, scope);
     if (index_type.* != .Int) {
         self.reportError(node.line, node.column, "TypeError: Array index must be Int. Found {}.", .{index_type.*});
@@ -374,9 +619,8 @@ pub fn inferIndexSetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *
     }
     
     const value_type = try self.inferNode(i.value, scope);
-    if (!self.isCompatible(target_type.Array, value_type)) {
-        std.debug.print("\n[DEBUG] inferIndexSetExpr FAIL: target_type={}, target_type.Array tag={s}, value_type={}, tag={s}\n", .{target_type, @tagName(target_type.Array.*), value_type.*, @tagName(value_type.*)});
-        self.reportError(node.line, node.column, "TypeError: Cannot assign {} to array of {}.", .{value_type.*, target_type.Array.*});
+    if (!self.isCompatible(elem_type, value_type)) {
+        self.reportError(node.line, node.column, "TypeError: Cannot assign {} to array of {}.", .{value_type.*, elem_type.*});
         return error.TypeError;
     }
     

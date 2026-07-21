@@ -1,5 +1,6 @@
 const std = @import("std");
 const core = @import("core.zig");
+const type_system = @import("../../core/type_system.zig");
 
 const ASTNode = core.ASTNode;
 const CTranspiler = core.CTranspiler;
@@ -16,6 +17,27 @@ fn getBoxTypeName(allocator: std.mem.Allocator, c_type: []const u8) anyerror![]c
         }
     }
     return try std.fmt.allocPrint(allocator, "Box_{s}", .{safe.items});
+}
+
+fn emitCatchTypeCheck(self: *CTranspiler, target_t: *const type_system.AetherType) anyerror!void {
+    switch (target_t.*) {
+        .Custom => |cname| {
+            const actual = if (self.alias_map) |am| (am.get(cname) orelse cname) else cname;
+            if (self.isContract(actual)) {
+                try self.writer.writer().print("aether_implements(*(const AetherTypeDescriptor**)(__exc), &{s}_contract)", .{actual});
+            } else {
+                try self.writer.writer().print("*(const AetherTypeDescriptor**)(__exc) == &{s}_descriptor", .{actual});
+            }
+        },
+        .Union => |u| {
+            try self.writer.appendSlice("(");
+            try emitCatchTypeCheck(self, u.left);
+            try self.writer.appendSlice(" || ");
+            try emitCatchTypeCheck(self, u.right);
+            try self.writer.appendSlice(")");
+        },
+        else => {},
+    }
 }
 
 pub fn emitStatement(self: *CTranspiler, node: *ASTNode) anyerror!void {
@@ -43,7 +65,13 @@ pub fn emitStatement(self: *CTranspiler, node: *ASTNode) anyerror!void {
                 try self.writer.writer().print("    {s} {s}", .{type_str, v.name});
                 if (v.initializer) |init_node| {
                     try self.writer.appendSlice(" = ");
-                    try self.emitExpression(init_node);
+                    if (std.mem.eql(u8, type_str, "void*") and init_node.resolved_type != null and (init_node.resolved_type.?.* == .Int or init_node.resolved_type.?.* == .Bool)) {
+                        try self.writer.writer().print("(void*)(intptr_t)(", .{});
+                        try self.emitExpression(init_node);
+                        try self.writer.appendSlice(")");
+                    } else {
+                        try self.emitExpression(init_node);
+                    }
                 }
                 try self.writer.appendSlice(";\n");
             }
@@ -160,11 +188,15 @@ pub fn emitStatement(self: *CTranspiler, node: *ASTNode) anyerror!void {
                         try self.writer.writer().print("            {s} (__exc != 0 && (", .{prefix});
                         for (c.types, 0..) |tr, tr_i| {
                             if (tr_i > 0) try self.writer.appendSlice(" || ");
-                            const actual_type_name = if (self.alias_map) |am| (am.get(tr.name) orelse tr.name) else tr.name;
-                            if (self.isContract(actual_type_name)) {
-                                try self.writer.writer().print("aether_implements(*(const AetherTypeDescriptor**)(__exc), &{s}_contract)", .{actual_type_name});
-                            } else {
-                                try self.writer.writer().print("*(const AetherTypeDescriptor**)(__exc) == &{s}_descriptor", .{actual_type_name});
+                            if (tr.resolved_type) |rt| {
+                                try emitCatchTypeCheck(self, rt);
+                            } else if (tr.name.len > 0) {
+                                const actual_type_name = if (self.alias_map) |am| (am.get(tr.name) orelse tr.name) else tr.name;
+                                if (self.isContract(actual_type_name)) {
+                                    try self.writer.writer().print("aether_implements(*(const AetherTypeDescriptor**)(__exc), &{s}_contract)", .{actual_type_name});
+                                } else {
+                                    try self.writer.writer().print("*(const AetherTypeDescriptor**)(__exc) == &{s}_descriptor", .{actual_type_name});
+                                }
                             }
                         }
                         try self.writer.appendSlice(")) {\n");

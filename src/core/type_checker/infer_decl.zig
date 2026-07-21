@@ -49,7 +49,8 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
             return error.ImportError;
         }
     } else {
-        mod_path = try std.fs.path.join(self.allocator, &.{ dir_path, actual_module_path });
+        const raw_mod_path = try std.fs.path.join(self.allocator, &.{ dir_path, actual_module_path });
+        mod_path = try std.fs.path.relative(self.allocator, ".", raw_mod_path);
         if (self.registry == null) {
             mod_source = std.fs.cwd().readFileAlloc(self.allocator, mod_path, 1024 * 1024) catch |err| {
                 self.reportError(node.line, node.column, "ImportError: Failed to read module file '{s}': {}", .{ mod_path, err });
@@ -284,7 +285,7 @@ pub fn inferTypeDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
     defer self.current_type_c_name = old_type_c_name;
 
     for (c.primary_constructor) |*prop| {
-        const param_type = try self.resolveTypeRef(prop.type_ref);
+        const param_type = prop.resolved_type orelse try self.resolveTypeRef(prop.type_ref);
         prop.resolved_type = param_type;
 
         if (prop.initializer) |init_node| {
@@ -621,6 +622,9 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     try self.functions_ast.put(f.resolved_c_name.?, node);
     if (!is_method and self.current_class_name == null) {
         try self.local_symbols.put(f.name, {});
+        if (self.module_prefix != null) {
+            try self.alias_map.put(f.name, f.resolved_c_name.?);
+        }
     }
 
     var return_type: *const AetherType = undefined;
@@ -681,6 +685,7 @@ pub fn inferVarDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     if (v.initializer) |init_node| {
         if (declared) |d| {
             init_node.expected_type = d;
+            init_node.resolved_type = null;
         }
         inferred = try self.inferNode(init_node, scope);
     }

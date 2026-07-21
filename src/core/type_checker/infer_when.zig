@@ -69,7 +69,7 @@ pub fn inferWhenExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                             return error.TypeError;
                         }
                     } else {
-                        if (!self.isCompatible(target_t, subj_t)) {
+                        if (!self.isCompatible(target_t, subj_t) and !self.isCompatible(subj_t, target_t)) {
                             self.reportError(cond.line, cond.column, "TypeError: Cannot check if {} is {}.", .{ subj_t.*, target_t.* });
                             return error.TypeError;
                         }

@@ -26,16 +26,21 @@ pub fn monomorphizeClass(self: *TypeChecker, base_name: []const u8, type_args: [
             }
         }
     }
-    if (base_node == null) {
+    if (base_node != null and base_node.?.data.type_decl.generic_params.len == 0) {
+        if (self.classes_ast.get(base_name)) |bn| {
+            if (bn.data.type_decl.generic_params.len > 0) {
+                base_node = bn;
+                actual_base_name = base_name;
+            }
+        }
+    }
+    if (base_node == null or base_node.?.data.type_decl.generic_params.len == 0) {
         self.reportError(0, 0, "TypeError: Generic class '{s}' not found.", .{base_name});
         return error.TypeError;
     }
     
     const new_node = try self.allocator.create(ASTNode);
     new_node.* = base_node.?.*;
-    
-    // Temporarily insert to avoid infinite recursion (e.g. Node<K, V> having next: Node<K, V>)
-    try self.classes_ast.put(mangled_name, new_node);
     
     const type_decl = base_node.?.data.type_decl;
     if (type_decl.generic_params.len != type_args.len) {
@@ -55,17 +60,25 @@ pub fn monomorphizeClass(self: *TypeChecker, base_name: []const u8, type_args: [
     defer old_aliases.deinit();
 
     for (type_decl.generic_params, 0..) |param_name, i| {
-        const conc_name = try std.fmt.allocPrint(self.allocator, "{}", .{type_args[i].*});
+        var conc_buf = std.ArrayList(u8).init(self.allocator);
+        try type_args[i].formatSafe(conc_buf.writer());
+        const conc_name = try conc_buf.toOwnedSlice();
+
         if (self.alias_map.get(param_name)) |old_val| {
             try old_aliases.put(param_name, old_val);
         }
+        _ = self.global_scope.define(conc_name, type_args[i], false, false) catch {};
         try self.alias_map.put(param_name, conc_name);
+        try self.alias_map.put(conc_name, conc_name);
     }
 
     var new_props = try self.allocator.alloc(ast.ClassProp, type_decl.primary_constructor.len);
     for (type_decl.primary_constructor, 0..) |prop, i| {
         new_props[i] = prop;
         new_props[i].type_ref = try self.cloneTypeRef(prop.type_ref);
+        if (generic_map.get(prop.type_ref.name)) |g_type| {
+            new_props[i].resolved_type = g_type;
+        }
         if (prop.initializer) |init_node| {
             new_props[i].initializer = try self.cloneNode(init_node);
         }
@@ -105,6 +118,21 @@ pub fn monomorphizeClass(self: *TypeChecker, base_name: []const u8, type_args: [
     new_type_decl.resolved_c_name = mangled_name;
     new_type_decl.generic_params = &.{};
     new_node.data = .{ .type_decl = new_type_decl };
+
+    // Insert monomorphized node into classes_ast & alias_map
+    try self.classes_ast.put(mangled_name, new_node);
+    try self.alias_map.put(mangled_name, mangled_name);
+    if (std.mem.indexOf(u8, mangled_name, "_or_") != null) {
+        var display_buf = std.ArrayList(u8).init(self.allocator);
+        var it = std.mem.splitSequence(u8, mangled_name, "_or_");
+        var idx: usize = 0;
+        while (it.next()) |part| : (idx += 1) {
+            if (idx > 0) try display_buf.appendSlice(" | ");
+            try display_buf.appendSlice(part);
+        }
+        const disp = try display_buf.toOwnedSlice();
+        try self.alias_map.put(disp, mangled_name);
+    }
     
     // Register and trigger deep inference on the monomorphized class!
     const class_type = try self.allocator.create(AetherType);

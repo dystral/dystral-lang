@@ -108,14 +108,32 @@ pub const AetherType = union(enum) {
                 try elem.formatSafe(writer);
             },
             .Custom => |name| {
-                for (name) |c| {
-                    if (c == '<' or c == '>' or c == ',') {
-                        try writer.writeAll("_");
-                    } else if (c == ' ' or c == '?') {
-                        // skip
-                    } else {
-                        var buf: [1]u8 = .{c};
-                        try writer.writeAll(&buf);
+                if (std.mem.indexOf(u8, name, " | ") != null) {
+                    var it = std.mem.splitSequence(u8, name, " | ");
+                    var idx: usize = 0;
+                    while (it.next()) |part| : (idx += 1) {
+                        if (idx > 0) try writer.writeAll("_or_");
+                        for (part) |c| {
+                            if (c == '<' or c == '>' or c == ',' or c == '|') {
+                                try writer.writeAll("_");
+                            } else if (c == ' ' or c == '?') {
+                                // skip
+                            } else {
+                                var buf: [1]u8 = .{c};
+                                try writer.writeAll(&buf);
+                            }
+                        }
+                    }
+                } else {
+                    for (name) |c| {
+                        if (c == '<' or c == '>' or c == ',' or c == '|') {
+                            try writer.writeAll("_");
+                        } else if (c == ' ' or c == '?') {
+                            // skip
+                        } else {
+                            var buf: [1]u8 = .{c};
+                            try writer.writeAll(&buf);
+                        }
                     }
                 }
             },
@@ -205,7 +223,6 @@ pub const Scope = struct {
                 if (existing.* == .Variable and isCompatible(existing.Variable.aether_type, t)) {
                     return;
                 }
-                std.debug.print("SymbolAlreadyDefined: {s} is not Variable\n", .{name});
                 return error.SymbolAlreadyDefined;
             }
         }

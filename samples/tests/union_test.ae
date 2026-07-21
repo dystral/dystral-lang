@@ -1,0 +1,125 @@
+import { assert } from "std.core"
+import { MutableMap } from "std.collections"
+import { Person } from "../person"
+
+test "should create a union type" {
+    var a: String | Int = "asd"
+    assert(a == "asd")
+    a = 1
+    assert(a == 1)
+
+    assert((a is String) ? false : true)
+    assert((a is Int) ? true : false)
+}
+
+test "should work with union using null" {
+    var a: String | Null | Int = "asd"
+    assert(a == "asd")
+    a = null
+    assert(a == null)
+
+    if (a == null) {
+        assert(true)
+    } else {
+        assert(false)
+    }
+
+    assert((a is Null) ? true : false)
+
+    when (a) {
+        is Null -> assert(true)
+        is String -> assert(false)
+        else -> assert(false)
+    }
+
+    when (a) {
+        null -> assert(true)
+        is String -> assert(false)
+        else -> assert(false)
+    }
+}
+
+test "should work with MutableMap holding union values" {
+    val map: MutableMap<String, String | Int> = MutableMap()
+    map["name"] = "Aether"
+    map["version"] = 1
+
+    assert(map["name"] == "Aether")
+    assert(map["version"] == 1)
+}
+
+type Box<T>(val item: T) {
+    fun get(): T = this.item
+}
+
+test "should create a union type in a type" {
+    val boxUnion: Box<Int | String> = Box(10)
+    when (boxUnion.get()) {
+        is Int -> {
+            assert(true)
+        }
+        is String -> {
+            assert(false)
+        }
+        else -> {
+            assert(false)
+        }
+    }
+    if (boxUnion.get() is Int) {
+        assert(true)
+    }
+    if (boxUnion.get() is String) {
+        assert(false)
+    }
+    assert(boxUnion.get() == 10)
+
+    val boxUnionString: Box<Int | String> = Box("Aether")
+    when (boxUnionString.get()) {
+        is Int -> {
+            assert(false)
+        }
+        is String -> {
+            assert(true)
+        }
+        else -> {
+            assert(false)
+        }
+    }
+    if (boxUnionString.get() is Int) {
+        assert(false)
+    }
+    if (boxUnionString.get() is String) {
+        assert(true)
+    }
+    assert(boxUnionString.get() == "Aether")
+
+    val person = Person("Leo", 25)
+    val boxUnionPerson: Box<Int | String | Person> = Box(person)
+    val item = boxUnionPerson.get()
+
+    when (item) {
+        is Int -> {
+            assert(false)
+        }
+        is String -> {
+            assert(false)
+        }
+        is Person -> {
+            assert(true)
+        }
+        else -> {
+            assert(false)
+        }
+    }
+    if (item is Int) {
+        assert(false)
+    }
+    if (item is String) {
+        assert(false)
+    }
+    if (item is Person) {
+        assert(true)
+        assert(item.name == "Leo")
+        assert(item.age == 25)
+    }
+}

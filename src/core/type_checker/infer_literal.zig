@@ -12,7 +12,14 @@ pub fn inferArrayLiteral(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *
     const a = node.data.array_literal;
     if (a.elements.len == 0) {
         if (node.expected_type) |expected| {
-            const expected_base = type_system.extractBaseType(expected);
+            var expected_base = type_system.extractBaseType(expected);
+            if (expected_base.* == .Union) {
+                if (expected_base.Union.right.* == .Null) {
+                    expected_base = expected_base.Union.left;
+                } else if (expected_base.Union.left.* == .Null) {
+                    expected_base = expected_base.Union.right;
+                }
+            }
             if (expected_base.* == .Array or expected_base.* == .Custom) {
                 t.* = expected_base.*;
                 return;

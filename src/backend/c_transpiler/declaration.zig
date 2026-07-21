@@ -7,7 +7,9 @@ const CTranspiler = core.CTranspiler;
 
 pub fn emitTypeDecl(self: *CTranspiler, node: *ASTNode) !void {
     const type_decl = node.data.type_decl;
+    if (type_decl.generic_params.len > 0) return;
     const actual_name = type_decl.resolved_c_name orelse type_decl.name;
+    if (std.mem.endsWith(u8, actual_name, "_K") or std.mem.endsWith(u8, actual_name, "_V")) return;
     if (self.classes.contains(actual_name)) return;
     try self.classes.put(actual_name, {});
 

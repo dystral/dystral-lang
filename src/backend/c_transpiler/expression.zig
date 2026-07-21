@@ -123,17 +123,9 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     var safe_inner_name = std.ArrayList(u8).init(self.allocator);
                     if (m.elements.len > 0) {
                         const call = m.elements[0].data.call_expr;
-                        const first_k_type = try core.getCTypeStr(self.allocator, call.arguments[0].resolved_type.?);
-                        for (first_k_type) |ch| {
-                            if (ch == '*' or ch == ' ') continue;
-                            try safe_inner_name.append(ch);
-                        }
+                        try call.arguments[0].resolved_type.?.formatSafe(safe_inner_name.writer());
                         try safe_inner_name.appendSlice("_");
-                        const first_v_type = try core.getCTypeStr(self.allocator, call.arguments[1].resolved_type.?);
-                        for (first_v_type) |ch| {
-                            if (ch == '*' or ch == ' ') continue;
-                            try safe_inner_name.append(ch);
-                        }
+                        try call.arguments[1].resolved_type.?.formatSafe(safe_inner_name.writer());
                     } else {
                         try safe_inner_name.appendSlice("Void_Void");
                     }
@@ -191,6 +183,24 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                 try self.writer.writer().print("{s}->value = ", .{a.name});
             } else {
                 try self.writer.writer().print("{s} = ", .{a.name});
+            }
+            if (a.value.resolved_type) |vrt| {
+                const val_base = ts.extractBaseType(vrt);
+                if (val_base.* == .Int or val_base.* == .Bool) {
+                    var is_void_target = false;
+                    if (a.value.expected_type) |ext| {
+                        const target_base = ts.extractBaseType(ext);
+                        if (target_base.* == .Union or (target_base.* == .Custom and !std.mem.eql(u8, target_base.Custom, "core_Int") and !std.mem.eql(u8, target_base.Custom, "core_Bool"))) {
+                            is_void_target = true;
+                        }
+                    }
+                    if (is_void_target) {
+                        try self.writer.appendSlice("(void*)(intptr_t)(");
+                        try self.emitExpression(a.value);
+                        try self.writer.appendSlice(")");
+                        return;
+                    }
+                }
             }
             try self.emitExpression(a.value);
         },
@@ -255,16 +265,32 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                 try self.writer.writer().print("((({s}*)(", .{class_name});
                 try self.emitExpression(s.object);
                 try self.writer.writer().print("))->{s} = ", .{s.name});
-                try self.emitExpression(s.value);
+                const val_t = if (s.value.resolved_type) |vrt| ts.extractBaseType(vrt) else null;
+                const exp_t = if (s.value.expected_type) |ext| ts.extractBaseType(ext) else null;
+                if (val_t != null and (val_t.?.* == .Int or val_t.?.* == .Bool) and exp_t != null and (exp_t.?.* == .Union or exp_t.?.* == .Pointer or (exp_t.?.* == .Custom and !std.mem.eql(u8, exp_t.?.Custom, "core_Int") and !std.mem.eql(u8, exp_t.?.Custom, "core_Bool")))) {
+                    try self.writer.appendSlice("(void*)(intptr_t)(");
+                    try self.emitExpression(s.value);
+                    try self.writer.appendSlice(")");
+                } else {
+                    try self.emitExpression(s.value);
+                }
                 try self.writer.appendSlice(")");
             } else {
                 try self.emitExpression(s.object);
                 try self.writer.writer().print("->{s} = ", .{s.name});
-                try self.emitExpression(s.value);
+                const val_t = if (s.value.resolved_type) |vrt| ts.extractBaseType(vrt) else null;
+                const exp_t = if (s.value.expected_type) |ext| ts.extractBaseType(ext) else null;
+                if (val_t != null and (val_t.?.* == .Int or val_t.?.* == .Bool) and exp_t != null and (exp_t.?.* == .Union or exp_t.?.* == .Pointer or (exp_t.?.* == .Custom and !std.mem.eql(u8, exp_t.?.Custom, "core_Int") and !std.mem.eql(u8, exp_t.?.Custom, "core_Bool")))) {
+                    try self.writer.appendSlice("(void*)(intptr_t)(");
+                    try self.emitExpression(s.value);
+                    try self.writer.appendSlice(")");
+                } else {
+                    try self.emitExpression(s.value);
+                }
             }
         },
         .call_expr => |c| {
-            var is_closure = (c.callee.data == .identifier and c.callee.resolved_type != null and ts.extractBaseType(c.callee.resolved_type.?).* == .Function);
+            var is_closure = (c.callee.data == .identifier and c.callee.data.identifier.resolved_c_name == null and c.callee.resolved_type != null and ts.extractBaseType(c.callee.resolved_type.?).* == .Function);
             if (!is_closure and c.callee.data == .get_expr and c.callee.resolved_type != null and ts.extractBaseType(c.callee.resolved_type.?).* == .Function) {
                 const g = c.callee.data.get_expr;
                 if (g.object.resolved_type) |rt| {
@@ -322,20 +348,37 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                 }
                 try self.writer.appendSlice(")");
             } else if (c.callee.data == .identifier) {
-                const c_name = c.callee.data.identifier.resolved_c_name orelse c.callee.data.identifier.name;
+                const raw_c_name = c.callee.data.identifier.resolved_c_name orelse c.callee.data.identifier.name;
+                const c_name = if (self.alias_map) |am| am.get(raw_c_name) orelse raw_c_name else raw_c_name;
                 if (self.classes.contains(c_name) or self.known_constructors.contains(c_name)) {
                     try self.writer.writer().print("{s}_new", .{c_name});
                     try self.writer.appendSlice("(");
                     for (c.arguments, 0..) |arg, i| {
                         if (i > 0) try self.writer.appendSlice(", ");
-                        try self.emitExpression(arg);
+                        const arg_t = if (arg.resolved_type) |art| ts.extractBaseType(art) else null;
+                        const exp_t = if (arg.expected_type) |ext| ts.extractBaseType(ext) else null;
+                        if (arg_t != null and (arg_t.?.* == .Int or arg_t.?.* == .Bool) and exp_t != null and (exp_t.?.* == .Union or exp_t.?.* == .Custom)) {
+                            try self.writer.appendSlice("(void*)(intptr_t)(");
+                            try self.emitExpression(arg);
+                            try self.writer.appendSlice(")");
+                        } else {
+                            try self.emitExpression(arg);
+                        }
                     }
                     try self.writer.appendSlice(")");
                 } else {
                     try self.writer.writer().print("{s}(", .{c_name});
                     for (c.arguments, 0..) |arg, i| {
                         if (i > 0) try self.writer.appendSlice(", ");
-                        try self.emitExpression(arg);
+                        const arg_t = if (arg.resolved_type) |art| ts.extractBaseType(art) else null;
+                        const exp_t = if (arg.expected_type) |ext| ts.extractBaseType(ext) else null;
+                        if (arg_t != null and (arg_t.?.* == .Int or arg_t.?.* == .Bool) and exp_t != null and (exp_t.?.* == .Union or exp_t.?.* == .Custom)) {
+                            try self.writer.appendSlice("(void*)(intptr_t)(");
+                            try self.emitExpression(arg);
+                            try self.writer.appendSlice(")");
+                        } else {
+                            try self.emitExpression(arg);
+                        }
                     }
                     try self.writer.appendSlice(")");
                 }
@@ -372,6 +415,34 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     }
                     try self.writer.appendSlice(")");
                     return;
+                }
+
+                if (std.mem.eql(u8, g.name, "toString")) {
+                    if (rt.* == .Bool) {
+                        try self.writer.appendSlice("core_Bool_toString(");
+                        try self.emitExpression(g.object);
+                        try self.writer.appendSlice(")");
+                        return;
+                    } else if (rt.* == .Int) {
+                        try self.writer.appendSlice("core_Int_toString(");
+                        try self.emitExpression(g.object);
+                        try self.writer.appendSlice(")");
+                        return;
+                    } else if (rt.* == .String) {
+                        try self.emitExpression(g.object);
+                        return;
+                    } else if (rt.* == .Custom) {
+                        const actual_cn = if (self.alias_map) |am| (am.get(rt.Custom) orelse rt.Custom) else rt.Custom;
+                        try self.writer.writer().print("{s}_toString(", .{actual_cn});
+                        try self.emitExpression(g.object);
+                        try self.writer.appendSlice(")");
+                        return;
+                    } else {
+                        try self.writer.appendSlice("aether_to_string((void*)(");
+                        try self.emitExpression(g.object);
+                        try self.writer.appendSlice("))");
+                        return;
+                    }
                 }
 
                 var class_name: []const u8 = "unknown";
@@ -446,7 +517,15 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     try self.emitExpression(g.object);
                     for (c.arguments) |arg| {
                         try self.writer.appendSlice(", ");
-                        try self.emitExpression(arg);
+                        const arg_t = if (arg.resolved_type) |art| ts.extractBaseType(art) else null;
+                        const exp_t = if (arg.expected_type) |ext| ts.extractBaseType(ext) else null;
+                        if (arg_t != null and (arg_t.?.* == .Int or arg_t.?.* == .Bool) and exp_t != null and (exp_t.?.* == .Union or exp_t.?.* == .Custom)) {
+                            try self.writer.appendSlice("(void*)(intptr_t)(");
+                            try self.emitExpression(arg);
+                            try self.writer.appendSlice(")");
+                        } else {
+                            try self.emitExpression(arg);
+                        }
                     }
                     try self.writer.appendSlice("))");
                 } else {
@@ -454,7 +533,15 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     try self.emitExpression(g.object);
                     for (c.arguments) |arg| {
                         try self.writer.appendSlice(", ");
-                        try self.emitExpression(arg);
+                        const arg_t = if (arg.resolved_type) |art| ts.extractBaseType(art) else null;
+                        const exp_t = if (arg.expected_type) |ext| ts.extractBaseType(ext) else null;
+                        if (arg_t != null and (arg_t.?.* == .Int or arg_t.?.* == .Bool) and exp_t != null and (exp_t.?.* == .Union or exp_t.?.* == .Custom)) {
+                            try self.writer.appendSlice("(void*)(intptr_t)(");
+                            try self.emitExpression(arg);
+                            try self.writer.appendSlice(")");
+                        } else {
+                            try self.emitExpression(arg);
+                        }
                     }
                     try self.writer.appendSlice(")");
                 }
@@ -531,6 +618,49 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                             } else {
                                 try self.writer.appendSlice("1");
                             }
+                            return;
+                        }
+                    }
+                }
+
+                const left_base = if (b.left.resolved_type) |rt| ts.extractBaseType(rt) else null;
+                const right_base = if (b.right.resolved_type) |rt| ts.extractBaseType(rt) else null;
+
+                const left_is_union = (left_base != null and left_base.?.* == .Union and left_base.?.Union.right.* != .Null);
+                const right_is_union = (right_base != null and right_base.?.* == .Union and right_base.?.Union.right.* != .Null);
+
+                if (left_is_union or right_is_union) {
+                    const union_side = if (left_is_union) b.left else b.right;
+                    const other_side = if (left_is_union) b.right else b.left;
+                    const other_t = if (other_side.resolved_type) |rt| ts.extractBaseType(rt) else null;
+
+                    if (other_t) |ot| {
+                        if (ot.* == .Int or ot.* == .Bool) {
+                            if (b.op == .bang_eq) try self.writer.appendSlice("!(");
+                            try self.writer.appendSlice("((int)(intptr_t)(");
+                            try self.emitExpression(union_side);
+                            try self.writer.appendSlice(") == (");
+                            try self.emitExpression(other_side);
+                            try self.writer.appendSlice("))");
+                            if (b.op == .bang_eq) try self.writer.appendSlice(")");
+                            return;
+                        } else if (ot.* == .String or (ot.* == .Custom and std.mem.eql(u8, ot.Custom, "core_String"))) {
+                            if (b.op == .bang_eq) try self.writer.appendSlice("!(");
+                            try self.writer.appendSlice("(");
+                            try self.writer.appendSlice("((core_String*)(");
+                            try self.emitExpression(union_side);
+                            try self.writer.appendSlice(")) == (");
+                            try self.emitExpression(other_side);
+                            try self.writer.appendSlice(") || (((void*)(");
+                            try self.emitExpression(union_side);
+                            try self.writer.appendSlice(")) != 0 && (");
+                            try self.emitExpression(other_side);
+                            try self.writer.appendSlice(") != 0 && core_String_equals((core_String*)(");
+                            try self.emitExpression(union_side);
+                            try self.writer.appendSlice("), ");
+                            try self.emitExpression(other_side);
+                            try self.writer.appendSlice(")))");
+                            if (b.op == .bang_eq) try self.writer.appendSlice(")");
                             return;
                         }
                     }
@@ -640,25 +770,53 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
             try self.writer.appendSlice(")");
         },
         .as_expr => |a| {
-            const t_str = try core.getCTypeStr(self.allocator, a.type_ref.resolved_type.?);
-            try self.writer.writer().print("(({s})", .{t_str});
-            try self.emitExpression(a.value);
-            try self.writer.appendSlice(")");
+            const dest_t = a.type_ref.resolved_type.?;
+            const t_str = try core.getCTypeStr(self.allocator, dest_t);
+            if (dest_t.* == .Int or dest_t.* == .Bool) {
+                try self.writer.writer().print("(({s})(intptr_t)(", .{t_str});
+                try self.emitExpression(a.value);
+                try self.writer.appendSlice("))");
+            } else {
+                try self.writer.writer().print("(({s})", .{t_str});
+                try self.emitExpression(a.value);
+                try self.writer.appendSlice(")");
+            }
         },
         .is_expr => |i| {
             const target_t = i.type_ref.resolved_type.?;
-            const target_c_name = target_t.Custom;
+            const target_c_name = switch (target_t.*) {
+                .Custom => |cname| cname,
+                .Int => "core_Int",
+                .Bool => "core_Bool",
+                .String => "core_String",
+                .Null => "core_Null",
+                else => "unknown",
+            };
             if (i.is_not) {
                 try self.writer.appendSlice("!(");
             }
-            try self.writer.appendSlice("((");
-            try self.emitExpression(i.value);
-            if (self.isContract(target_c_name)) {
-                try self.writer.writer().print(") != 0 && aether_implements(*(const AetherTypeDescriptor**)(", .{});
+            if (std.mem.eql(u8, target_c_name, "core_Null")) {
+                try self.writer.appendSlice("((");
+                try self.emitExpression(i.value);
+                try self.writer.appendSlice(") == 0)");
+            } else if (std.mem.eql(u8, target_c_name, "core_Int")) {
+                try self.writer.appendSlice("((uintptr_t)(");
+                try self.emitExpression(i.value);
+                try self.writer.appendSlice(") < 0x10000)");
+            } else if (std.mem.eql(u8, target_c_name, "core_Bool")) {
+                try self.writer.appendSlice("((uintptr_t)(");
+                try self.emitExpression(i.value);
+                try self.writer.appendSlice(") <= 1)");
+            } else if (self.isContract(target_c_name)) {
+                try self.writer.appendSlice("((uintptr_t)(");
+                try self.emitExpression(i.value);
+                try self.writer.appendSlice(") >= 0x10000 && aether_implements(*(const AetherTypeDescriptor**)(");
                 try self.emitExpression(i.value);
                 try self.writer.writer().print("), &{s}_contract))", .{target_c_name});
             } else {
-                try self.writer.writer().print(") != 0 && *(const AetherTypeDescriptor**)(", .{});
+                try self.writer.appendSlice("((uintptr_t)(");
+                try self.emitExpression(i.value);
+                try self.writer.appendSlice(") >= 0x10000 && *(const AetherTypeDescriptor**)(");
                 try self.emitExpression(i.value);
                 try self.writer.writer().print(") == &{s}_descriptor)", .{target_c_name});
             }
@@ -681,17 +839,18 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                 try self.writer.writer().print("{s} {s}; ", .{ res_c_type, res_var_name });
             }
 
-            const subj_var_name = try std.fmt.allocPrint(self.allocator, "_when_subj_{}_{}", .{ node.line, node.column });
+            var subj_var_name: []const u8 = "";
             if (w.subject) |subj| {
                 const subj_t = subj.resolved_type.?;
                 const subj_c_type = try self.cType(subj_t);
+                subj_var_name = try std.fmt.allocPrint(self.allocator, "_when_subj_{}_{}", .{ node.line, node.column });
                 try self.writer.writer().print("{s} {s} = ", .{ subj_c_type, subj_var_name });
                 try self.emitExpression(subj);
                 try self.writer.appendSlice("; ");
             }
 
-            for (w.cases, 0..) |case, i| {
-                if (i > 0) {
+            for (w.cases, 0..) |case, case_idx| {
+                if (case_idx > 0) {
                     try self.writer.appendSlice("else ");
                 }
 
@@ -711,17 +870,28 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                             if (cond.data == .is_type_cond) {
                                 const type_cond = cond.data.is_type_cond;
                                 const target_t = type_cond.type_ref.resolved_type.?;
-                                const target_c_name = target_t.Custom;
+                                const target_c_name = switch (target_t.*) {
+                                    .Custom => |cname| cname,
+                                    .Int => "core_Int",
+                                    .Bool => "core_Bool",
+                                    .String => "core_String",
+                                    .Null => "core_Null",
+                                    else => "unknown",
+                                };
 
                                 if (type_cond.is_not) {
                                     try self.writer.appendSlice("!(");
                                 }
-                                if (self.isContract(target_c_name)) {
-                                    try self.writer.writer().print("(({s}) != 0 && aether_implements(*(const AetherTypeDescriptor**)(", .{ subj_var_name });
-                                    try self.writer.writer().print("{s}), &{s}_contract))", .{ subj_var_name, target_c_name });
+                                if (std.mem.eql(u8, target_c_name, "core_Null")) {
+                                    try self.writer.writer().print("({s} == 0)", .{subj_var_name});
+                                } else if (std.mem.eql(u8, target_c_name, "core_Int")) {
+                                    try self.writer.writer().print("((uintptr_t)({s}) < 0x10000)", .{subj_var_name});
+                                } else if (std.mem.eql(u8, target_c_name, "core_Bool")) {
+                                    try self.writer.writer().print("((uintptr_t)({s}) <= 1)", .{subj_var_name});
+                                } else if (self.isContract(target_c_name)) {
+                                    try self.writer.writer().print("((uintptr_t)({s}) >= 0x10000 && aether_implements(*(const AetherTypeDescriptor**)({s}), &{s}_contract))", .{ subj_var_name, subj_var_name, target_c_name });
                                 } else {
-                                    try self.writer.writer().print("(({s}) != 0 && *(const AetherTypeDescriptor**)(", .{ subj_var_name });
-                                    try self.writer.writer().print("{s}) == &{s}_descriptor)", .{ subj_var_name, target_c_name });
+                                    try self.writer.writer().print("((uintptr_t)({s}) >= 0x10000 && *(const AetherTypeDescriptor**)({s}) == &{s}_descriptor)", .{ subj_var_name, subj_var_name, target_c_name });
                                 }
                                 if (type_cond.is_not) {
                                     try self.writer.appendSlice(")");

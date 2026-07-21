@@ -1,6 +1,7 @@
 #ifndef AETHER_RUNTIME_H
 #define AETHER_RUNTIME_H
 
+#include <stdint.h>
 #include <time.h>
 #include <gc.h>
 #include <stdio.h>
@@ -34,6 +35,10 @@ typedef struct AetherTypeDescriptor {
     const AetherContractImpl* impls;
     int impl_count;
 } AetherTypeDescriptor;
+
+extern const AetherTypeDescriptor core_Int_descriptor;
+extern const AetherTypeDescriptor core_Bool_descriptor;
+extern const AetherTypeDescriptor core_String_descriptor;
 
 static inline bool aether_implements(const AetherTypeDescriptor* desc, const AetherContractDescriptor* target) {
     if (!desc || !target) return false;
@@ -184,5 +189,31 @@ typedef struct AetherClosure {
     void* fn_ptr;
     void* env;
 } AetherClosure;
+
+struct core_String;
+typedef struct core_String core_String;
+
+static inline core_String* aether_to_string(void* ptr) {
+    if (!ptr) {
+        typedef struct { const void* _desc; const char* ptr; int length; } Str;
+        Str* s = (Str*)GC_MALLOC(sizeof(Str));
+        s->_desc = NULL;
+        s->ptr = "null";
+        s->length = 4;
+        return (core_String*)s;
+    }
+    intptr_t val = (intptr_t)ptr;
+    if (val >= -2147483647 && val <= 2147483647) {
+        typedef struct { const void* _desc; const char* ptr; int length; } Str;
+        char* buf = (char*)GC_MALLOC(32);
+        int len = sprintf(buf, "%ld", (long)val);
+        Str* s = (Str*)GC_MALLOC(sizeof(Str));
+        s->_desc = NULL;
+        s->ptr = buf;
+        s->length = len;
+        return (core_String*)s;
+    }
+    return (core_String*)ptr;
+}
 
 #endif // AETHER_RUNTIME_H
