@@ -57,10 +57,34 @@ zig build test
 
 ---
 
+## 🧱 Composition Type System Cheat-Sheet (ADR 25 / Phase 41)
+Aether has **NO implementation inheritance** (`class`, `open`, `abstract`, and `override` are completely deleted). Reusability and polymorphism are composition-based:
+
+| Aether | Closest Concept | Key Difference |
+|--------|-----------------|----------------|
+| **`type`** | `class` (Kotlin/Java/C#) | Holds state & identity. Cannot be extended (`no open`/no subclassing). Implements contracts (`:`), composes skills (`+`). |
+| **`contract`** | `interface` (Java/C#), `trait` signature part (Rust) | Pure API signatures (no state, no impl, no constructors). Used for polymorphism and smart casting (`when (x) is Contract`). |
+| **`skill`** | `trait` (Rust/Scala), `mixin` | Reusable behavior with method bodies (no state, no constructors). Borrows contracts (`:`) which are supplied by the consuming `type`. |
+| **`object`** | `object` (Kotlin), static class (Java/C#) | True singleton with identity for static state & methods (`Object.member`). Bound to types via `} object {`. |
+
+- **`implement`**: Mandatory keyword in `type` to implement contract methods or resolve skill method ambiguities.
+- **Syntax Example:**
+  ```kotlin
+  contract Drawable { fun draw() }
+  skill Shadow : Drawable { fun drawShadow() { draw() } }
+  type Button : Drawable + Shadow {
+      implement fun draw() { print("Button") }
+  }
+  ```
+
+---
+
 ## ⚠️ Critical Rules & Gotchas for LLMs
 1. **Zig Version:** Ensure compatibility with Zig `0.13.0`. Do not use deprecated API structures from older versions.
 2. **Type Checking First:** Never generate code bypassing validations. All semantic checks, Null Safety, and Type Enforcements must happen in `src/core/types.zig` before calling the transpiler.
 3. **Boehm GC Integration:** Memory allocation in the transpiled C code must use GC-managed hooks (like `GC_MALLOC` or `GC_MALLOC_ATOMIC`) via runtime definitions. Do not use raw malloc/free.
-4. **Name Mangling:** Classes, functions, and standard library methods use Name Mangling (e.g., `system_Int` instead of raw `Int`) in the C backend to avoid naming collisions.
+4. **Name Mangling:** Types, objects, skills, contracts, functions, and standard library methods use Name Mangling (e.g., `system_Int` instead of raw `Int`) in the C backend to avoid naming collisions.
 5. **No Placeholders:** When writing Aether examples or test cases, write complete, working assertions.
 6. **Task Status Tracking:** Refer to [docs/roadmap.md](docs/roadmap.md) for the historic roadmap, completed phases, and pending features.
+7. **Composition Type System:** NEVER use `class`, `open`, `abstract`, or `override`. Always use `type`, `contract`, `skill`, `object`, and `implement`.
+
