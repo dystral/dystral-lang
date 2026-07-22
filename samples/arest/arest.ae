@@ -5,19 +5,19 @@ type Route(val method: String, val path: String, val handler: ApplicationCall.()
 
 type RoutingBuilder(val routes: MutableList<Route?> = MutableList<Route?>()) {
     fun get(path: String, handler: ApplicationCall.() -> Void) {
-        this.routes.add(Route("GET", path, handler))
+        routes.add(Route("GET", path, handler))
     }
     
     fun post(path: String, handler: ApplicationCall.() -> Void) {
-        this.routes.add(Route("POST", path, handler))
+        routes.add(Route("POST", path, handler))
     }
     
     fun put(path: String, handler: ApplicationCall.() -> Void) {
-        this.routes.add(Route("PUT", path, handler))
+        routes.add(Route("PUT", path, handler))
     }
     
     fun delete(path: String, handler: ApplicationCall.() -> Void) {
-        this.routes.add(Route("DELETE", path, handler))
+        routes.add(Route("DELETE", path, handler))
     }
 }
 
@@ -27,11 +27,11 @@ type ArestBuilder(
     val routingBuilder: RoutingBuilder = RoutingBuilder()
 ) {
     fun routing(init: RoutingBuilder.() -> Void) {
-        init(this.routingBuilder)
+        init(routingBuilder)
     }
 
     fun shutdown() {
-        this.running = false
+        running = false
     }
 }
 
@@ -41,15 +41,15 @@ type ApplicationCall(
     val server: ArestBuilder
 ) {
     fun respond(status: Int, contentType: String, body: String) {
-        this.conn.writeResponse(status, contentType, body)
+        conn.writeResponse(status, contentType, body)
     }
     
     fun respondText(body: String, status: Int = 200) {
-        this.respond(status, "text/plain", body)
+        respond(status, "text/plain", body)
     }
     
     fun respondHtml(body: String, status: Int = 200) {
-        this.respond(status, "text/html", body)
+        respond(status, "text/html", body)
     }
 }
 

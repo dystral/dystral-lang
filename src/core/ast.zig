@@ -259,6 +259,7 @@ pub const ASTNodeType = union(enum) {
         name: []const u8,
         value: *ASTNode,
         is_boxed: bool = false,
+        is_class_property: bool = false,
     },
     get_expr: struct {
         object: *ASTNode,

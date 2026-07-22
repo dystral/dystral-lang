@@ -1,0 +1,46 @@
+type Counter(var count: Int = 0) {
+    // 1. Explicit this.
+    fun incrementWithThis() {
+        this.count = this.count + 1
+    }
+
+    // 2. Implicit this (without this.)
+    fun incrementImplicit() {
+        count = count + 1
+    }
+
+    // 3. Sibling method call with and without this.
+    fun doubleIncrement() {
+        incrementWithThis()
+        incrementImplicit()
+    }
+
+    // 4. Parameter shadowing (local param 'count' vs this.count)
+    fun setCount(count: Int) {
+        this.count = count
+    }
+}
+
+test "this_syntax: explicit this property read and write" {
+    val c = Counter()
+    c.incrementWithThis()
+    assert(c.count == 1)
+}
+
+test "this_syntax: implicit this property read and write without this." {
+    val c = Counter()
+    c.incrementImplicit()
+    assert(c.count == 1)
+}
+
+test "this_syntax: sibling method calls without this." {
+    val c = Counter()
+    c.doubleIncrement()
+    assert(c.count == 2)
+}
+
+test "this_syntax: parameter shadowing separates local param from this.count" {
+    val c = Counter()
+    c.setCount(10)
+    assert(c.count == 10)
+}

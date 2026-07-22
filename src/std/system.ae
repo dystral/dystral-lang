@@ -19,20 +19,24 @@ fun repeat(count: Int, block: (Int) -> Void) {
     }
 }
 
-// fun retry(times: Int, block: (Int) -> Void) {
-//     var err: Throwable | null = null
+fun retry(times: Int, block: (Int) -> Void) {
+    var err: Throwable | Null = null
+    var attempt = 0
 
-//     repeat(times) {
-//         try {
-//             block(0)
-//             return
-//         } catch (e: Throwable) {
-//             err = e
-//         }   
-//     }
+    while (attempt < times) {
+        try {
+            block(attempt)
+            return
+        } catch (e: Throwable) {
+            err = e
+            attempt = attempt + 1
+        }
+    }
 
-//     throw(err)
-// }
+    if (err != null) {
+        throw err
+    }
+}
 
 fun sleep(seconds: Int): Void {
     Posix.sleep(seconds)

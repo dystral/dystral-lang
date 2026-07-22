@@ -3,9 +3,15 @@ contract Throwable {
 }
 
 type AssertionException(val text: String) : Throwable {
-    implement fun message(): String {
-        return this.text
-    }
+    implement fun message() = this.text
+}
+
+type Exception(val text: String) : Throwable {
+    implement fun message() = this.text
+}
+
+fun error(msg: String): Void {
+    throw Exception(msg)
 }
 
 fun assert(condition: Bool) {

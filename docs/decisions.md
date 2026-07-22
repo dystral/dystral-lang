@@ -257,6 +257,16 @@ Regras centrais:
 3. **Injeção Transparente & Compatibilidade Retroativa:** Todo programa Aether e módulo da stdlib importa automaticamente o conjunto fundamental de sub-módulos da stdlib (`std.core`, `std.io`, `std.system`, `std.exceptions`), mantendo 100% de compatibilidade retroativa para funções globais (`print`, `assert`, `exit`, `sleep`, etc.) e imports desestruturados pré-existentes (`import { print } from "std.core"`).
 **Razão:** Organiza o código da biblioteca padrão em módulos pequenos e especialistas (~30-50 linhas cada), melhora a clareza arquitetural no compilador e elimina acoplamento entre I/O, gerenciamento de processos e tratamento de exceções.
 
+## ADR 31: Sintaxe de Membro Implícito de `this` (Uso Opcional de `this.`)
+**Data:** Fase de Estabilização (Julho 2026)
+**Contexto:** Acessar propriedades de uma instância ou invocar métodos irmãos dentro de métodos de `type` e de lambdas de receptor (`T.() -> Void`) exigia a escrita explícita de `this.field` ou `this.method()`, gerando ruído sintático desnecessário em métodos e na escrita de DSLs.
+**Decisão:**
+1. **Resolução de Escopo Implícito:** O uso de `this.` torna-se opcional em métodos de `type` e em lambdas de receptor (`T.() -> Void`). Quando um identificador não qualificado é utilizado para leitura, escrita ou chamada de função, o compilador verifica o escopo local e, caso não seja uma variável/parâmetro local, mapeia automaticamente para o membro de `this`.
+2. **Regra de Sombreamento (Shadowing):** Se um parâmetro de método ou variável local possuir o mesmo nome de uma propriedade do objeto (ex: `fun setPort(port: Int)`), o parâmetro local tem precedência sobre a propriedade. Nesses casos, o acesso à propriedade exige o uso explícito de `this.port`.
+3. **Chamadas de Métodos Irmãos e Reatribuição:** O TypeChecker pré-registra as assinaturas de todos os métodos da classe no `class_scope` antes da checagem de corpos, permitindo chamadas diretas a qualquer método da mesma classe (inclusive métodos declarados mais abaixo no código) sem prefixar `this.`. Em atribuições (`running = false`), o compilador detecta que a variável pertence ao tipo e emite a reatribuição correta de membro (`this->running = false`) no CTranspiler.
+**Razão:** Reduz a verbosidade e alinha a ergonomia sintática do Aether com linguagens como Kotlin, Swift e Java. Garante código legível e limpo em DSLs sem comprometer a segurança estática dos tipos nem a clareza em casos de sombreamento de parâmetros.
+
+
 
 
 

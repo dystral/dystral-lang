@@ -188,7 +188,9 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
         },
 
         .assignment => |a| {
-            if (a.is_boxed) {
+            if (a.is_class_property) {
+                try self.writer.writer().print("this->{s} = ", .{a.name});
+            } else if (a.is_boxed) {
                 try self.writer.writer().print("{s}->value = ", .{a.name});
             } else {
                 try self.writer.writer().print("{s} = ", .{a.name});

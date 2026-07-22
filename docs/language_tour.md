@@ -730,6 +730,33 @@ fun main() {
 3. **Skills provide reusable behavior.** Implementation without state, depending on contracts supplied by the consuming type.
 4. **Composition replaces inheritance.** Code reuse comes exclusively from skills; polymorphism comes exclusively from contracts.
 
+### 11.8 Implicit `this` Member Access (Optional `this.`)
+
+Inside `type` methods and receiver lambdas (`T.() -> Void`), the `this.` prefix is **optional** when reading properties, reassigning mutable fields, or calling sibling methods:
+
+```kotlin
+type ApplicationCall(val conn: ServerConnection, val request: Request) {
+    fun respond(status: Int, contentType: String, body: String) {
+        conn.writeResponse(status, contentType, body) // No 'this.' needed!
+    }
+    
+    fun respondText(body: String, status: Int = 200) {
+        respond(status, "text/plain", body) // Calling sibling method without 'this.'
+    }
+}
+```
+
+**Parameter Shadowing Rule:**
+If a method parameter or local variable shares the same name as a property, the local variable takes precedence. Use explicit `this.name` to access the instance property:
+
+```kotlin
+type Counter(var count: Int = 0) {
+    fun setCount(count: Int) {
+        this.count = count // 'this.count' refers to property, 'count' to the parameter
+    }
+}
+```
+
 ---
 
 ## 12. Objects & Boundless Namespaces

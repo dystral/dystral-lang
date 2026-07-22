@@ -37,7 +37,7 @@ fn isValidType(self: *TypeChecker, t: *const AetherType) bool {
 }
 
 pub fn inferAssignment(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
-    const a = node.data.assignment;
+    const a = &node.data.assignment;
     var assigned_type: *const AetherType = undefined;
     if (scope.lookupVariableSymbol(a.name)) |vs| {
         a.value.expected_type = vs.aether_type;
@@ -52,7 +52,25 @@ pub fn inferAssignment(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
             self.reportError(node.line, node.column, "TypeError: Expected {} but found {} when reassigning variable '{s}'.", .{ expected.*, assigned_type.*, a.name });
             return error.TypeError;
         }
-        node.data.assignment.is_boxed = vs.is_boxed;
+        a.is_boxed = vs.is_boxed;
+
+        if (self.current_class_props) |props| {
+            if (props.contains(a.name)) {
+                var is_shadowed = false;
+                var curr: ?*Scope = scope;
+                while (curr) |s| {
+                    if (s.symbols.contains("this")) break;
+                    if (s.symbols.contains(a.name)) {
+                        is_shadowed = true;
+                        break;
+                    }
+                    curr = s.parent;
+                }
+                if (!is_shadowed) {
+                    a.is_class_property = true;
+                }
+            }
+        }
     } else {
         self.reportError(node.line, node.column, "TypeError: Undeclared variable '{s}'.", .{a.name});
         return error.TypeError;
@@ -175,7 +193,19 @@ pub fn inferIdentifier(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
         i.is_boxed = vs.is_boxed;
         if (self.current_class_props) |props| {
             if (props.contains(i.name)) {
-                i.is_class_property = true;
+                var is_shadowed = false;
+                var curr: ?*Scope = scope;
+                while (curr) |s| {
+                    if (s.symbols.contains("this")) break;
+                    if (s.symbols.contains(i.name)) {
+                        is_shadowed = true;
+                        break;
+                    }
+                    curr = s.parent;
+                }
+                if (!is_shadowed) {
+                    i.is_class_property = true;
+                }
             }
         }
         t.* = vs.aether_type.*;

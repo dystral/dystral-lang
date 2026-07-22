@@ -372,6 +372,28 @@ pub fn inferTypeDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
         }
     }
 
+    // Pre-register method signatures in class_scope for sibling/forward method calls without this.
+    for (c.methods) |method| {
+        if (method.data == .fun_decl) {
+            const m = &method.data.fun_decl;
+            var param_types = std.ArrayList(*const AetherType).init(self.allocator);
+            for (m.params) |p| {
+                const p_t = if (p.type_ref) |tr| self.resolveTypeRef(tr) catch try self.resolveTypeName("Void", false) else try self.resolveTypeName("Void", false);
+                try param_types.append(p_t);
+            }
+            const ret_t = if (m.type_ref) |tr| self.resolveTypeRef(tr) catch try self.resolveTypeName("Void", false) else try self.resolveTypeName("Void", false);
+            const m_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ actual_c_name, m.name });
+            const fn_type = try self.allocator.create(AetherType);
+            fn_type.* = .{ .Function = .{
+                .params = try param_types.toOwnedSlice(),
+                .return_type = ret_t,
+                .c_name = m_c_name,
+                .receiver = class_type,
+            } };
+            try class_scope.define(m.name, fn_type, false, true);
+        }
+    }
+
     // Methods
     for (c.methods) |method| {
         if (method.data == .fun_decl) {
