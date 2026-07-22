@@ -459,6 +459,7 @@ fn core_declareTypes(self: *TypeChecker, node: *ASTNode) anyerror!void {
                 }
                 try self.classes_ast.put(actual_c_name, stmt);
                 try self.local_symbols.put(c.name, {});
+                try infer_decl_mod.injectAutoContractsAndSkills(self, c);
             } else if (stmt.data == .contract_decl) {
                 var cd = &stmt.data.contract_decl;
                 if (cd.resolved_c_name == null) {
@@ -593,7 +594,10 @@ fn core_resolveImports(self: *TypeChecker, node: *ASTNode) anyerror!void {
                     }
                     var mod_path: []const u8 = undefined;
                     if (std.mem.startsWith(u8, actual_module_path, "std.")) {
-                        const pkg_name = actual_module_path[4..];
+                        var pkg_name = actual_module_path[4..];
+                        if (std.mem.endsWith(u8, pkg_name, ".ae")) {
+                            pkg_name = pkg_name[0 .. pkg_name.len - 3];
+                        }
                         mod_path = try std.fmt.allocPrint(self.allocator, "std/{s}", .{pkg_name});
                     } else {
                         mod_path = try std.fs.path.join(self.allocator, &.{ dir_path, actual_module_path });
@@ -796,10 +800,7 @@ fn core_conformsTo(self: *TypeChecker, actual_name: []const u8, target_name: []c
     const target = self.alias_map.get(target_name) orelse target_name;
     if (std.mem.eql(u8, actual, target)) return true;
 
-    if (self.contracts_ast.contains(target)) {
-        return self.implementsContract(actual, target);
-    }
-    return false;
+    return self.implementsContract(actual, target);
 }
 
 fn core_implementsContract(self: *TypeChecker, type_name: []const u8, contract_name: []const u8) bool {
@@ -807,11 +808,21 @@ fn core_implementsContract(self: *TypeChecker, type_name: []const u8, contract_n
     const actual_contract = self.alias_map.get(contract_name) orelse contract_name;
     if (std.mem.eql(u8, actual_type, actual_contract)) return true;
 
-    const node = self.classes_ast.get(actual_type) orelse return false;
+    var node_opt = self.classes_ast.get(actual_type);
+    if (node_opt == null) {
+        if (std.mem.eql(u8, actual_type, "Int")) {
+            node_opt = self.classes_ast.get("std_core_Int") orelse self.classes_ast.get("core_Int");
+        } else if (std.mem.eql(u8, actual_type, "Bool")) {
+            node_opt = self.classes_ast.get("std_core_Bool") orelse self.classes_ast.get("core_Bool");
+        } else if (std.mem.eql(u8, actual_type, "String")) {
+            node_opt = self.classes_ast.get("std_core_String") orelse self.classes_ast.get("core_String");
+        }
+    }
+    const node = node_opt orelse return false;
     if (node.data != .type_decl) return false;
     for (node.data.type_decl.contracts) |c| {
         const c_actual = self.alias_map.get(c) orelse c;
-        if (std.mem.eql(u8, c_actual, actual_contract)) return true;
+        if (std.mem.eql(u8, c_actual, actual_contract) or std.mem.eql(u8, c_actual, contract_name) or std.mem.eql(u8, c, contract_name)) return true;
     }
     return false;
 }
@@ -837,8 +848,17 @@ fn core_isCompatible(self: *TypeChecker, expected: *const AetherType, actual: *c
     const exp_base = extractBaseType(expected);
     const act_base = extractBaseType(actual);
 
-    if (exp_base.* == .Custom and act_base.* == .Custom) {
-        return self.conformsTo(act_base.Custom, exp_base.Custom);
+    if (exp_base.* == .Custom) {
+        const type_name: ?[]const u8 = switch (act_base.*) {
+            .Custom => |name| name,
+            .Int => "Int",
+            .Bool => "Bool",
+            .String => "String",
+            else => null,
+        };
+        if (type_name) |tname| {
+            if (self.conformsTo(tname, exp_base.Custom)) return true;
+        }
     }
 
     if (std.meta.activeTag(exp_base.*) == std.meta.activeTag(act_base.*)) {

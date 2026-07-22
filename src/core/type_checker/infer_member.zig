@@ -357,7 +357,20 @@ pub fn inferGetExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
             .params = &.{},
             .return_type = str_type,
             .receiver = obj_type,
-            .c_name = if (base_type.* == .Bool) "core_Bool_toString" else (if (base_type.* == .Int) "core_Int_toString" else "aether_to_string"),
+            .c_name = if (base_type.* == .Bool) "core_Bool_toString" else (if (base_type.* == .Int) "core_Int_toString" else "toString"),
+        } };
+        prop_type = fn_type;
+    }
+
+    if (prop_type == null and std.mem.eql(u8, g.name, "hashCode")) {
+        const fn_type = try self.allocator.create(AetherType);
+        const int_type = try self.allocator.create(AetherType);
+        int_type.* = .Int;
+        fn_type.* = .{ .Function = .{
+            .params = &.{},
+            .return_type = int_type,
+            .receiver = obj_type,
+            .c_name = if (base_type.* == .Int) "core_Int_hashCode" else (if (base_type.* == .Bool) "core_Bool_hashCode" else "hashCode"),
         } };
         prop_type = fn_type;
     }

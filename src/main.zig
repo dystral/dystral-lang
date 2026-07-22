@@ -238,6 +238,9 @@ pub fn main() !void {
         var contract_it = mod.checker.contracts_ast.iterator();
         while (contract_it.next()) |entry| {
             try global_contracts_ast.put(entry.key_ptr.*, entry.value_ptr.*);
+            if (entry.value_ptr.*.data == .contract_decl) {
+                try global_contracts_ast.put(entry.value_ptr.*.data.contract_decl.name, entry.value_ptr.*);
+            }
         }
         var alias_it = mod.checker.alias_map.iterator();
         while (alias_it.next()) |entry| {
@@ -330,13 +333,14 @@ pub fn main() !void {
                 const line_num = col_it.next() orelse "?";
                 // Find the error message
                 if (std.mem.indexOf(u8, line, "error: ")) |err_pos| {
+                    std.debug.print("RAW C ERROR LINE: {s}\n", .{line});
                     const raw_msg = line[err_pos + 7..];
                     const msg = translateCError(raw_msg);
                     if (!found_error) {
                         std.debug.print("\nCompilation error:\n", .{});
                         found_error = true;
                     }
-                    std.debug.print("  → {s}:{s}: {s}\n", .{ae_basename, line_num, msg});
+                    std.debug.print("  → {s}:{s}: {s}\n", .{ ae_basename, line_num, msg });
                 }
             } else {
                 // Non-file error (e.g. linker errors)

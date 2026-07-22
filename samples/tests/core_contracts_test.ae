@@ -1,0 +1,71 @@
+type Person(val name: String, val age: Int)
+
+type EmptyType()
+
+object Config {
+    val version = "1.0"
+}
+
+test "core contracts: automatic contract and skill compliance" {
+    val p = Person("Alice", 30)
+    assert(p is Stringable)
+    assert(p is Equatable)
+    assert(p is Hashable)
+    assert(p is Printable)
+
+    val n: Int = 42
+    assert(n is Stringable)
+    assert(n is Equatable)
+    assert(n is Hashable)
+
+    val s: String = "Hello"
+    assert(s is Stringable)
+    assert(s is Equatable)
+    assert(s is Hashable)
+
+    val b: Bool = true
+    assert(b is Stringable)
+    assert(b is Equatable)
+    assert(b is Hashable)
+}
+
+test "core contracts: synthesized toString" {
+    val p = Person("Bob", 25)
+    assert(p.toString() == "Person(name=Bob, age=25)")
+
+    val empty = EmptyType()
+    assert(empty.toString() == "EmptyType")
+}
+
+test "core contracts: synthesized equals" {
+    val p1 = Person("Alice", 30)
+    val p2 = Person("Alice", 30)
+    val p3 = Person("Bob", 25)
+
+    assert(p1.equals(p2) == true)
+    assert(p1.equals(p3) == false)
+
+    val e1 = EmptyType()
+    val e2 = EmptyType()
+    assert(e1.equals(e2) == true)
+}
+
+test "core contracts: synthesized hashCode" {
+    val p1 = Person("Alice", 30)
+    val p2 = Person("Alice", 30)
+    assert(p1.hashCode() == p2.hashCode())
+
+    val n = 100
+    assert(n.hashCode() == 100)
+
+    val b = true
+    assert(b.hashCode() == 1)
+}
+
+test "core contracts: polymorphic toString dynamic dispatch" {
+    val items: List<Stringable> = [Person("David", 50), 99, "Aether", true]
+    assert(items[0].toString() == "Person(name=David, age=50)")
+    assert(items[1].toString() == "99")
+    assert(items[2].toString() == "Aether")
+    assert(items[3].toString() == "true")
+}

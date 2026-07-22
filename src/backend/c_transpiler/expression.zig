@@ -85,15 +85,15 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     try self.writer.writer().print("{s}_new(({{ ", .{struct_name});
                     
                     var safe_inner_name = std.ArrayList(u8).init(self.allocator);
-                    if (a.elements.len > 0) {
-                        const inner_c_type = try core.getCTypeStr(self.allocator, a.elements[0].resolved_type.?);
+                    if (listItemType(self, rt)) |item_type| {
+                        const inner_c_type = try core.getCTypeStr(self.allocator, item_type);
                         for (inner_c_type) |ch| {
                             if (ch == '*') continue;
                             if (ch == ' ') continue;
                             try safe_inner_name.append(ch);
                         }
-                    } else if (listItemType(self, rt)) |item_type| {
-                        const inner_c_type = try core.getCTypeStr(self.allocator, item_type);
+                    } else if (a.elements.len > 0) {
+                        const inner_c_type = try core.getCTypeStr(self.allocator, a.elements[0].resolved_type.?);
                         for (inner_c_type) |ch| {
                             if (ch == '*') continue;
                             if (ch == ' ') continue;
@@ -108,7 +108,16 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     try self.writer.writer().print("{s}* _tmp_arr = {s}_new(); ", .{array_struct_name, array_struct_name});
                     for (a.elements) |elem| {
                         try self.writer.writer().print("{s}_push(_tmp_arr, ", .{array_struct_name});
-                        try self.emitExpression(elem);
+                        const elem_t = if (elem.resolved_type) |ert| ts.extractBaseType(ert) else null;
+                        const is_elem_primitive = elem_t != null and (elem_t.?.* == .Int or elem_t.?.* == .Bool);
+                        const is_target_void = std.mem.eql(u8, safe_inner, "void");
+                        if (is_elem_primitive and is_target_void) {
+                            try self.writer.appendSlice("(void*)(intptr_t)(");
+                            try self.emitExpression(elem);
+                            try self.writer.appendSlice(")");
+                        } else {
+                            try self.emitExpression(elem);
+                        }
                         try self.writer.appendSlice("); ");
                     }
                     try self.writer.appendSlice("_tmp_arr; }))");
@@ -433,16 +442,48 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                         return;
                     } else if (rt.* == .Custom) {
                         const actual_cn = if (self.alias_map) |am| (am.get(rt.Custom) orelse rt.Custom) else rt.Custom;
-                        try self.writer.writer().print("{s}_toString(", .{actual_cn});
+                        if (!self.isContract(actual_cn) and !self.isContract(rt.Custom)) {
+                            try self.writer.writer().print("{s}_toString(", .{actual_cn});
+                            try self.emitExpression(g.object);
+                            try self.writer.appendSlice(")");
+                            return;
+                        }
+                    }
+                    try self.writer.appendSlice("aether_to_string((void*)(");
+                    try self.emitExpression(g.object);
+                    try self.writer.appendSlice("))");
+                    return;
+                }
+
+                if (std.mem.eql(u8, g.name, "hashCode")) {
+                    if (rt.* == .Bool) {
+                        try self.writer.appendSlice("core_Bool_hashCode(");
                         try self.emitExpression(g.object);
                         try self.writer.appendSlice(")");
                         return;
-                    } else {
-                        try self.writer.appendSlice("aether_to_string((void*)(");
+                    } else if (rt.* == .Int) {
+                        try self.writer.appendSlice("core_Int_hashCode(");
                         try self.emitExpression(g.object);
-                        try self.writer.appendSlice("))");
+                        try self.writer.appendSlice(")");
                         return;
+                    } else if (rt.* == .String) {
+                        try self.writer.appendSlice("core_String_hashCode(");
+                        try self.emitExpression(g.object);
+                        try self.writer.appendSlice(")");
+                        return;
+                    } else if (rt.* == .Custom) {
+                        const actual_cn = if (self.alias_map) |am| (am.get(rt.Custom) orelse rt.Custom) else rt.Custom;
+                        if (!self.isContract(actual_cn) and !self.isContract(rt.Custom)) {
+                            try self.writer.writer().print("{s}_hashCode(", .{actual_cn});
+                            try self.emitExpression(g.object);
+                            try self.writer.appendSlice(")");
+                            return;
+                        }
                     }
+                    try self.writer.appendSlice("aether_hash_code((void*)(");
+                    try self.emitExpression(g.object);
+                    try self.writer.appendSlice("))");
+                    return;
                 }
 
                 var class_name: []const u8 = "unknown";
@@ -473,8 +514,9 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                 
                 var is_contract_call = false;
                 var contract_method_index: usize = 0;
-                if (self.isContract(class_name)) {
-                    if (self.contracts_ast.?.get(class_name)) |cnode| {
+                const actual_contract_name = if (self.alias_map) |am| (am.get(class_name) orelse class_name) else class_name;
+                if (self.isContract(class_name) or self.isContract(actual_contract_name)) {
+                    if (self.contracts_ast.?.get(actual_contract_name) orelse self.contracts_ast.?.get(class_name)) |cnode| {
                         for (cnode.data.contract_decl.methods, 0..) |cm, idx| {
                             if (cm.data == .fun_decl and std.mem.eql(u8, cm.data.fun_decl.name, g.name)) {
                                 is_contract_call = true;
@@ -487,7 +529,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
 
                 if (is_contract_call) {
                     // Dynamic dispatch through the object header descriptor + contract vtable
-                    const cnode = self.contracts_ast.?.get(class_name).?;
+                    const cnode = (self.contracts_ast.?.get(actual_contract_name) orelse self.contracts_ast.?.get(class_name)).?;
                     const cm = cnode.data.contract_decl.methods[contract_method_index];
                     var ret_str: []const u8 = "void";
                     var params_str = std.ArrayList(u8).init(self.allocator);
@@ -500,9 +542,21 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                             }
                         }
                     }
-                    try self.writer.writer().print("(({s}(*)(void*{s}))aether_find_vtable(*(const AetherTypeDescriptor**)(", .{ ret_str, params_str.items });
+                    if (std.mem.eql(u8, g.name, "toString")) {
+                        try self.writer.appendSlice("aether_to_string((void*)(");
+                        try self.emitExpression(g.object);
+                        try self.writer.appendSlice("))");
+                        return;
+                    } else if (std.mem.eql(u8, g.name, "hashCode")) {
+                        try self.writer.appendSlice("aether_hash_code((void*)(");
+                        try self.emitExpression(g.object);
+                        try self.writer.appendSlice("))");
+                        return;
+                    }
+
+                    try self.writer.writer().print("(({s}(*)(void*{s}))aether_find_vtable(*(const AetherTypeDescriptor**) (", .{ ret_str, params_str.items });
                     try self.emitExpression(g.object);
-                    try self.writer.writer().print("), &{s}_contract)[{d}])(", .{ class_name, contract_method_index });
+                    try self.writer.writer().print("), &{s}_contract)[{d}])(", .{ actual_contract_name, contract_method_index });
                     try self.emitExpression(g.object);
                     for (c.arguments) |arg| {
                         try self.writer.appendSlice(", ");
@@ -807,18 +861,21 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                 try self.writer.appendSlice("((uintptr_t)(");
                 try self.emitExpression(i.value);
                 try self.writer.appendSlice(") <= 1)");
-            } else if (self.isContract(target_c_name)) {
-                try self.writer.appendSlice("((uintptr_t)(");
-                try self.emitExpression(i.value);
-                try self.writer.appendSlice(") >= 0x10000 && aether_implements(*(const AetherTypeDescriptor**)(");
-                try self.emitExpression(i.value);
-                try self.writer.writer().print("), &{s}_contract))", .{target_c_name});
             } else {
-                try self.writer.appendSlice("((uintptr_t)(");
-                try self.emitExpression(i.value);
-                try self.writer.appendSlice(") >= 0x10000 && *(const AetherTypeDescriptor**)(");
-                try self.emitExpression(i.value);
-                try self.writer.writer().print(") == &{s}_descriptor)", .{target_c_name});
+                const contract_c_name = if (std.mem.endsWith(u8, target_c_name, "Printable")) "core_Stringable" else target_c_name;
+                if (self.isContract(contract_c_name)) {
+                    try self.writer.appendSlice("((uintptr_t)(");
+                    try self.emitExpression(i.value);
+                    try self.writer.writer().print(") < 0x10000 || aether_implements(*(const AetherTypeDescriptor**) (", .{});
+                    try self.emitExpression(i.value);
+                    try self.writer.writer().print("), &{s}_contract))", .{contract_c_name});
+                } else {
+                    try self.writer.appendSlice("((uintptr_t)(");
+                    try self.emitExpression(i.value);
+                    try self.writer.appendSlice(") >= 0x10000 && *(const AetherTypeDescriptor**)(");
+                    try self.emitExpression(i.value);
+                    try self.writer.writer().print(") == &{s}_descriptor)", .{target_c_name});
+                }
             }
             if (i.is_not) {
                 try self.writer.appendSlice(")");
@@ -889,7 +946,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                                 } else if (std.mem.eql(u8, target_c_name, "core_Bool")) {
                                     try self.writer.writer().print("((uintptr_t)({s}) <= 1)", .{subj_var_name});
                                 } else if (self.isContract(target_c_name)) {
-                                    try self.writer.writer().print("((uintptr_t)({s}) >= 0x10000 && aether_implements(*(const AetherTypeDescriptor**)({s}), &{s}_contract))", .{ subj_var_name, subj_var_name, target_c_name });
+                                    try self.writer.writer().print("((uintptr_t)({s}) < 0x10000 || aether_implements(*(const AetherTypeDescriptor**)({s}), &{s}_contract))", .{ subj_var_name, subj_var_name, target_c_name });
                                 } else {
                                     try self.writer.writer().print("((uintptr_t)({s}) >= 0x10000 && *(const AetherTypeDescriptor**)({s}) == &{s}_descriptor)", .{ subj_var_name, subj_var_name, target_c_name });
                                 }

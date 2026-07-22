@@ -22,6 +22,9 @@ pub const std_modules = std.StaticStringMap([]const u8).initComptime(.{
     .{ "yaml.ae", @embedFile("../../std/yaml.ae") },
 });
 
+pub const auto_injected_contracts = &[_][]const u8{ "Stringable", "Equatable", "Hashable" };
+pub const auto_injected_skills = &[_][]const u8{ "Printable" };
+
 pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     _ = scope;
     if (self.pass == .validation) {
@@ -258,6 +261,8 @@ pub fn inferTypeDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
         return;
     }
 
+    try injectAutoContractsAndSkills(self, c);
+
     // Compose skills exactly once (mutates c.methods)
     if (!c.skills_composed) {
         c.skills_composed = true;
@@ -267,6 +272,8 @@ pub fn inferTypeDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
     if (!c.serde_generated) {
         c.serde_generated = true;
         try generateDefaultToString(self, node, c);
+        try generateDefaultHashCode(self, node, c);
+        try generateDefaultEquals(self, node, c);
         try generateSerdeFields(self, node, c);
     }
 
@@ -454,16 +461,26 @@ fn validateContracts(self: *TypeChecker, node: *ASTNode, c: anytype) anyerror!vo
 
             const m = found.?;
             if (!from_skill) {
-                var has_implement = false;
-                for (m.data.fun_decl.modifiers) |mod| {
-                    if (mod == .kw_implement) {
-                        has_implement = true;
+                var is_auto_contract = false;
+                for (auto_injected_contracts) |aic| {
+                    const aic_actual = self.alias_map.get(aic) orelse aic;
+                    if (std.mem.eql(u8, contract_actual, aic_actual) or std.mem.eql(u8, cd.name, aic)) {
+                        is_auto_contract = true;
                         break;
                     }
                 }
-                if (!has_implement) {
-                    self.reportError(m.line, m.column, "TypeError: Method '{s}' implements contract '{s}' and must be marked with 'implement'.", .{ cm_name, cd.name });
-                    return error.TypeError;
+                if (!is_auto_contract) {
+                    var has_implement = false;
+                    for (m.data.fun_decl.modifiers) |mod| {
+                        if (mod == .kw_implement) {
+                            has_implement = true;
+                            break;
+                        }
+                    }
+                    if (!has_implement) {
+                        self.reportError(m.line, m.column, "TypeError: Method '{s}' implements contract '{s}' and must be marked with 'implement'.", .{ cm_name, cd.name });
+                        return error.TypeError;
+                    }
                 }
             }
 
@@ -899,6 +916,205 @@ fn serdeBoxFor(self: *TypeChecker, line: usize, col: usize, tr: *const ast.ASTTy
     return null;
 }
 
+pub fn injectAutoContractsAndSkills(self: *TypeChecker, c: anytype) !void {
+    if (std.mem.eql(u8, c.name, "OpaquePointer") or std.mem.eql(u8, c.name, "Pointer")) return;
+
+    for (auto_injected_contracts) |contract_name| {
+        var exists = false;
+        for (c.contracts) |existing| {
+            if (std.mem.eql(u8, existing, contract_name)) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            var new_contracts = try self.allocator.alloc([]const u8, c.contracts.len + 1);
+            for (c.contracts, 0..) |item, i| {
+                new_contracts[i] = item;
+            }
+            new_contracts[c.contracts.len] = contract_name;
+            c.contracts = new_contracts;
+        }
+    }
+
+    for (auto_injected_skills) |skill_name| {
+        var exists = false;
+        for (c.skills) |existing| {
+            if (std.mem.eql(u8, existing, skill_name)) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            var new_skills = try self.allocator.alloc([]const u8, c.skills.len + 1);
+            for (c.skills, 0..) |item, i| {
+                new_skills[i] = item;
+            }
+            new_skills[c.skills.len] = skill_name;
+            c.skills = new_skills;
+        }
+    }
+}
+
+fn makePlus(self: *TypeChecker, line: usize, col: usize, left: *ASTNode, right: *ASTNode) !*ASTNode {
+    const node = try self.allocator.create(ASTNode);
+    node.* = .{
+        .line = line,
+        .column = col,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .binary_expr = .{
+                .op = .plus,
+                .left = left,
+                .right = right,
+            },
+        },
+    };
+    return node;
+}
+
+fn makeBinaryOp(self: *TypeChecker, line: usize, col: usize, op: ast.TokenType, left: *ASTNode, right: *ASTNode) !*ASTNode {
+    const node = try self.allocator.create(ASTNode);
+    node.* = .{
+        .line = line,
+        .column = col,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .binary_expr = .{
+                .op = op,
+                .left = left,
+                .right = right,
+            },
+        },
+    };
+    return node;
+}
+
+fn makeIntLiteral(self: *TypeChecker, line: usize, col: usize, val: i64) !*ASTNode {
+    const node = try self.allocator.create(ASTNode);
+    node.* = .{
+        .line = line,
+        .column = col,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{ .int_literal = val },
+    };
+    return node;
+}
+
+fn makeBoolLiteral(self: *TypeChecker, line: usize, col: usize, val: bool) !*ASTNode {
+    const node = try self.allocator.create(ASTNode);
+    node.* = .{
+        .line = line,
+        .column = col,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{ .bool_literal = val },
+    };
+    return node;
+}
+
+fn makeMemberAccess(self: *TypeChecker, line: usize, col: usize, obj_name: []const u8, prop_name: []const u8) !*ASTNode {
+    const obj_ident = try makeIdent(self, line, col, obj_name);
+    const node = try self.allocator.create(ASTNode);
+    node.* = .{
+        .line = line,
+        .column = col,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .get_expr = .{
+                .object = obj_ident,
+                .name = prop_name,
+                .is_safe = false,
+            },
+        },
+    };
+    return node;
+}
+
+fn makeMemberCall(self: *TypeChecker, line: usize, col: usize, obj_name: []const u8, prop_name: []const u8, method_name: []const u8, is_safe: bool) !*ASTNode {
+    const member_acc = try makeMemberAccess(self, line, col, obj_name, prop_name);
+    const callee = try self.allocator.create(ASTNode);
+    callee.* = .{
+        .line = line,
+        .column = col,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .get_expr = .{
+                .object = member_acc,
+                .name = method_name,
+                .is_safe = is_safe,
+            },
+        },
+    };
+    const node = try self.allocator.create(ASTNode);
+    node.* = .{
+        .line = line,
+        .column = col,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .call_expr = .{
+                .callee = callee,
+                .arguments = &.{},
+                .type_args = &.{},
+            },
+        },
+    };
+    return node;
+}
+
+fn makeMemberCallOrNullFallback(self: *TypeChecker, line: usize, col: usize, obj_name: []const u8, prop: anytype, method_name: []const u8, null_fallback: *ASTNode) !*ASTNode {
+    if (!prop.type_ref.is_nullable) {
+        return try makeMemberCall(self, line, col, obj_name, prop.name, method_name, false);
+    }
+
+    const val_call_safe = try makeMemberCall(self, line, col, obj_name, prop.name, method_name, true);
+    const elvis_node = try self.allocator.create(ASTNode);
+    elvis_node.* = .{
+        .line = line,
+        .column = col,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .binary_expr = .{
+                .left = val_call_safe,
+                .op = .elvis,
+                .right = null_fallback,
+            },
+        },
+    };
+    return elvis_node;
+}
+
+fn makeIsTypeCond(self: *TypeChecker, line: usize, col: usize, type_name: []const u8) !*ASTNode {
+    const tr = try self.allocator.create(ast.ASTTypeRef);
+    tr.* = .{
+        .name = type_name,
+        .generic_args = &.{},
+        .is_array = false,
+        .is_nullable = false,
+    };
+    const node = try self.allocator.create(ASTNode);
+    node.* = .{
+        .line = line,
+        .column = col,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .is_type_cond = .{
+                .type_ref = tr,
+                .is_not = false,
+            },
+        },
+    };
+    return node;
+}
+
 fn generateDefaultToString(self: *TypeChecker, node: *ASTNode, c: anytype) anyerror!void {
     if (std.mem.eql(u8, c.name, "Int") or std.mem.eql(u8, c.name, "Bool") or std.mem.eql(u8, c.name, "String") or std.mem.eql(u8, c.name, "Pointer") or std.mem.eql(u8, c.name, "OpaquePointer")) return;
 
@@ -906,7 +1122,46 @@ fn generateDefaultToString(self: *TypeChecker, node: *ASTNode, c: anytype) anyer
         if (m.data == .fun_decl and std.mem.eql(u8, m.data.fun_decl.name, "toString")) return;
     }
 
-    const str_node = try makeStringLiteral(self, node.line, node.column, c.name);
+    var prop_count: usize = 0;
+    for (c.primary_constructor) |prop| {
+        if (prop.is_property) prop_count += 1;
+    }
+
+    var body_node: *ASTNode = undefined;
+    if (prop_count == 0) {
+        body_node = try makeStringLiteral(self, node.line, node.column, c.name);
+    } else {
+        const prefix_str = try std.fmt.allocPrint(self.allocator, "{s}(", .{c.name});
+        var curr_expr = try makeStringLiteral(self, node.line, node.column, prefix_str);
+
+        var is_first = true;
+        for (c.primary_constructor) |prop| {
+            if (!prop.is_property) continue;
+            if (prop.type_ref.is_array or prop.type_ref.is_function or (prop.type_ref.resolved_type != null and prop.type_ref.resolved_type.?.* == .Function) or std.mem.indexOf(u8, prop.type_ref.name, "->") != null or std.mem.startsWith(u8, prop.type_ref.name, "fun")) continue;
+
+            const label_str = try std.fmt.allocPrint(self.allocator, "{s}{s}=", .{ if (is_first) "" else ", ", prop.name });
+            is_first = false;
+
+            const label_lit = try makeStringLiteral(self, node.line, node.column, label_str);
+            curr_expr = try makePlus(self, node.line, node.column, curr_expr, label_lit);
+
+            const null_str = try makeStringLiteral(self, node.line, node.column, "null");
+            const val_call = try makeMemberCallOrNullFallback(self, node.line, node.column, "this", prop, "toString", null_str);
+            curr_expr = try makePlus(self, node.line, node.column, curr_expr, val_call);
+        }
+
+        const suffix_lit = try makeStringLiteral(self, node.line, node.column, ")");
+        body_node = try makePlus(self, node.line, node.column, curr_expr, suffix_lit);
+    }
+
+    const ret_tr = try self.allocator.create(ast.ASTTypeRef);
+    ret_tr.* = .{
+        .name = "String",
+        .generic_args = &.{},
+        .is_array = false,
+        .is_nullable = false,
+    };
+
     const method_node = try self.allocator.create(ASTNode);
     method_node.* = .{
         .line = node.line,
@@ -916,11 +1171,199 @@ fn generateDefaultToString(self: *TypeChecker, node: *ASTNode, c: anytype) anyer
         .data = .{
             .fun_decl = .{
                 .annotations = &.{},
-                .modifiers = &.{},
+                .modifiers = &[_]ast.TokenType{ .kw_implement },
                 .name = "toString",
                 .params = &.{},
-                .type_ref = null,
-                .body = str_node,
+                .type_ref = ret_tr,
+                .body = body_node,
+                .is_expr_body = true,
+                .resolved_c_name = null,
+            },
+        },
+    };
+
+    var new_methods = try self.allocator.alloc(*ASTNode, c.methods.len + 1);
+    for (c.methods, 0..) |m, i| {
+        new_methods[i] = m;
+    }
+    new_methods[c.methods.len] = method_node;
+    c.methods = new_methods;
+}
+
+fn generateDefaultHashCode(self: *TypeChecker, node: *ASTNode, c: anytype) anyerror!void {
+    if (std.mem.eql(u8, c.name, "Int") or std.mem.eql(u8, c.name, "Bool") or std.mem.eql(u8, c.name, "String") or std.mem.eql(u8, c.name, "Pointer") or std.mem.eql(u8, c.name, "OpaquePointer")) return;
+
+    for (c.methods) |m| {
+        if (m.data == .fun_decl and std.mem.eql(u8, m.data.fun_decl.name, "hashCode")) return;
+    }
+
+    var prop_count: usize = 0;
+    for (c.primary_constructor) |prop| {
+        if (prop.is_property) prop_count += 1;
+    }
+
+    var body_node: *ASTNode = undefined;
+    if (prop_count == 0) {
+        body_node = try makeIntLiteral(self, node.line, node.column, 0);
+    } else {
+        var curr_expr: ?*ASTNode = null;
+        for (c.primary_constructor) |prop| {
+            if (!prop.is_property) continue;
+            if (prop.type_ref.is_array or prop.type_ref.is_function or (prop.type_ref.resolved_type != null and prop.type_ref.resolved_type.?.* == .Function) or std.mem.indexOf(u8, prop.type_ref.name, "->") != null or std.mem.startsWith(u8, prop.type_ref.name, "fun")) continue;
+
+            const zero_int = try makeIntLiteral(self, node.line, node.column, 0);
+            const hc_call = try makeMemberCallOrNullFallback(self, node.line, node.column, "this", prop, "hashCode", zero_int);
+            if (curr_expr == null) {
+                curr_expr = hc_call;
+            } else {
+                curr_expr = try makeBinaryOp(self, node.line, node.column, .plus, curr_expr.?, hc_call);
+            }
+        }
+        body_node = curr_expr.?;
+    }
+
+    const ret_tr = try self.allocator.create(ast.ASTTypeRef);
+    ret_tr.* = .{
+        .name = "Int",
+        .generic_args = &.{},
+        .is_array = false,
+        .is_nullable = false,
+    };
+
+    const method_node = try self.allocator.create(ASTNode);
+    method_node.* = .{
+        .line = node.line,
+        .column = node.column,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .fun_decl = .{
+                .annotations = &.{},
+                .modifiers = &[_]ast.TokenType{ .kw_implement },
+                .name = "hashCode",
+                .params = &.{},
+                .type_ref = ret_tr,
+                .body = body_node,
+                .is_expr_body = true,
+                .resolved_c_name = null,
+            },
+        },
+    };
+
+    var new_methods = try self.allocator.alloc(*ASTNode, c.methods.len + 1);
+    for (c.methods, 0..) |m, i| {
+        new_methods[i] = m;
+    }
+    new_methods[c.methods.len] = method_node;
+    c.methods = new_methods;
+}
+
+fn generateDefaultEquals(self: *TypeChecker, node: *ASTNode, c: anytype) anyerror!void {
+    if (std.mem.eql(u8, c.name, "Int") or std.mem.eql(u8, c.name, "Bool") or std.mem.eql(u8, c.name, "String") or std.mem.eql(u8, c.name, "Pointer") or std.mem.eql(u8, c.name, "OpaquePointer")) return;
+
+    for (c.methods) |m| {
+        if (m.data == .fun_decl and std.mem.eql(u8, m.data.fun_decl.name, "equals")) return;
+    }
+
+    var prop_count: usize = 0;
+    for (c.primary_constructor) |prop| {
+        if (prop.is_property) prop_count += 1;
+    }
+
+    var case_then_body: *ASTNode = undefined;
+    if (prop_count == 0) {
+        case_then_body = try makeBoolLiteral(self, node.line, node.column, true);
+    } else {
+        var curr_expr: ?*ASTNode = null;
+        for (c.primary_constructor) |prop| {
+            if (!prop.is_property) continue;
+            if (prop.type_ref.is_array or prop.type_ref.is_function or (prop.type_ref.resolved_type != null and prop.type_ref.resolved_type.?.* == .Function) or std.mem.indexOf(u8, prop.type_ref.name, "->") != null or std.mem.startsWith(u8, prop.type_ref.name, "fun")) continue;
+
+            const this_prop = try makeMemberAccess(self, node.line, node.column, "this", prop.name);
+            const other_prop = try makeMemberAccess(self, node.line, node.column, "other", prop.name);
+            const eq_expr = try makeBinaryOp(self, node.line, node.column, .eq_eq, this_prop, other_prop);
+
+            if (curr_expr == null) {
+                curr_expr = eq_expr;
+            } else {
+                curr_expr = try makeBinaryOp(self, node.line, node.column, .and_and, curr_expr.?, eq_expr);
+            }
+        }
+        case_then_body = curr_expr.?;
+    }
+
+    const is_cond = try makeIsTypeCond(self, node.line, node.column, c.name);
+    const conds = try self.allocator.alloc(*ASTNode, 1);
+    conds[0] = is_cond;
+
+    const case_is = ast.WhenCase{
+        .conds = conds,
+        .body = case_then_body,
+        .is_else = false,
+    };
+
+    const case_else = ast.WhenCase{
+        .conds = &.{},
+        .body = try makeBoolLiteral(self, node.line, node.column, false),
+        .is_else = true,
+    };
+
+    const cases = try self.allocator.alloc(ast.WhenCase, 2);
+    cases[0] = case_is;
+    cases[1] = case_else;
+
+    const subj = try makeIdent(self, node.line, node.column, "other");
+    const when_body = try self.allocator.create(ASTNode);
+    when_body.* = .{
+        .line = node.line,
+        .column = node.column,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .when_expr = .{
+                .subject = subj,
+                .cases = cases,
+            },
+        },
+    };
+
+    const param_tr = try self.allocator.create(ast.ASTTypeRef);
+    param_tr.* = .{
+        .name = "Stringable",
+        .generic_args = &.{},
+        .is_array = false,
+        .is_nullable = false,
+    };
+
+    const ret_tr = try self.allocator.create(ast.ASTTypeRef);
+    ret_tr.* = .{
+        .name = "Bool",
+        .generic_args = &.{},
+        .is_array = false,
+        .is_nullable = false,
+    };
+
+    const params = try self.allocator.alloc(ast.Param, 1);
+    params[0] = .{
+        .name = "other",
+        .type_ref = param_tr,
+        .initializer = null,
+    };
+
+    const method_node = try self.allocator.create(ASTNode);
+    method_node.* = .{
+        .line = node.line,
+        .column = node.column,
+        .resolved_type = null,
+        .expected_type = null,
+        .data = .{
+            .fun_decl = .{
+                .annotations = &.{},
+                .modifiers = &[_]ast.TokenType{ .kw_implement, .kw_operator },
+                .name = "equals",
+                .params = params,
+                .type_ref = ret_tr,
+                .body = when_body,
                 .is_expr_body = true,
                 .resolved_c_name = null,
             },

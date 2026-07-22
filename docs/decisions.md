@@ -231,19 +231,20 @@ Regras centrais:
 4. **Coleções Genéricas Heterogêneas:** Monomorphizações como `Map<String, String | Int>` operam transparentemente com a união tratada como tipo de valor `V`, permitindo armazenar múltiplos tipos na mesma coleção de forma segura.
 **Razão:** Expande o sistema de tipos para permitir mapas e variáveis dinâmicas de múltiplos tipos sem perder a checagem de tipos estática na linguagem base.
 
-## ADR 29: Contratos Principais do Sistema e Derivação Automática de Skills (`Stringable`, `Hashable`, `Equatable`)
-**Data:** Fase 47 (Planejada)
+## ADR 29: Contratos Principais do Sistema e Derivação Automática de Skills (`Stringable`, `Hashable`, `Equatable`, `Printable`)
+**Data:** Fase 47 (Concluída - Julho 2026)
 **Contexto:** A conversão de objetos, tipos primitivos e uniões para string ou hash dependia historicamente de métodos soltos ou de helpers procedurais em C (como `aether_to_string` no `aether_runtime.h` para inspecionar uniões `void*`). Do ponto de vista de arquitetura de linguagem, todas as abstrações fundamentais devem ser expressas nativamente em código `.ae` usando o modelo de composição (`contract` + `skill` do ADR 25).
 **Decisão:**
-1. **Contratos Nativos do Sistema:** A Standard Library (`src/std/core.ae`) definirá os contratos fundamentais da linguagem:
+1. **Contratos Nativos do Sistema:** A Standard Library (`src/std/core.ae`) define os contratos fundamentais da linguagem:
    - `contract Stringable { fun toString(): String }`
-   - `contract Equatable { operator fun equals(other: Any): Bool }`
+   - `contract Equatable { operator fun equals(other: Stringable): Bool }`
    - `contract Hashable { fun hashCode(): Int }`
-   - `skill Printable : Stringable { fun print(): Void = Standard.puts(this.toString().ptr) }`
-2. **Conformidade Automática e Sintetização:** Todo `type` e `object` declarado no Aether implementa automaticamente os contratos `Stringable`, `Equatable` e `Hashable`. Caso o tipo não forneça uma implementação explícita, o TypeChecker sintetiza automaticamente a implementação padrão (ex: `toString()` baseado no nome e membros da struct, `hashCode()` combinando hashes dos campos, e `equals()` por comparação estrutural de membros).
+   - `skill Printable : Stringable { fun echo() { println(this.toString()) } }`
+2. **Conformidade Automática e Sintetização:** Todo `type` e `object` declarado no Aether implementa automaticamente os contratos `Stringable`, `Equatable` e `Hashable`. Caso o tipo não forneça uma implementação explícita, o TypeChecker sintetiza automaticamente a implementação padrão (ex: `toString()` baseado no nome e membros da struct, `hashCode()` combinando hashes dos campos, e `equals()` por comparação estrutural de membros). Propriedades do tipo closure (`is_function`) são ignoradas durante a sintetização para evitar comparações/casts inválidos no backend C.
 3. **Tipos Primitivos Conformes:** Os tipos primitivos (`Int`, `Bool`, `String`, `Pointer`) são declarados explicitamente em `src/std/core.ae` como implementadores dos contratos `Stringable`, `Hashable` e `Equatable`.
-4. **Eliminação de Helpers Procedurais em C:** Em uniões (`String | Int`) ou genéricos apagados (`void*`), chamadas a `.toString()` utilizam a vtable do contrato `Stringable`, eliminando fallbacks manuais no C runtime (`aether_to_string`).
-**Razão:** Unifica a infraestrutura fundamental de conversão para texto, hashing de coleções (`Set`, `Map`) e igualdade no próprio modelo de composição da linguagem Aether, garantindo pureza de design e reusabilidade.
+4. **Helpers no C Runtime com Despacho por VTable:** Em uniões (`String | Int`) ou genéricos apagados (`void*`), chamadas a `aether_to_string` e `aether_hash_code` no `aether_runtime.h` utilizam despacho dinâmico por VTable (`aether_find_vtable`) via `core_Stringable_contract` e `core_Hashable_contract`, tratando unboxing de primitivos de forma transparente sem duplicar código no transpiler.
+5. **Helpers Globais de I/O e Controle de Fluxo:** A stdlib disponibiliza `echo(value: Stringable?)`, `loop(block: () -> Void)` e `repeat(count: Int, block: (Int) -> Void)`.
+**Razão:** Unifica a infraestrutura fundamental de conversão para texto, hashing de coleções (`Set`, `Map`) e igualdade no próprio modelo de composição da linguagem Aether, garantindo pureza de design, legibilidade no transpiler C e alta reusabilidade.
 
 
 

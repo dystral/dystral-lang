@@ -8,7 +8,7 @@ type Address(val city: String, val zip: String) : Serializable
 type Person(val name: String, val age: Int, val address: Address, val birthday: Time, val tags: List<String>) : Serializable + Json + Yaml
 
 fun main() {
-    print("--- Starting Arest Web Server Sample ---")
+    echo("--- Starting Arest Web Server Sample ---")
 
     arest(8082) {
         routing {

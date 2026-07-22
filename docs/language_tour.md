@@ -687,7 +687,43 @@ catch (e: Throwable) {
 }
 ```
 
-### 11.6 Design Principles
+### 11.6 System Contracts & Automatic Type Synthesis
+
+Aether comes with core contracts and skills defined:
+
+* `contract Stringable { fun toString(): String }`
+* `contract Equatable { operator fun equals(other: Stringable): Bool }`
+* `contract Hashable { fun hashCode(): Int }`
+* `skill Printable : Stringable { fun echo() { println(this.toString()) } }`
+
+**Automatic Synthesized Implementations**
+Every user-defined `type` and `object` automatically implements `Stringable`, `Equatable`, and `Hashable`. If a `type` does not supply custom implementations, the compiler synthesizes them automatically at compile-time:
+* `toString()` — formats as `TypeName(prop1=val1, prop2=val2)`
+* `equals(other)` — structural equality check comparing all non-closure properties
+* `hashCode()` — combines hash codes across non-closure properties
+
+```kotlin
+type Person(val name: String, var age: Int)
+
+fun main() {
+    val p1 = Person("Alice", 30)
+    val p2 = Person("Alice", 30)
+
+    // Automatic toString synthesis
+    assert(p1.toString() == "Person(name=Alice, age=30)")
+
+    // Automatic equals synthesis
+    assert(p1 == p2)
+
+    // Automatic hashCode synthesis
+    assert(p1.hashCode() == p2.hashCode())
+
+    // Skill Printable echo helper
+    p1.echo()
+}
+```
+
+### 11.7 Design Principles
 
 1. **Types own state.** Only `type` declarations contain instance state.
 2. **Contracts define capabilities.** Behavior only — never storage or implementation.

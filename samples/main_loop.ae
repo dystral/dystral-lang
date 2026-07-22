@@ -17,32 +17,37 @@ fun runNBodyStress(): Void {
     
     val system = NBodySystem(bodies)
     
-    // Simulate 100 steps to stress the allocations
-    var stepCount = 0
-    while (stepCount < 100) {
+    // Simulate 1000 steps to stress the allocations
+    repeat(1000) {
         system.step(1)
-        stepCount = stepCount + 1
     }
 }
 
 fun main(): Void {
-    print("Starting main loop with N-Body stress testing...")
+    echo("Starting main loop with N-Body stress testing...")
+
+    var lastEchoIn: Time = now()
+    var count = 0
     
-    while (true) {
+    loop {
         val prime = findLargestPrime(100000000)
-        val prime2 = findLargestPrime(100000000)
         val p = Person("Leo", 38)
         
         val currentTime = now()
         
         // Stress memory allocation by creating and simulating N-body system multiple times
-        var stressIter = 0
-        while (stressIter < 500) {
+        repeat(1000) {
             runNBodyStress()
-            stressIter = stressIter + 1
         }
-        
-        print("[" + currentTime.format("YYYY-MM-DD HH:mm:ss") + "] " + p.name + " simulated 50000 N-Body steps and computed primes sum: " + (prime + prime2).toString())
-        sleepMs(10)
+
+        count = count + 1
+        if (lastEchoIn != currentTime) {
+            val msg = "[" + currentTime.format("YYYY-MM-DD HH:mm:ss") + "] " + p.name + " simulated 1000 times 1000 N-Body steps and found prime up to 100000000: " + (prime).toString()
+            echo(msg + " [" + count.toString() + " times]")
+            
+            lastEchoIn = currentTime
+            count = 0
+        }
+        sleepMs(1)
     }
 }

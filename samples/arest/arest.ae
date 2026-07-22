@@ -59,7 +59,7 @@ fun arest(port: Int, init: ArestBuilder.() -> Void) {
     
     val server = Server()
     if (server.bind(port)) {
-        print("[Arest] Server listening on port " + port.toString() + "...")
+        echo("[Arest] Server listening on port " + port.toString() + "...")
         
         while (builder.running) {
             try {
@@ -94,8 +94,8 @@ fun arest(port: Int, init: ArestBuilder.() -> Void) {
         }
         
         server.close()
-        print("[Arest] Server stopped gracefully.")
+        echo("[Arest] Server stopped gracefully.")
     } else {
-        print("[Arest] Failed to bind to port " + port.toString())
+        echo("[Arest] Failed to bind to port " + port.toString())
     }
 }

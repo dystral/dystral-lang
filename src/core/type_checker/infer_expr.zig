@@ -253,22 +253,14 @@ pub fn inferIsExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aether
     const val_type = try self.inferNode(i.value, scope);
     const target_type = try self.resolveTypeRef(i.type_ref);
 
-    const base_val = extractBaseType(val_type);
-    const base_target = extractBaseType(target_type);
-
-    if (base_val.* == .Custom and base_target.* == .Custom) {
-        const is_upcast = self.conformsTo(base_val.Custom, base_target.Custom);
-        const is_downcast = self.conformsTo(base_target.Custom, base_val.Custom);
-        if (!is_upcast and !is_downcast) {
-            self.reportError(node.line, node.column, "TypeError: Incompatible types for type check: {s} does not conform to {s}.", .{ base_val.Custom, base_target.Custom });
-            return error.TypeError;
-        }
-    } else {
-        const is_compat = self.isCompatible(target_type, val_type) or self.isCompatible(val_type, target_type);
-        if (!is_compat) {
-            self.reportError(node.line, node.column, "TypeError: Cannot check if {} is {}.", .{ val_type.*, target_type.* });
-            return error.TypeError;
-        }
+    const is_compat = self.isCompatible(target_type, val_type) or self.isCompatible(val_type, target_type);
+    if (!is_compat) {
+        const base_val = extractBaseType(val_type);
+        const base_target = extractBaseType(target_type);
+        const val_name = if (base_val.* == .Custom) base_val.Custom else @tagName(base_val.*);
+        const target_name = if (base_target.* == .Custom) base_target.Custom else @tagName(base_target.*);
+        self.reportError(node.line, node.column, "TypeError: Incompatible types for type check: {s} does not conform to {s}.", .{ val_name, target_name });
+        return error.TypeError;
     }
 
     t.* = .Bool;

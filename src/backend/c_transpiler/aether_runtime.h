@@ -192,6 +192,12 @@ typedef struct AetherClosure {
 
 struct core_String;
 typedef struct core_String core_String;
+extern const AetherContractDescriptor core_Stringable_contract;
+extern const AetherContractDescriptor core_Hashable_contract;
+core_String* core_Bool_toString(bool val);
+core_String* core_Int_toString(int val);
+int core_Bool_hashCode(bool val);
+int core_Int_hashCode(int val);
 
 static inline core_String* aether_to_string(void* ptr) {
     if (!ptr) {
@@ -202,18 +208,18 @@ static inline core_String* aether_to_string(void* ptr) {
         s->length = 4;
         return (core_String*)s;
     }
-    intptr_t val = (intptr_t)ptr;
-    if (val >= -2147483647 && val <= 2147483647) {
-        typedef struct { const void* _desc; const char* ptr; int length; } Str;
-        char* buf = (char*)GC_MALLOC(32);
-        int len = sprintf(buf, "%ld", (long)val);
-        Str* s = (Str*)GC_MALLOC(sizeof(Str));
-        s->_desc = NULL;
-        s->ptr = buf;
-        s->length = len;
-        return (core_String*)s;
-    }
-    return (core_String*)ptr;
+    uintptr_t val = (uintptr_t)ptr;
+    if (val <= 1) return core_Bool_toString((bool)val);
+    if (val < 0x10000) return core_Int_toString((int)val);
+    return ((core_String*(*)(void*))aether_find_vtable(*(const AetherTypeDescriptor**)ptr, &core_Stringable_contract)[0])(ptr);
+}
+
+static inline int aether_hash_code(void* ptr) {
+    if (!ptr) return 0;
+    uintptr_t val = (uintptr_t)ptr;
+    if (val <= 1) return core_Bool_hashCode((bool)val);
+    if (val < 0x10000) return core_Int_hashCode((int)val);
+    return ((int(*)(void*))aether_find_vtable(*(const AetherTypeDescriptor**)ptr, &core_Hashable_contract)[0])(ptr);
 }
 
 #endif // AETHER_RUNTIME_H

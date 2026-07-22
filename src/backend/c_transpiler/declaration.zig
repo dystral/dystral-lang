@@ -75,10 +75,13 @@ pub fn emitTypeDecl(self: *CTranspiler, node: *ASTNode) !void {
         try self.header_writer.writer().print("{s}* {s}_constructor({s}* this);\n", .{actual_name, actual_name, actual_name});
 
         // Emit vtables for implemented contracts
+        var valid_contract_count: usize = 0;
         for (type_decl.contracts) |contract_src| {
             const contract_c_name = if (self.alias_map) |am| (am.get(contract_src) orelse contract_src) else contract_src;
+            if (!self.isContract(contract_c_name) and !self.isContract(contract_src)) continue;
             const contract_node = if (self.contracts_ast) |ca| ca.get(contract_c_name) orelse continue else continue;
 
+            valid_contract_count += 1;
             try self.header_writer.writer().print("extern const AetherContractDescriptor {s}_contract;\n", .{contract_c_name});
 
             try self.writer.writer().print("void* {s}_{s}_vtable[] = {{\n", .{ actual_name, contract_c_name });
@@ -103,14 +106,15 @@ pub fn emitTypeDecl(self: *CTranspiler, node: *ASTNode) !void {
         }
 
         // Emit the impl table + static descriptor definition
-        if (type_decl.contracts.len > 0) {
+        if (valid_contract_count > 0) {
             try self.writer.writer().print("const AetherContractImpl {s}_impls[] = {{\n", .{actual_name});
             for (type_decl.contracts) |contract_src| {
                 const contract_c_name = if (self.alias_map) |am| (am.get(contract_src) orelse contract_src) else contract_src;
+                if (!self.isContract(contract_c_name) and !self.isContract(contract_src)) continue;
                 try self.writer.writer().print("    {{ &{s}_contract, {s}_{s}_vtable }},\n", .{ contract_c_name, actual_name, contract_c_name });
             }
             try self.writer.appendSlice("};\n");
-            try self.writer.writer().print("const AetherTypeDescriptor {s}_descriptor = {{ \"{s}\", {s}_impls, {d} }};\n\n", .{ actual_name, type_decl.name, actual_name, type_decl.contracts.len });
+            try self.writer.writer().print("const AetherTypeDescriptor {s}_descriptor = {{ \"{s}\", {s}_impls, {d} }};\n\n", .{ actual_name, type_decl.name, actual_name, valid_contract_count });
         } else {
             try self.writer.writer().print("const AetherTypeDescriptor {s}_descriptor = {{ \"{s}\", 0, 0 }};\n\n", .{ actual_name, type_decl.name });
         }

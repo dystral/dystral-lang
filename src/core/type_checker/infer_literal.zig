@@ -29,12 +29,66 @@ pub fn inferArrayLiteral(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *
         return error.TypeError;
     }
     
-    const first_type = try self.inferNode(a.elements[0], scope);
-    for (a.elements[1..]) |elem| {
-        const elem_type = try self.inferNode(elem, scope);
-        if (!self.isCompatible(first_type, elem_type)) {
-            self.reportError(node.line, node.column, "TypeError: Incompatible types in array literal. Expected {} but found {}.", .{ first_type.*, elem_type.* });
-            return error.TypeError;
+    var first_type: *const AetherType = undefined;
+    var expected_elem_t: ?*const AetherType = null;
+
+    if (node.expected_type) |exp| {
+        const exp_base = type_system.extractBaseType(exp);
+        if (exp_base.* == .Custom) {
+            const name = exp_base.Custom;
+            if (std.mem.startsWith(u8, name, "NativeArray<") and std.mem.endsWith(u8, name, ">")) {
+                const inner = name[12 .. name.len - 1];
+                expected_elem_t = (self.resolveTypeName(inner, false) catch null) orelse (
+                    if (std.mem.startsWith(u8, inner, "std_core_")) self.resolveTypeName(inner[9..], false) catch null
+                    else if (std.mem.startsWith(u8, inner, "core_")) self.resolveTypeName(inner[5..], false) catch null
+                    else null
+                );
+            } else if (std.mem.indexOf(u8, name, "List_")) |idx| {
+                const inner = name[idx + 5 ..];
+                expected_elem_t = (self.resolveTypeName(inner, false) catch null) orelse (
+                    if (std.mem.startsWith(u8, inner, "std_core_")) self.resolveTypeName(inner[9..], false) catch null
+                    else if (std.mem.startsWith(u8, inner, "core_")) self.resolveTypeName(inner[5..], false) catch null
+                    else null
+                );
+            } else {
+                const actual_c = self.alias_map.get(name) orelse name;
+                if (self.classes_ast.get(actual_c)) |cn| {
+                    if (cn.data.type_decl.primary_constructor.len > 0) {
+                        const prop0 = cn.data.type_decl.primary_constructor[0];
+                        if (prop0.resolved_type) |pt| {
+                            if (pt.* == .Array) {
+                                expected_elem_t = pt.Array;
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (exp_base.* == .GenericInstance) {
+            if (exp_base.GenericInstance.type_args.len > 0) {
+                expected_elem_t = exp_base.GenericInstance.type_args[0];
+            }
+        } else if (exp_base.* == .Array) {
+            expected_elem_t = exp_base.Array;
+        }
+    }
+
+    if (expected_elem_t) |ee_t| {
+        first_type = ee_t;
+        for (a.elements) |elem| {
+            const elem_type = try self.inferNode(elem, scope);
+            if (!self.isCompatible(first_type, elem_type)) {
+                self.reportError(node.line, node.column, "TypeError: Incompatible types in array literal. Expected {} but found {}.", .{ first_type.*, elem_type.* });
+                return error.TypeError;
+            }
+        }
+    } else {
+        first_type = try self.inferNode(a.elements[0], scope);
+        for (a.elements[1..]) |elem| {
+            const elem_type = try self.inferNode(elem, scope);
+            if (!self.isCompatible(first_type, elem_type)) {
+                self.reportError(node.line, node.column, "TypeError: Incompatible types in array literal. Expected {} but found {}.", .{ first_type.*, elem_type.* });
+                return error.TypeError;
+            }
         }
     }
     const array_type = try self.allocator.create(AetherType);

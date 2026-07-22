@@ -24,6 +24,9 @@ pub fn getCTypeStr(allocator: std.mem.Allocator, t: *const type_system.AetherTyp
         .Custom => |name| {
             if (std.mem.eql(u8, name, "Int")) return "int";
             if (std.mem.eql(u8, name, "Bool")) return "bool";
+            if (std.mem.endsWith(u8, name, "Stringable") or std.mem.endsWith(u8, name, "Equatable") or std.mem.endsWith(u8, name, "Hashable") or std.mem.endsWith(u8, name, "Throwable") or std.mem.endsWith(u8, name, "Serializable") or std.mem.endsWith(u8, name, "SerdeValue") or std.mem.endsWith(u8, name, "SerdeList")) {
+                return "void*";
+            }
             return try std.fmt.allocPrint(allocator, "{s}*", .{name});
         },
         .Array => |elem| {
@@ -96,15 +99,26 @@ pub const CTranspiler = struct {
         const base = type_system.extractBaseType(t);
         if (base.* == .Custom) {
             if (self.contracts_ast) |ca| {
-                if (ca.contains(base.Custom)) return "void*";
+                const lookup = if (self.alias_map) |am| (am.get(base.Custom) orelse base.Custom) else base.Custom;
+                if (ca.contains(lookup) or ca.contains(base.Custom)) return "void*";
             }
+        } else if (base.* == .Array) {
+            const inner = try self.cType(base.Array);
+            var safe_inner = std.ArrayList(u8).init(self.allocator);
+            for (inner) |c| {
+                if (c == '*') continue;
+                if (c == ' ') continue;
+                try safe_inner.append(c);
+            }
+            return try std.fmt.allocPrint(self.allocator, "AetherArray_{s}*", .{safe_inner.items});
         }
         return getCTypeStr(self.allocator, t);
     }
 
     pub fn isContract(self: *CTranspiler, name: []const u8) bool {
         if (self.contracts_ast) |ca| {
-            return ca.contains(name);
+            const lookup = if (self.alias_map) |am| (am.get(name) orelse name) else name;
+            return ca.contains(lookup) or ca.contains(name);
         }
         return false;
     }
@@ -157,7 +171,7 @@ pub const CTranspiler = struct {
                     if (cd.generic_params.len == 0 and !std.mem.endsWith(u8, actual_name, "_K") and !std.mem.endsWith(u8, actual_name, "_V")) {
                         if (!self.known_constructors.contains(actual_name)) {
                             try self.known_constructors.put(actual_name, {});
-                            try self.forward_writer.writer().print("typedef struct {s} {s};\n", .{actual_name, actual_name});
+                            try self.forward_writer.writer().print("typedef struct {s} {s};\n", .{ actual_name, actual_name });
                         }
                     }
                 }
@@ -179,20 +193,20 @@ pub const CTranspiler = struct {
                 }
             }
         }
-        
+
         var final = std.ArrayList(u8).init(self.allocator);
         try final.appendSlice(std_lib_c);
         try final.appendSlice("\n__thread AetherExceptionFrame* aether_exception_stack = 0;\n__thread void* aether_active_exception = 0;\n\n");
         try final.appendSlice(self.forward_writer.items); // forward decls go first
         try final.appendSlice(self.header_writer.items);
         try final.appendSlice(self.writer.items);
-        
+
         return try final.toOwnedSlice();
     }
 
     pub fn emitArrayStruct(self: *CTranspiler, elem: *const type_system.AetherType) !void {
-        const inner_c_type = try getCTypeStr(self.allocator, elem);
-        
+        const inner_c_type = try self.cType(elem);
+
         var safe_inner = std.ArrayList(u8).init(self.allocator);
         for (inner_c_type) |c| {
             if (c == '*') continue;
@@ -200,27 +214,27 @@ pub const CTranspiler = struct {
             try safe_inner.append(c);
         }
         const struct_name = try std.fmt.allocPrint(self.allocator, "AetherArray_{s}", .{safe_inner.items});
-        
+
         if (self.classes.contains(struct_name)) return;
         try self.classes.put(struct_name, {});
-        
+
         var w = self.header_writer.writer();
         try w.print("typedef struct {{\n", .{});
         try w.print("    {s}* data;\n", .{inner_c_type});
         try w.print("    size_t length;\n", .{});
         try w.print("    size_t capacity;\n", .{});
         try w.print("}} {s};\n\n", .{struct_name});
-        
-        try w.print("{s}* {s}_new() {{\n", .{struct_name, struct_name});
-        try w.print("    {s}* arr = GC_MALLOC(sizeof({s}));\n", .{struct_name, struct_name});
+
+        try w.print("{s}* {s}_new() {{\n", .{ struct_name, struct_name });
+        try w.print("    {s}* arr = GC_MALLOC(sizeof({s}));\n", .{ struct_name, struct_name });
         try w.print("    arr->data = GC_MALLOC(4 * sizeof({s}));\n", .{inner_c_type});
         try w.print("    memset(arr->data, 0, 4 * sizeof({s}));\n", .{inner_c_type});
         try w.print("    arr->length = 0;\n", .{});
         try w.print("    arr->capacity = 4;\n", .{});
         try w.print("    return arr;\n", .{});
         try w.print("}}\n\n", .{});
-        
-        try w.print("void {s}_push({s}* arr, {s} val) {{\n", .{struct_name, struct_name, inner_c_type});
+
+        try w.print("void {s}_push({s}* arr, {s} val) {{\n", .{ struct_name, struct_name, inner_c_type });
         try w.print("    if (arr->length == arr->capacity) {{\n", .{});
         try w.print("        size_t old_capacity = arr->capacity;\n", .{});
         try w.print("        arr->capacity *= 2;\n", .{});
@@ -229,8 +243,8 @@ pub const CTranspiler = struct {
         try w.print("    }}\n", .{});
         try w.print("    arr->data[arr->length++] = val;\n", .{});
         try w.print("}}\n\n", .{});
-        
-        try w.print("void {s}_set({s}* arr, int index, {s} val) {{\n", .{struct_name, struct_name, inner_c_type});
+
+        try w.print("void {s}_set({s}* arr, int index, {s} val) {{\n", .{ struct_name, struct_name, inner_c_type });
         try w.print("    if (index >= 0 && index < arr->length) {{\n", .{});
         try w.print("        arr->data[index] = val;\n", .{});
         try w.print("    }}\n", .{});
@@ -241,7 +255,7 @@ pub const CTranspiler = struct {
         switch (node.data) {
             .program => |p| {
                 var has_main = false;
-                
+
                 // Pass 1: Types, Contracts, Skills and Imports
                 for (p.statements) |stmt| {
                     if (stmt.data == .import_stmt) {
@@ -265,7 +279,7 @@ pub const CTranspiler = struct {
                         try self.emitLibDecl(stmt);
                     }
                 }
-                
+
                 // Pass 2: Function Declarations
                 for (p.statements) |stmt| {
                     if (stmt.data == .fun_decl) {
@@ -277,7 +291,7 @@ pub const CTranspiler = struct {
                         try self.emitTestDecl(stmt);
                     }
                 }
-                
+
                 // Pass 3: Top-Level Statements Collection
                 var top_level_stmts = std.ArrayList(*ASTNode).init(self.allocator);
                 defer top_level_stmts.deinit();
@@ -324,7 +338,7 @@ pub const CTranspiler = struct {
                             try self.writer.appendSlice("                    if (__s) __msg = __s->ptr;\n");
                             try self.writer.appendSlice("                }\n");
                             try self.writer.appendSlice("            }\n");
-                            try self.writer.writer().print("            printf(\"[FAIL] {s}: %s (%s)\\n\", __name, __msg);\n", .{tname});
+                            try self.writer.writer().print("            printf(\"*[FAIL] {s}: %s (%s)\\n\", __name, __msg);\n", .{tname});
                             try self.writer.appendSlice("            __failed = 1;\n");
                             try self.writer.appendSlice("        }\n");
                             try self.writer.appendSlice("    }\n");
@@ -339,7 +353,7 @@ pub const CTranspiler = struct {
                             try self.emitExpression(si.init);
                             try self.writer.appendSlice(";\n");
                         }
-                        
+
                         for (top_level_stmts.items) |stmt| {
                             try self.emitStatement(stmt);
                         }

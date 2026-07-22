@@ -6,6 +6,8 @@ lib Standard {
 
     fun puts(str: OpaquePointer): Int
 
+    fun fflush(stream: OpaquePointer): Int
+
     @Alias("GC_MALLOC")
     fun gcMalloc(size: Int): OpaquePointer
 
@@ -41,14 +43,32 @@ lib Posix {
     fun usleep(useconds: Int): Int
 }
 
+contract Stringable {
+    fun toString(): String
+}
+
+contract Equatable {
+    operator fun equals(other: Stringable): Bool
+}
+
+contract Hashable {
+    fun hashCode(): Int
+}
+
+skill Printable : Stringable {
+    fun echo() {
+        println(this.toString())
+    }
+}
+
 @Primitive("pointer")
 type OpaquePointer {}
 
 @Primitive("pointer")
 type Pointer<T> {}
 
-type String(val ptr: OpaquePointer, val length: Int) {
-    fun toString(): String = this
+type String(val ptr: OpaquePointer, val length: Int) : Stringable, Equatable, Hashable {
+    implement fun toString(): String = this
 
     operator fun equals(other: String): Bool {
         return NativeString.strcmp(this.ptr, other.ptr) == 0
@@ -137,58 +157,80 @@ type String(val ptr: OpaquePointer, val length: Int) {
 }
 
 @Primitive("int")
-type Int {
-    fun toString(): String {
+type Int : Stringable, Equatable, Hashable {
+    implement fun toString(): String {
         val buf = Standard.gcMalloc(32)
         Standard.sprintf(buf, "%d".ptr, this)
         return String(buf, NativeString.strlen(buf))
     }
 
-    fun hashCode(): Int {
+    implement fun hashCode(): Int {
         return this
+    }
+
+    implement operator fun equals(other: Stringable): Bool {
+        if (other is Int) {
+            return this == other
+        }
+        return false
     }
 }
 
 @Primitive("bool")
-type Bool {
-    fun toString(): String {
+type Bool : Stringable, Equatable, Hashable {
+    implement fun toString(): String {
         return if (this) "true" else "false"
     }
-}
 
-fun print(value: Int): Void {
-    Standard.printf("%d\n".ptr, value)
-}
+    implement fun hashCode(): Int {
+        return if (this) 1 else 0
+    }
 
-fun print(value: String): Void {
-    Standard.puts(value.ptr)
-}
-
-fun print(value: String?): Void {
-    if (value == null) {
-        Standard.puts("null".ptr)
-    } else {
-        Standard.puts(value!!.ptr)
+    implement operator fun equals(other: Stringable): Bool {
+        if (other is Bool) {
+            return this == other
+        }
+        return false
     }
 }
 
-fun print(value: Bool): Void {
-    print(value.toString())
+fun print(value: Stringable?) {
+    if (value == null) {
+        Standard.printf("null".ptr)
+    } else {
+        Standard.printf("%s".ptr, value!!.toString().ptr)
+    }
+    Standard.fflush(0)
 }
 
-fun print(value: Int?): Void {
+fun println() {
+    Standard.puts("".ptr)
+}
+
+fun echo(value: Stringable?) {
+    println(value)
+}
+
+fun println(value: Stringable?) {
     if (value == null) {
         Standard.puts("null".ptr)
     } else {
-        print(value!!)
+        Standard.puts(value!!.toString().ptr)
     }
 }
 
-fun print(value: Bool?): Void {
-    if (value == null) {
-        Standard.puts("null".ptr)
-    } else {
-        print(value!!)
+fun loop(block: () -> Void) {
+    while (true) {
+        block()
+    }
+}
+
+fun repeat(count: Int, block: (Int) -> Void) {
+    var i = 0
+
+    while (i < count) {
+        block(i)
+        i = i + 1
     }
 }
 
@@ -202,12 +244,18 @@ type AssertionException(val text: String) : Throwable {
     }
 }
 
-fun assert(condition: Bool): Void {
+fun assert(condition: Bool) {
     if (condition == false) {
         throw AssertionException("Assertion failed")
     }
 }
 
-fun sleep(seconds: Int) = Posix.sleep(seconds)
-fun sleepMs(ms: Int) = Posix.usleep(ms * 1000)
-fun exit(code: Int) = Standard.exit(code)
+fun sleep(seconds: Int): Void {
+    Posix.sleep(seconds)
+}
+fun sleepMs(ms: Int): Void {
+    Posix.usleep(ms * 1000)
+}
+fun exit(code: Int): Void {
+    Standard.exit(code)
+}
