@@ -289,14 +289,14 @@ General Union types (e.g., `String | Int` or `T1 | T2`) across variable declarat
 - [x] **Task 46.4:** Support multi-type generic collections such as `Map<String, String | Int>` and `MutableMap<String, String | Int>`.
 - [x] **Task 46.5:** Update documentation (`docs/roadmap.md`, `docs/decisions.md`, `docs/language_tour.md`) and add samples (`samples/union_sample.ae`) and tests (`samples/tests/union_test.ae`).
 
-### Phase 47: Core System Contracts & Fundamental Skill Derivation (`Stringable`, `Hashable`, `Equatable`) (PLANNED)
+### Phase 47: Core System Contracts & Fundamental Skill Derivation (`Stringable`, `Hashable`, `Equatable`, `Echoable`) (COMPLETED)
 Establish a unified language-wide contract hierarchy and automatic skill derivation for all Aether types (`type`, `object`, and primitives `Int`, `Bool`, `String`).
-- [ ] **Task 47.1:** Declare core contracts (`contract Stringable`, `contract Equatable`, `contract Hashable`) and core skills (`skill Printable`) in `src/std/core.ae`.
-- [ ] **Task 47.2:** Update TypeChecker to automatically inject core contracts (`Stringable`, `Hashable`, `Equatable`) into the implicit contract implementations of every user-declared `type` and `object`.
-- [ ] **Task 47.3:** Synthesize missing default method implementations (`toString()`, `equals()`, `hashCode()`) in the TypeChecker for types that do not explicitly provide custom implementations.
-- [ ] **Task 47.4:** Declare primitive types (`Int`, `Bool`, `String`, `Pointer`) in `src/std/core.ae` as implementers of `Stringable`, `Hashable`, and `Equatable`.
-- [ ] **Task 47.5:** Refactor compiler dynamic dispatch and C Transpiler to use contract vtables for `Stringable.toString()` calls across Union types (`String | Int`) and erased generics (`void*`), replacing procedural C runtime helpers (`aether_to_string`).
-- [ ] **Verify:** Compile and run test suites verifying polymorphic `.toString()` calls, generic `Stringable` parameters, and contract-based dynamic dispatch on custom types, primitives, and union types.
+- [x] **Task 47.1:** Declare core contracts (`contract Stringable`, `contract Equatable`, `contract Hashable`) and core skills (`skill Echoable`) in `src/std/core.ae`.
+- [x] **Task 47.2:** Update TypeChecker to automatically inject core contracts (`Stringable`, `Hashable`, `Equatable`) into the implicit contract implementations of every user-declared `type` and `object`.
+- [x] **Task 47.3:** Synthesize missing default method implementations (`toString()`, `equals()`, `hashCode()`) in the TypeChecker for types that do not explicitly provide custom implementations, skipping closure/function properties (`is_function`).
+- [x] **Task 47.4:** Declare primitive types (`Int`, `Bool`, `String`, `Pointer`) in `src/std/core.ae` as implementers of `Stringable`, `Hashable`, and `Equatable`.
+- [x] **Task 47.5:** Refactor compiler dynamic dispatch and C Transpiler to use contract vtables for `Stringable.toString()` and `Hashable.hashCode()` calls across Union types (`String | Int`) and erased generics (`void*`), with C runtime helpers (`aether_to_string`, `aether_hash_code`).
+- [x] **Verify:** Compile and run test suites (`core_contracts_test.ae`) verifying polymorphic `.toString()` calls, generic `Stringable` parameters, and contract-based dynamic dispatch on custom types, primitives, and union types.
 
 ---
 
@@ -311,3 +311,4 @@ Establish a unified language-wide contract hierarchy and automatic skill derivat
 * **C Transpiler `.if_expr` (July 9, 2026):** Fixed C transpiler to emit statements for `if/else` instead of C ternary operators `?:` when in Statement mode, resolving compilation issues with complex blocks (e.g., `return`).
 * **Runtime Stream (July 9, 2026):** Updated `aether run` command to output `stdout` in real-time (unbuffered) using `child.spawn()` with stream inheritance (`.Inherit`), allowing long-running loops to execute correctly without blocking the TTY.
 * **Method Resolution Name Mangling (July 9, 2026):** Resolved a compiler bug where primitive method resolution failed on `Int`, `Bool`, etc., because the type checker searched for the raw type names in `classes_ast` instead of using the mangled name `system_Int`.
+* **Modular Standard Library Architecture (July 21, 2026):** Refactored the monolithic `src/std/core.ae` into clean specialist modules (`std.core`, `std.io`, `std.system`, `std.exceptions`), renamed `Printable` to `Echoable`, and centralized implicit import constants in `infer_decl.zig` (ADR 30).

@@ -10,6 +10,9 @@ const AetherType = core.AetherType;
 
 pub const std_modules = std.StaticStringMap([]const u8).initComptime(.{
     .{ "core.ae", @embedFile("../../std/core.ae") },
+    .{ "io.ae", @embedFile("../../std/io.ae") },
+    .{ "system.ae", @embedFile("../../std/system.ae") },
+    .{ "exceptions.ae", @embedFile("../../std/exceptions.ae") },
     .{ "time.ae", @embedFile("../../std/time.ae") },
     .{ "math.ae", @embedFile("../../std/math.ae") },
     .{ "fs.ae", @embedFile("../../std/fs.ae") },
@@ -22,8 +25,12 @@ pub const std_modules = std.StaticStringMap([]const u8).initComptime(.{
     .{ "yaml.ae", @embedFile("../../std/yaml.ae") },
 });
 
+pub const user_implicit_imports = &[_][]const u8{ "std.core", "std.io", "std.system", "std.exceptions", "std.env", "std.collections", "std.time", "std.serde" };
+pub const core_implicit_imports = &[_][]const u8{ "std.core", "std.io", "std.system", "std.exceptions" };
+pub const core_fallback_modules = &[_][]const u8{ "io.ae", "system.ae", "exceptions.ae" };
+
 pub const auto_injected_contracts = &[_][]const u8{ "Stringable", "Equatable", "Hashable" };
-pub const auto_injected_skills = &[_][]const u8{ "Printable" };
+pub const auto_injected_skills = &[_][]const u8{ "Echoable" };
 
 pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *AetherType) anyerror!void {
     _ = scope;
@@ -164,6 +171,58 @@ pub fn inferImportStmt(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
                         }
                     } else if (stmt.data == .lib_decl) {
                         if (std.mem.eql(u8, stmt.data.lib_decl.name, sym)) {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!found and (std.mem.endsWith(u8, mod_path, "core") or std.mem.endsWith(u8, mod_path, "core.ae")) and self.registry != null) {
+                var mod_it = self.registry.?.modules.iterator();
+                while (mod_it.next()) |entry| {
+                    const k = entry.key_ptr.*;
+                    var is_fb = false;
+                    for (core_fallback_modules) |fb_name| {
+                        if (std.mem.endsWith(u8, k, fb_name)) {
+                            is_fb = true;
+                            break;
+                        }
+                    }
+                    if (is_fb) {
+                        const fb_tc = entry.value_ptr.checker;
+                        if (!fb_tc.local_symbols.contains(sym)) continue;
+                        const fb_prefix = fb_tc.module_prefix orelse "";
+                        if (fb_tc.global_scope.lookupFunctions(sym)) |overloads| {
+                            for (overloads) |overload| {
+                                try self.global_scope.define(sym, overload, false, true);
+                            }
+                            if (fb_prefix.len > 0) {
+                                const aliased_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ fb_prefix, sym });
+                                try self.alias_map.put(sym, aliased_name);
+                            }
+                            found = true;
+                            break;
+                        } else if (fb_tc.global_scope.lookupVariable(sym)) |variable| {
+                            try self.global_scope.define(sym, variable, false, false);
+                            if (fb_prefix.len > 0) {
+                                const aliased_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ fb_prefix, sym });
+                                try self.alias_map.put(sym, aliased_name);
+                            }
+                            found = true;
+                            break;
+                        } else if (fb_tc.global_scope.symbols.get(sym)) |sym_info| {
+                            if (sym_info.* == .Variable) {
+                                _ = self.global_scope.define(sym, sym_info.Variable.aether_type, false, false) catch {};
+                            }
+                            if (fb_prefix.len > 0) {
+                                const aliased_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ fb_prefix, sym });
+                                try self.alias_map.put(sym, aliased_name);
+                            }
+                            var c_it = fb_tc.classes_ast.iterator();
+                            while (c_it.next()) |ce| { try self.classes_ast.put(ce.key_ptr.*, ce.value_ptr.*); }
+                            var ct_it = fb_tc.contracts_ast.iterator();
+                            while (ct_it.next()) |cte| { try self.contracts_ast.put(cte.key_ptr.*, cte.value_ptr.*); }
                             found = true;
                             break;
                         }
@@ -937,21 +996,24 @@ pub fn injectAutoContractsAndSkills(self: *TypeChecker, c: anytype) !void {
         }
     }
 
-    for (auto_injected_skills) |skill_name| {
-        var exists = false;
-        for (c.skills) |existing| {
-            if (std.mem.eql(u8, existing, skill_name)) {
-                exists = true;
-                break;
+    const basename = std.fs.path.basename(self.filename);
+    if (!std.mem.eql(u8, basename, "core.ae")) {
+        for (auto_injected_skills) |skill_name| {
+            var exists = false;
+            for (c.skills) |existing| {
+                if (std.mem.eql(u8, existing, skill_name)) {
+                    exists = true;
+                    break;
+                }
             }
-        }
-        if (!exists) {
-            var new_skills = try self.allocator.alloc([]const u8, c.skills.len + 1);
-            for (c.skills, 0..) |item, i| {
-                new_skills[i] = item;
+            if (!exists) {
+                var new_skills = try self.allocator.alloc([]const u8, c.skills.len + 1);
+                for (c.skills, 0..) |item, i| {
+                    new_skills[i] = item;
+                }
+                new_skills[c.skills.len] = skill_name;
+                c.skills = new_skills;
             }
-            new_skills[c.skills.len] = skill_name;
-            c.skills = new_skills;
         }
     }
 }

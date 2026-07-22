@@ -5,7 +5,13 @@ import { Json } from "std.json"
 import { Yaml } from "std.yaml"
 
 type Address(val city: String, val zip: String) : Serializable
-type Person(val name: String, val age: Int, val address: Address, val birthday: Time, val tags: List<String>) : Serializable + Json + Yaml
+type Person(
+    val name: String, 
+    val age: Int, 
+    val address: Address, 
+    val birthday: Time, 
+    val tags: List<String>
+) : Serializable + Json + Yaml
 
 fun main() {
     echo("--- Starting Arest Web Server Sample ---")

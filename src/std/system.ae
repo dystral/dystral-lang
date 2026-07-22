@@ -1,0 +1,47 @@
+@Header("<unistd.h>")
+lib Posix {
+    fun sleep(seconds: Int): Int
+    fun usleep(useconds: Int): Int
+}
+
+fun loop(block: () -> Void) {
+    while (true) {
+        block()
+    }
+}
+
+fun repeat(count: Int, block: (Int) -> Void) {
+    var i = 0
+
+    while (i < count) {
+        block(i)
+        i = i + 1
+    }
+}
+
+// fun retry(times: Int, block: (Int) -> Void) {
+//     var err: Throwable | null = null
+
+//     repeat(times) {
+//         try {
+//             block(0)
+//             return
+//         } catch (e: Throwable) {
+//             err = e
+//         }   
+//     }
+
+//     throw(err)
+// }
+
+fun sleep(seconds: Int): Void {
+    Posix.sleep(seconds)
+}
+
+fun sleepMs(ms: Int): Void {
+    Posix.usleep(ms * 1000)
+}
+
+fun exit(code: Int): Void {
+    Standard.exit(code)
+}

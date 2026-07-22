@@ -694,7 +694,7 @@ Aether comes with core contracts and skills defined:
 * `contract Stringable { fun toString(): String }`
 * `contract Equatable { operator fun equals(other: Stringable): Bool }`
 * `contract Hashable { fun hashCode(): Int }`
-* `skill Printable : Stringable { fun echo() { println(this.toString()) } }`
+* `skill Echoable : Stringable { fun echo() { println(this.toString()) } }`
 
 **Automatic Synthesized Implementations**
 Every user-defined `type` and `object` automatically implements `Stringable`, `Equatable`, and `Hashable`. If a `type` does not supply custom implementations, the compiler synthesizes them automatically at compile-time:
@@ -718,7 +718,7 @@ fun main() {
     // Automatic hashCode synthesis
     assert(p1.hashCode() == p2.hashCode())
 
-    // Skill Printable echo helper
+    // Skill Echoable echo helper
     p1.echo()
 }
 ```
@@ -1010,7 +1010,7 @@ Because time math is just adding integers (`epoch + seconds`), it avoids the his
 ---
 
 ## 18. Environment Variables (`std.env`)
-The `std.env` module provides tools to load environment variables from `.env` files and interact with the process's environment. Like `std.core`, `std.collections`, and `std.time`, the `std.env` module is **implicitly imported** by the compiler into every program, so no `import` statement is required.
+The `std.env` module provides tools to load environment variables from `.env` files and interact with the process's environment. Like `std.core`, `std.io`, `std.system`, `std.exceptions`, `std.collections`, `std.time`, and `std.serde`, the `std.env` module is **implicitly imported** by the compiler into every program, so no `import` statement is required.
 
 ### 18.1 Loading `.env` files
 Use `Env.load()` to load an environment configuration. If no path is provided, Aether looks for `.env` in the current directory. This returns `false` silently if the file is not found.

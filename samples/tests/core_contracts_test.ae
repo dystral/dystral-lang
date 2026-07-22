@@ -11,7 +11,7 @@ test "core contracts: automatic contract and skill compliance" {
     assert(p is Stringable)
     assert(p is Equatable)
     assert(p is Hashable)
-    assert(p is Printable)
+    assert(p is Echoable)
 
     val n: Int = 42
     assert(n is Stringable)

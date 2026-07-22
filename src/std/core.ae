@@ -1,12 +1,6 @@
 @Header("<stdlib.h>", "<stdio.h>")
 lib Standard {
-    fun printf(format: OpaquePointer, value: Int): Void
-
     fun sprintf(buffer: OpaquePointer, format: OpaquePointer, value: Int): Int
-
-    fun puts(str: OpaquePointer): Int
-
-    fun fflush(stream: OpaquePointer): Int
 
     @Alias("GC_MALLOC")
     fun gcMalloc(size: Int): OpaquePointer
@@ -37,12 +31,6 @@ lib NativeString {
     fun terminate(s: OpaquePointer, index: Int): Void
 }
 
-@Header("<unistd.h>")
-lib Posix {
-    fun sleep(seconds: Int): Int
-    fun usleep(useconds: Int): Int
-}
-
 contract Stringable {
     fun toString(): String
 }
@@ -53,12 +41,6 @@ contract Equatable {
 
 contract Hashable {
     fun hashCode(): Int
-}
-
-skill Printable : Stringable {
-    fun echo() {
-        println(this.toString())
-    }
 }
 
 @Primitive("pointer")
@@ -192,70 +174,4 @@ type Bool : Stringable, Equatable, Hashable {
         }
         return false
     }
-}
-
-fun print(value: Stringable?) {
-    if (value == null) {
-        Standard.printf("null".ptr)
-    } else {
-        Standard.printf("%s".ptr, value!!.toString().ptr)
-    }
-    Standard.fflush(0)
-}
-
-fun println() {
-    Standard.puts("".ptr)
-}
-
-fun echo(value: Stringable?) {
-    println(value)
-}
-
-fun println(value: Stringable?) {
-    if (value == null) {
-        Standard.puts("null".ptr)
-    } else {
-        Standard.puts(value!!.toString().ptr)
-    }
-}
-
-fun loop(block: () -> Void) {
-    while (true) {
-        block()
-    }
-}
-
-fun repeat(count: Int, block: (Int) -> Void) {
-    var i = 0
-
-    while (i < count) {
-        block(i)
-        i = i + 1
-    }
-}
-
-contract Throwable {
-    fun message(): String
-}
-
-type AssertionException(val text: String) : Throwable {
-    implement fun message(): String {
-        return this.text
-    }
-}
-
-fun assert(condition: Bool) {
-    if (condition == false) {
-        throw AssertionException("Assertion failed")
-    }
-}
-
-fun sleep(seconds: Int): Void {
-    Posix.sleep(seconds)
-}
-fun sleepMs(ms: Int): Void {
-    Posix.usleep(ms * 1000)
-}
-fun exit(code: Int): Void {
-    Standard.exit(code)
 }

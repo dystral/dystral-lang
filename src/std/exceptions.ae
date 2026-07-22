@@ -1,0 +1,15 @@
+contract Throwable {
+    fun message(): String
+}
+
+type AssertionException(val text: String) : Throwable {
+    implement fun message(): String {
+        return this.text
+    }
+}
+
+fun assert(condition: Bool) {
+    if (condition == false) {
+        throw AssertionException("Assertion failed")
+    }
+}

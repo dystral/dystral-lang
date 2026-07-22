@@ -324,12 +324,14 @@ fn core_injectImplicitImports(self: *TypeChecker, node: *ASTNode) anyerror!void 
     // std.core itself has absolutely no implicit imports
     if (std.mem.eql(u8, basename, "core.ae")) return;
     
-    const is_std_lib = std.mem.startsWith(u8, self.filename, "std/") or std.mem.indexOf(u8, self.filename, "std/") != null;
-    
-    const implicit_imports = if (is_std_lib)
+    const implicit_imports = if (std.mem.eql(u8, basename, "io.ae"))
         &[_][]const u8{ "std.core" }
+    else if (std.mem.eql(u8, basename, "system.ae") or std.mem.eql(u8, basename, "exceptions.ae"))
+        &[_][]const u8{ "std.core", "std.io" }
+    else if (std.mem.startsWith(u8, self.filename, "std/") or std.mem.indexOf(u8, self.filename, "std/") != null)
+        infer_decl_mod.core_implicit_imports
     else
-        &[_][]const u8{ "std.core", "std.env", "std.collections", "std.time", "std.serde" };
+        infer_decl_mod.user_implicit_imports;
     
     const import_count = implicit_imports.len;
     var new_stmts = try self.allocator.alloc(*ASTNode, node.data.program.statements.len + import_count);

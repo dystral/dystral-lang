@@ -231,7 +231,7 @@ Regras centrais:
 4. **Coleções Genéricas Heterogêneas:** Monomorphizações como `Map<String, String | Int>` operam transparentemente com a união tratada como tipo de valor `V`, permitindo armazenar múltiplos tipos na mesma coleção de forma segura.
 **Razão:** Expande o sistema de tipos para permitir mapas e variáveis dinâmicas de múltiplos tipos sem perder a checagem de tipos estática na linguagem base.
 
-## ADR 29: Contratos Principais do Sistema e Derivação Automática de Skills (`Stringable`, `Hashable`, `Equatable`, `Printable`)
+## ADR 29: Contratos Principais do Sistema e Derivação Automática de Skills (`Stringable`, `Hashable`, `Equatable`, `Echoable`)
 **Data:** Fase 47 (Concluída - Julho 2026)
 **Contexto:** A conversão de objetos, tipos primitivos e uniões para string ou hash dependia historicamente de métodos soltos ou de helpers procedurais em C (como `aether_to_string` no `aether_runtime.h` para inspecionar uniões `void*`). Do ponto de vista de arquitetura de linguagem, todas as abstrações fundamentais devem ser expressas nativamente em código `.ae` usando o modelo de composição (`contract` + `skill` do ADR 25).
 **Decisão:**
@@ -239,12 +239,23 @@ Regras centrais:
    - `contract Stringable { fun toString(): String }`
    - `contract Equatable { operator fun equals(other: Stringable): Bool }`
    - `contract Hashable { fun hashCode(): Int }`
-   - `skill Printable : Stringable { fun echo() { println(this.toString()) } }`
+   - `skill Echoable : Stringable { fun echo() { println(this.toString()) } }`
 2. **Conformidade Automática e Sintetização:** Todo `type` e `object` declarado no Aether implementa automaticamente os contratos `Stringable`, `Equatable` e `Hashable`. Caso o tipo não forneça uma implementação explícita, o TypeChecker sintetiza automaticamente a implementação padrão (ex: `toString()` baseado no nome e membros da struct, `hashCode()` combinando hashes dos campos, e `equals()` por comparação estrutural de membros). Propriedades do tipo closure (`is_function`) são ignoradas durante a sintetização para evitar comparações/casts inválidos no backend C.
 3. **Tipos Primitivos Conformes:** Os tipos primitivos (`Int`, `Bool`, `String`, `Pointer`) são declarados explicitamente em `src/std/core.ae` como implementadores dos contratos `Stringable`, `Hashable` e `Equatable`.
 4. **Helpers no C Runtime com Despacho por VTable:** Em uniões (`String | Int`) ou genéricos apagados (`void*`), chamadas a `aether_to_string` e `aether_hash_code` no `aether_runtime.h` utilizam despacho dinâmico por VTable (`aether_find_vtable`) via `core_Stringable_contract` e `core_Hashable_contract`, tratando unboxing de primitivos de forma transparente sem duplicar código no transpiler.
 5. **Helpers Globais de I/O e Controle de Fluxo:** A stdlib disponibiliza `echo(value: Stringable?)`, `loop(block: () -> Void)` e `repeat(count: Int, block: (Int) -> Void)`.
-**Razão:** Unifica a infraestrutura fundamental de conversão para texto, hashing de coleções (`Set`, `Map`) e igualdade no próprio modelo de composição da linguagem Aether, garantindo pureza de design, legibilidade no transpiler C e alta reusabilidade.
+## ADR 30: Arquitetura Modular da Standard Library (`std.core`, `std.io`, `std.system`, `std.exceptions`)
+**Data:** Fase de Estabilização e Refatoração (Julho 2026)
+**Contexto:** Historicamente, o arquivo `src/std/core.ae` agregava uma grande quantidade de responsabilidades heterogêneas: bindings nativos C (`lib Standard`, `lib Posix`, `lib NativeString`), primitivos da linguagem, I/O de console (`print`, `println`), controle de fluxo (`loop`, `repeat`, `sleep`), exceções (`Throwable`, `AssertionException`) e contratos fundamentais. Esse padrão monolítico dificultava a manutenção e feria o princípio de responsabilidade única.
+**Decisão:**
+1. **Separação de Módulos da Stdlib:** O arquivo monolítico `src/std/core.ae` foi decomposto em quatro arquivos com responsabilidades bem delimitadas:
+   - `src/std/core.ae`: Primitivos da linguagem (`Int`, `Bool`, `String`, `Pointer`), contratos essenciais (`Stringable`, `Equatable`, `Hashable`) e bindings C nativos de memória e utilitários (`lib Standard`, `lib NativeString`).
+   - `src/std/io.ae`: I/O de console e terminal (`lib Console` com `printf`, `puts`, `fflush`), funções globais de saída (`print`, `println`, `echo`) e a skill `Echoable`.
+   - `src/std/system.ae`: Utilitários de sistema, processos e loops (`lib Posix` com `sleep`, `usleep`, `exit`, `loop`, `repeat`).
+   - `src/std/exceptions.ae`: Infraestrutura nativa de exceções e asserções (`contract Throwable`, `type AssertionException`, `fun assert`).
+2. **Constantes de Importação Implícita no TypeChecker:** As constantes de importação implícita (`core_implicit_imports`, `user_implicit_imports`, `core_fallback_modules`) foram centralizadas no compilador (`infer_decl.zig`), eliminando condicionais hardcoded.
+3. **Injeção Transparente & Compatibilidade Retroativa:** Todo programa Aether e módulo da stdlib importa automaticamente o conjunto fundamental de sub-módulos da stdlib (`std.core`, `std.io`, `std.system`, `std.exceptions`), mantendo 100% de compatibilidade retroativa para funções globais (`print`, `assert`, `exit`, `sleep`, etc.) e imports desestruturados pré-existentes (`import { print } from "std.core"`).
+**Razão:** Organiza o código da biblioteca padrão em módulos pequenos e especialistas (~30-50 linhas cada), melhora a clareza arquitetural no compilador e elimina acoplamento entre I/O, gerenciamento de processos e tratamento de exceções.
 
 
 

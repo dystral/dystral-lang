@@ -862,7 +862,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                 try self.emitExpression(i.value);
                 try self.writer.appendSlice(") <= 1)");
             } else {
-                const contract_c_name = if (std.mem.endsWith(u8, target_c_name, "Printable")) "core_Stringable" else target_c_name;
+                const contract_c_name = if (std.mem.endsWith(u8, target_c_name, "Echoable")) "core_Stringable" else target_c_name;
                 if (self.isContract(contract_c_name)) {
                     try self.writer.appendSlice("((uintptr_t)(");
                     try self.emitExpression(i.value);

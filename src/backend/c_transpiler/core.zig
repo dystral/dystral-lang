@@ -332,7 +332,7 @@ pub const CTranspiler = struct {
                             try self.writer.appendSlice("            if (__exc) {\n");
                             try self.writer.appendSlice("                const AetherTypeDescriptor* __desc = *(const AetherTypeDescriptor**)__exc;\n");
                             try self.writer.appendSlice("                if (__desc) __name = __desc->name;\n");
-                            try self.writer.appendSlice("                void** __vt = aether_find_vtable(__desc, &core_Throwable_contract);\n");
+                            try self.writer.appendSlice("                void** __vt = aether_find_vtable(__desc, &exceptions_Throwable_contract);\n");
                             try self.writer.appendSlice("                if (__vt && __vt[0]) {\n");
                             try self.writer.appendSlice("                    core_String* __s = ((core_String*(*)(void*))__vt[0])(__exc);\n");
                             try self.writer.appendSlice("                    if (__s) __msg = __s->ptr;\n");

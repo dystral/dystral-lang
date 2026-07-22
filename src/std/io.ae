@@ -1,0 +1,37 @@
+@Header("<stdio.h>")
+lib Console {
+    fun printf(format: OpaquePointer, value: Int): Void
+    fun puts(str: OpaquePointer): Int
+    fun fflush(stream: OpaquePointer): Int
+}
+
+skill Echoable : Stringable {
+    fun echo() {
+        println(this.toString())
+    }
+}
+
+fun print(value: Stringable?) {
+    if (value == null) {
+        Console.printf("null".ptr)
+    } else {
+        Console.printf("%s".ptr, value!!.toString().ptr)
+    }
+    Console.fflush(0)
+}
+
+fun println() {
+    Console.puts("".ptr)
+}
+
+fun echo(value: Stringable?) {
+    println(value)
+}
+
+fun println(value: Stringable?) {
+    if (value == null) {
+        Console.puts("null".ptr)
+    } else {
+        Console.puts(value!!.toString().ptr)
+    }
+}
