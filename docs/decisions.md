@@ -266,7 +266,26 @@ Regras centrais:
 3. **Chamadas de Métodos Irmãos e Reatribuição:** O TypeChecker pré-registra as assinaturas de todos os métodos da classe no `class_scope` antes da checagem de corpos, permitindo chamadas diretas a qualquer método da mesma classe (inclusive métodos declarados mais abaixo no código) sem prefixar `this.`. Em atribuições (`running = false`), o compilador detecta que a variável pertence ao tipo e emite a reatribuição correta de membro (`this->running = false`) no CTranspiler.
 **Razão:** Reduz a verbosidade e alinha a ergonomia sintática do Aether com linguagens como Kotlin, Swift e Java. Garante código legível e limpo em DSLs sem comprometer a segurança estática dos tipos nem a clareza em casos de sombreamento de parâmetros.
 
+## ADR 32: Arquitetura do Módulo de Log da Standard Library (`std.log`)
+**Data:** Fase 48 (Julho 2026)
+**Contexto:** O Aether não possuía uma biblioteca padrão de logging. Aplicações recorriam a instruções manuais e não-estruturadas de `print` e `echo`. A linguagem precisava de um módulo de logging idiomático, rápido, contextual e com suporte a saídas legíveis por humanos (ANSI no terminal) e em JSON para produção.
+**Decisão:**
+1. **Avaliação Preguiçosa via Lambdas:** Os métodos de log (`trace`, `debug`, `info`, `warn`, `error`) recebem o conteúdo da mensagem por meio de uma lambda sem argumentos (`msgFn: () -> String`). Se o nível atual do logger for inferior ao nível do evento, a lambda não é invocada, evitando alocações e concatenações de strings desnecessárias.
+2. **Suporte a Exceções `Throwable`:** Sobrecargas de `warn` e `error` aceitam um argumento opcional do contrato `Throwable` antes da lambda de mensagem: `Log.error(e) { "Falha no banco" }`.
+3. **Formatadores por Composição (`skill`):** A formatação de logs é definida pelo contrato `contract LogFormatter`. As implementações são fornecidas via skills de composição (`skill TextFormatter` com cores ANSI para console e `skill JsonFormatter` para produção em nuvem), alinhadas ao modelo de composição do ADR 25 e ADR 27.
+4. **Facade Estática e Instâncias Contextuais:** O objeto `object Log` atua como facade estática delegando ao logger raiz. Métodos `.with(key, value)` e `.withFields(map)` criam instâncias imutáveis `Logger` com campos de contexto herdados.
+**Razão:** Combina máxima performance (zero allocation para logs filtrados) com concisão sintática (trailing lambdas), alinhando a stdlib de logs ao modelo de composição por skills e contracts da linguagem.
 
-
-
+## ADR 33: Tipos `enum` First-Class na Linguagem e Refatoração de `std.log`
+**Data:** Fase 49 (Planejada - Julho 2026)
+**Contexto:** Atualmente, constantes agrupadas como níveis de log (`LogLevel`) em `src/std/log.ae` utilizam inteiros em um `object` (`val TRACE: Int = 0`). Isso impede a checagem estática rigorosa de valores no compilador, perde a semântica de tipos nativos e força a conversão manual de inteiros em cadeias de texto (`logLevelToString(level: Int)`).
+**Decisão:**
+1. **Declaração Nativa de `enum`:** A linguagem introduz a palavra-chave `enum` para declarar enums fortemente tipados (`enum LogLevel { TRACE, DEBUG, INFO, WARN, ERROR, OFF }`).
+2. **Propriedades e Métodos Implícitos:** Todo tipo `enum` terá membros sintetizados automaticamente pelo compilador:
+   - `ordinal: Int`: Índice numérico do variante base zero (0..N-1).
+   - `name: String`: Nome textual do variante (ex: `"DEBUG"`).
+   - `values(): List<EnumType>`: Coleção com todas as instâncias do enum.
+   - Implementação automática dos contratos `Stringable`, `Equatable` e `Hashable`.
+3. **Refatoração de `std.log`:** O módulo `src/std/log.ae` substituirá `object LogLevel` por `enum LogLevel`, e todas as assinaturas (`LogFormatter`, `TextFormatter`, `JsonFormatter`, `Logger`, e a fachada `object Log`) passarão a operar nativamente com o tipo `LogLevel` em vez de `Int`.
+**Razão:** Elimina constantes mágicas de inteiros, garante segurança de tipos em tempo de compilação para enumerações e eleva a ergonomia do módulo `std.log` e de toda a linguagem Aether.
 

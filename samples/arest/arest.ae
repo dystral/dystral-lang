@@ -1,5 +1,6 @@
 import { Server, ServerConnection, Request } from "std.http"
 import { List, MutableList, Map, MutableMap, Node } from "std.collections"
+import { Log } from "std.log"
 
 type Route(val method: String, val path: String, val handler: ApplicationCall.() -> Void)
 
@@ -59,7 +60,7 @@ fun arest(port: Int, init: ArestBuilder.() -> Void) {
     
     val server = Server()
     if (server.bind(port)) {
-        echo("[Arest] Server listening on port " + port.toString() + "...")
+        Log.info { "[Arest] Server listening on port " + port.toString() + "..." }
         
         while (builder.running) {
             try {
@@ -77,6 +78,7 @@ fun arest(port: Int, init: ArestBuilder.() -> Void) {
                             val r = route!!
                             if (r.method == req.method && r.path == req.path) {
                                 val call = ApplicationCall(conn!!, req, builder)
+                                Log.info { "[Arest] HTTP " + req.method + " " + req.path + " -> 200 OK" }
                                 r.handler(call)
                                 found = true
                             }
@@ -85,17 +87,21 @@ fun arest(port: Int, init: ArestBuilder.() -> Void) {
                     }
                     
                     if (found == false) {
+                        Log.warn { "[Arest] HTTP " + req.method + " " + req.path + " -> 404 Not Found" }
                         conn!!.writeResponse(404, "text/plain", "Not Found")
                     }
                     
                     conn!!.close()
                 }
+            } catch (e) {
+                Log.error(e) { "[Arest] Error processing connection" }
             }
         }
         
         server.close()
-        echo("[Arest] Server stopped gracefully.")
+        Log.info { "[Arest] Server stopped gracefully." }
     } else {
-        echo("[Arest] Failed to bind to port " + port.toString())
+        Log.error { "[Arest] Failed to bind to port " + port.toString() }
     }
+
 }

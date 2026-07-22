@@ -714,21 +714,67 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                     var found_method: ?*ASTNode = null;
                     for (type_decl.methods) |method| {
                         if (std.mem.eql(u8, method.data.fun_decl.name, g.name)) {
-                            found_method = method;
-                            break;
+                            const f = &method.data.fun_decl;
+                            if (c.arguments.len > f.params.len) continue;
+
+                            var has_defaults = true;
+                            var i = c.arguments.len;
+                            while (i < f.params.len) : (i += 1) {
+                                if (f.params[i].initializer == null) {
+                                    has_defaults = false;
+                                    break;
+                                }
+                            }
+                            if (!has_defaults) continue;
+
+                            var all_match = true;
+                            for (c.arguments, 0..) |arg, arg_i| {
+                                if (arg.data == .lambda_expr) {
+                                    const expected_type = self.resolveTypeRef(f.params[arg_i].type_ref.?) catch null;
+                                    if (expected_type == null or expected_type.?.* != .Function) {
+                                        all_match = false;
+                                        break;
+                                    }
+                                } else {
+                                    const arg_type = arg.resolved_type orelse (self.inferNode(arg, scope) catch null);
+                                    if (arg_type == null) {
+                                        all_match = false;
+                                        break;
+                                    }
+                                    const expected_type = self.resolveTypeRef(f.params[arg_i].type_ref.?) catch null;
+                                    if (expected_type == null or !self.isCompatible(expected_type.?, arg_type.?)) {
+                                        all_match = false;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (all_match) {
+                                found_method = method;
+                                break;
+                            }
                         }
                     }
+
+                    if (found_method == null) {
+                        for (type_decl.methods) |method| {
+                            if (std.mem.eql(u8, method.data.fun_decl.name, g.name)) {
+                                found_method = method;
+                                break;
+                            }
+                        }
+                    }
+
                     
                     if (found_method) |m| {
                         const f = &m.data.fun_decl;
-                        for (c.arguments, 0..) |arg, arg_i| {
-                            if (arg_i < f.params.len) {
-                                if (f.params[arg_i].type_ref) |tr| {
-                                    arg.expected_type = self.resolveTypeRef(tr) catch null;
-                                }
-                            }
+                        if (f.resolved_c_name) |rcn| {
+                            c.callee.data.get_expr.resolved_c_name = rcn;
                         }
+
+
                         if (c.arguments.len < f.params.len) {
+
                             var new_args = try self.allocator.alloc(*ASTNode, f.params.len);
                             for (c.arguments, 0..) |arg, arg_i| {
                                 new_args[arg_i] = arg;
@@ -750,6 +796,16 @@ pub fn inferCallExpr(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                             self.reportError(node.line, node.column, "TypeError: Expected at most {} arguments for method '{s}.{s}', got {}.", .{ f.params.len, type_decl.name, g.name, c.arguments.len });
                             return error.TypeError;
                         }
+
+                        for (c.arguments, 0..) |arg, arg_i| {
+                            if (arg_i < f.params.len) {
+                                if (f.params[arg_i].type_ref) |tr| {
+                                    arg.expected_type = self.resolveTypeRef(tr) catch null;
+                                }
+                            }
+                            _ = try self.inferNode(arg, scope);
+                        }
+
                     }
                 }
             }

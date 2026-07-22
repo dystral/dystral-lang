@@ -64,6 +64,7 @@ pub const TypeChecker = struct {
     local_symbols: std.StringHashMap(void),
     monomorphized_nodes: std.ArrayList(*ASTNode),
     current_class_name: ?[]const u8 = null,
+    current_class_methods: ?[]const *ASTNode = null,
     current_type_c_name: ?[]const u8 = null,
     registry: ?*ModuleRegistry = null,
     pass: enum { declaration, validation } = .validation,

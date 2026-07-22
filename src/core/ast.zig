@@ -265,6 +265,7 @@ pub const ASTNodeType = union(enum) {
         object: *ASTNode,
         name: []const u8,
         is_safe: bool,
+        resolved_c_name: ?[]const u8 = null,
     },
     set_expr: struct {
         object: *ASTNode,

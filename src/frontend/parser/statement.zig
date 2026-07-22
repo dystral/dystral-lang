@@ -89,16 +89,26 @@ pub fn tryStatement(self: *Parser) anyerror!*ASTNode {
         if (self.match(.l_paren)) {
             try self.consume(.identifier, "Expected exception variable name.");
             var_name = self.previous.lexeme;
-            try self.consume(.colon, "Expected ':' after exception variable name.");
-            
-            while (true) {
-                const t_ref = try self.parseType();
+            if (self.match(.colon)) {
+                while (true) {
+                    const t_ref = try self.parseType();
+                    try types.append(t_ref);
+                    if (!self.match(.pipe)) break;
+                }
+            } else {
+                const t_ref = try self.allocator.create(ast.ASTTypeRef);
+                t_ref.* = .{
+                    .name = "Throwable",
+                    .generic_args = &.{},
+                    .is_array = false,
+                    .is_nullable = false,
+                };
                 try types.append(t_ref);
-                if (!self.match(.pipe)) break;
             }
+
             try self.consume(.r_paren, "Expected ')' after catch parameter.");
         }
-        
+
         try self.consume(.l_brace, "Expected '{' after catch declaration.");
         var catch_stmts = std.ArrayList(*ASTNode).init(self.allocator);
         while (!self.check(.r_brace) and !self.check(.eof)) {

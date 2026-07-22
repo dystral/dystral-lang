@@ -107,13 +107,16 @@ type String(val ptr: OpaquePointer, val length: Int) : Stringable, Equatable, Ha
         return String(res, newLen)
     }
 
-    fun indexOf(sub: String): Int {
-        val match = NativeString.strstr(this.ptr, sub.ptr)
-        if (match == null) {
-            return -1
-        }
+    fun indexOf(needle: String): Int {
+        val match = NativeString.strstr(this.ptr, needle.ptr)
+        if (match == null) { return -1 }
         return match - this.ptr
     }
+
+    fun contains(other: String): Bool {
+        return this.indexOf(other) != -1
+    }
+
 
     fun substring(start: Int, end: Int): String {
         if (start < 0 || end > this.length || start > end) {

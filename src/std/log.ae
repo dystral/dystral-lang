@@ -1,0 +1,290 @@
+import { Map, MutableMap, Node } from "std.collections"
+import { now, Time } from "std.time"
+import { Throwable } from "std.exceptions"
+import { println } from "std.io"
+
+object LogLevel {
+    val TRACE: Int = 0
+    val DEBUG: Int = 1
+    val INFO: Int = 2
+    val WARN: Int = 3
+    val ERROR: Int = 4
+    val OFF: Int = 5
+}
+
+fun logLevelToString(level: Int): String {
+    return when (level) {
+        0 -> "TRACE"
+        1 -> "DEBUG"
+        2 -> "INFO"
+        3 -> "WARN"
+        4 -> "ERROR"
+        5 -> "OFF"
+        else -> "INFO"
+    }
+}
+
+contract LogFormatter {
+    fun format(level: Int, message: String, throwable: Throwable?, fields: Map<String, String>): String
+}
+
+skill TextFormatter : LogFormatter {
+    fun getAnsiColor(level: Int): String {
+        return when (level) {
+            0 -> "\x1b[35m"
+            1 -> "\x1b[90m"
+            2 -> "\x1b[36m"
+            3 -> "\x1b[33m"
+            4 -> "\x1b[31m"
+            else -> "\x1b[0m"
+        }
+    }
+
+    implement fun format(level: Int, message: String, throwable: Throwable?, fields: Map<String, String>): String {
+        val reset = "\x1b[0m"
+        val color = this.getAnsiColor(level)
+        val timestamp = now().toString()
+        val levelStr = logLevelToString(level)
+
+        var result = "[" + timestamp + "] " + color + "[" + levelStr + "]" + reset + " " + message
+
+        if (throwable != null) {
+            result = result + " | Error: " + throwable!!.message()
+        }
+
+        if (fields.size() > 0) {
+            result = result + " {"
+            var i = 0
+            val capacity = fields.list.size()
+            var first = true
+            while (i < capacity) {
+                var curr = fields.list.get(i)
+                while (curr != null) {
+                    if (first == false) {
+                        result = result + ", "
+                    }
+                    val k = curr!!.key
+                    val v = curr!!.value
+                    result = result + k + "=" + v
+                    first = false
+                    curr = curr!!.next
+                }
+                i = i + 1
+            }
+            result = result + "}"
+        }
+
+        return result
+    }
+}
+
+skill JsonFormatter : LogFormatter {
+    implement fun format(level: Int, message: String, throwable: Throwable?, fields: Map<String, String>): String {
+        val timestamp = now().toString()
+        val levelStr = logLevelToString(level)
+
+        var json = "{\"timestamp\":\"" + timestamp + "\",\"level\":\"" + levelStr + "\",\"message\":\"" + message + "\""
+
+        if (throwable != null) {
+            json = json + ",\"error\":\"" + throwable!!.message() + "\""
+        }
+
+        if (fields.size() > 0) {
+            var i = 0
+            val capacity = fields.list.size()
+            while (i < capacity) {
+                var curr = fields.list.get(i)
+                while (curr != null) {
+                    val k = curr!!.key
+                    val v = curr!!.value
+                    json = json + ",\"" + k + "\":\"" + v + "\""
+                    curr = curr!!.next
+                }
+                i = i + 1
+            }
+        }
+
+        json = json + "}"
+        return json
+    }
+}
+
+type StandardLogFormatter(val useColors: Bool = true) : LogFormatter + TextFormatter
+type JsonLogFormatter() : LogFormatter + JsonFormatter
+
+type Logger(
+    val fields: Map<String, String> = Map<String, String>(),
+    var level: Int = 2,
+    var formatter: LogFormatter = StandardLogFormatter()
+) {
+    fun setLevel(newLevel: Int) {
+        this.level = newLevel
+    }
+
+    fun setFormatter(newFormatter: LogFormatter) {
+        this.formatter = newFormatter
+    }
+
+    fun with(key: String, value: String): Logger {
+        val newFields = MutableMap<String, String>()
+        var i = 0
+        val capacity = this.fields.list.size()
+        while (i < capacity) {
+            var curr = this.fields.list.get(i)
+            while (curr != null) {
+                newFields.put(curr!!.key, curr!!.value)
+                curr = curr!!.next
+            }
+            i = i + 1
+        }
+        newFields.put(key, value)
+        val child = Logger(newFields.freeze())
+        child.level = this.level
+        child.formatter = this.formatter
+        return child
+    }
+
+    fun withFields(extraFields: Map<String, String>): Logger {
+        val newFields = MutableMap<String, String>()
+        var i = 0
+        val cap1 = this.fields.list.size()
+        while (i < cap1) {
+            var curr = this.fields.list.get(i)
+            while (curr != null) {
+                newFields.put(curr!!.key, curr!!.value)
+                curr = curr!!.next
+            }
+            i = i + 1
+        }
+        var j = 0
+        val cap2 = extraFields.list.size()
+        while (j < cap2) {
+            var curr2 = extraFields.list.get(j)
+            while (curr2 != null) {
+                newFields.put(curr2!!.key, curr2!!.value)
+                curr2 = curr2!!.next
+            }
+            j = j + 1
+        }
+        val child = Logger(newFields.freeze())
+        child.level = this.level
+        child.formatter = this.formatter
+        return child
+    }
+
+    fun isEnabled(targetLevel: Int): Bool {
+        return targetLevel >= this.level
+    }
+
+    fun log(targetLevel: Int, message: String, throwable: Throwable? = null) {
+        if (this.isEnabled(targetLevel)) {
+            val formatted = this.formatter.format(targetLevel, message, throwable, this.fields)
+            println(formatted)
+        }
+    }
+
+    fun trace(msgFn: () -> String) {
+        if (this.isEnabled(0)) {
+            val msgStr = msgFn()
+            val s0 = msgStr
+            this.log(0, s0, null)
+        }
+    }
+
+    fun debug(msgFn: () -> String) {
+        if (this.isEnabled(1)) {
+            val msgStr = msgFn()
+            val s1 = msgStr
+            this.log(1, s1, null)
+        }
+    }
+
+    fun info(msgFn: () -> String) {
+        if (this.isEnabled(2)) {
+            val msgStr = msgFn()
+            val s2 = msgStr
+            this.log(2, s2, null)
+        }
+    }
+
+    fun warn(msgFn: () -> String) {
+        if (this.isEnabled(3)) {
+            val msgStr = msgFn()
+            val s3 = msgStr
+            this.log(3, s3, null)
+        }
+    }
+
+    fun warn(throwable: Throwable, msgFn: () -> String) {
+        if (this.isEnabled(3)) {
+            val msgStr = msgFn()
+            val sw3 = msgStr
+            this.log(3, sw3, throwable)
+        }
+    }
+
+    fun error(msgFn: () -> String) {
+        if (this.isEnabled(4)) {
+            val msgStr = msgFn()
+            val s4 = msgStr
+            this.log(4, s4, null)
+        }
+    }
+
+    fun error(throwable: Throwable, msgFn: () -> String) {
+        if (this.isEnabled(4)) {
+            val msgStr = msgFn()
+            val se4 = msgStr
+            this.log(4, se4, throwable)
+        }
+    }
+}
+
+object Log {
+    val rootLogger: Logger = Logger()
+
+    fun setLevel(level: Int) {
+        Log.rootLogger.setLevel(level)
+    }
+
+    fun setFormatter(formatter: LogFormatter) {
+        Log.rootLogger.setFormatter(formatter)
+    }
+
+    fun with(key: String, value: String): Logger {
+        return Log.rootLogger.with(key, value)
+    }
+
+    fun withFields(fields: Map<String, String>): Logger {
+        return Log.rootLogger.withFields(fields)
+    }
+
+    fun trace(msgFn: () -> String) {
+        Log.rootLogger.trace(msgFn)
+    }
+
+    fun debug(msgFn: () -> String) {
+        Log.rootLogger.debug(msgFn)
+    }
+
+    fun info(msgFn: () -> String) {
+        Log.rootLogger.info(msgFn)
+    }
+
+    fun warn(msgFn: () -> String) {
+        Log.rootLogger.warn(msgFn)
+    }
+
+    fun warn(throwable: Throwable, msgFn: () -> String) {
+        Log.rootLogger.warn(throwable, msgFn)
+    }
+
+    fun error(msgFn: () -> String) {
+        Log.rootLogger.error(msgFn)
+    }
+
+    fun error(throwable: Throwable, msgFn: () -> String) {
+        Log.rootLogger.error(throwable, msgFn)
+    }
+}
+

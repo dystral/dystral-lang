@@ -23,9 +23,10 @@ pub const std_modules = std.StaticStringMap([]const u8).initComptime(.{
     .{ "serde.ae", @embedFile("../../std/serde.ae") },
     .{ "json.ae", @embedFile("../../std/json.ae") },
     .{ "yaml.ae", @embedFile("../../std/yaml.ae") },
+    .{ "log.ae", @embedFile("../../std/log.ae") },
 });
 
-pub const user_implicit_imports = &[_][]const u8{ "std.core", "std.io", "std.system", "std.exceptions", "std.env", "std.collections", "std.time", "std.serde" };
+pub const user_implicit_imports = &[_][]const u8{ "std.core", "std.io", "std.system", "std.exceptions", "std.env", "std.collections", "std.time", "std.serde", "std.log" };
 pub const core_implicit_imports = &[_][]const u8{ "std.core", "std.io", "std.system", "std.exceptions" };
 pub const core_fallback_modules = &[_][]const u8{ "io.ae", "system.ae", "exceptions.ae" };
 
@@ -372,6 +373,10 @@ pub fn inferTypeDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
         }
     }
 
+    const old_class_methods = self.current_class_methods;
+    self.current_class_methods = c.methods;
+    defer self.current_class_methods = old_class_methods;
+
     // Pre-register method signatures in class_scope for sibling/forward method calls without this.
     for (c.methods) |method| {
         if (method.data == .fun_decl) {
@@ -382,7 +387,25 @@ pub fn inferTypeDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
                 try param_types.append(p_t);
             }
             const ret_t = if (m.type_ref) |tr| self.resolveTypeRef(tr) catch try self.resolveTypeName("Void", false) else try self.resolveTypeName("Void", false);
-            const m_c_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ actual_c_name, m.name });
+
+            var method_count: usize = 0;
+            for (c.methods) |other_m| {
+                if (other_m.data == .fun_decl and std.mem.eql(u8, other_m.data.fun_decl.name, m.name)) {
+                    method_count += 1;
+                }
+            }
+
+            var mangled = std.ArrayList(u8).init(self.allocator);
+            try mangled.writer().print("{s}_{s}", .{ actual_c_name, m.name });
+            if (method_count > 1) {
+                for (param_types.items) |pt| {
+                    try mangled.appendSlice("_");
+                    try pt.formatSafe(mangled.writer());
+                }
+            }
+            const m_c_name = try mangled.toOwnedSlice();
+            m.resolved_c_name = m_c_name;
+
             const fn_type = try self.allocator.create(AetherType);
             fn_type.* = .{ .Function = .{
                 .params = try param_types.toOwnedSlice(),
@@ -397,6 +420,7 @@ pub fn inferTypeDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aeth
     // Methods
     for (c.methods) |method| {
         if (method.data == .fun_decl) {
+
             const m_name = method.data.fun_decl.name;
             const is_operator = std.mem.eql(u8, m_name, "plus") or
                 std.mem.eql(u8, m_name, "minus") or
@@ -663,9 +687,12 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     if (is_method) {
         const this_t = scope.lookupVariable("this").?;
         const base_t = core.extractBaseType(this_t);
-        const class_name = if (base_t.* == .Custom) base_t.Custom else (if (base_t.* == .Pointer and base_t.Pointer.* == .Custom) base_t.Pointer.Custom else f.name);
+        const class_name = if (self.current_class_name) |cname| (self.alias_map.get(cname) orelse cname) else (if (base_t.* == .Custom) base_t.Custom else (if (base_t.* == .Pointer and base_t.Pointer.* == .Custom) base_t.Pointer.Custom else (if (base_t.* == .Int) "core_Int" else (if (base_t.* == .Bool) "core_Bool" else f.name))));
+
+
         try mangled_name.writer().print("{s}_{s}", .{ class_name, f.name });
-    } else if (self.current_class_name) |class_name| {
+    }
+    else if (self.current_class_name) |class_name| {
         const actual_class = self.alias_map.get(class_name) orelse class_name;
         try mangled_name.writer().print("{s}_{s}", .{ actual_class, f.name });
     } else if (self.module_prefix) |prefix| {
@@ -673,6 +700,22 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
     } else {
         try mangled_name.appendSlice(f.name);
     }
+
+    var is_overloaded = false;
+    if (is_method or self.current_class_name != null) {
+        if (self.current_class_methods) |methods| {
+            var method_count: usize = 0;
+            for (methods) |m| {
+                if (m.data == .fun_decl and std.mem.eql(u8, m.data.fun_decl.name, f.name)) {
+                    method_count += 1;
+                }
+            }
+            if (method_count > 1) is_overloaded = true;
+        }
+    }
+
+
+
 
     var fun_scope = Scope.init(self.allocator, scope);
     fun_scope.is_function_boundary = true;
@@ -683,17 +726,18 @@ pub fn inferFunDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Aethe
         if (p.type_ref) |tr| {
             param_type = try self.resolveTypeRef(tr);
 
-            if (!is_method) {
+            if (!is_method or is_overloaded) {
                 try mangled_name.appendSlice("_");
                 try param_type.formatSafe(mangled_name.writer());
             }
         } else {
             param_type = try self.allocator.create(AetherType);
             param_type.* = .Void;
-            if (!is_method) {
+            if (!is_method or is_overloaded) {
                 try mangled_name.appendSlice("_Void");
             }
         }
+
 
         if (p.initializer) |init_node| {
             if (self.pass == .validation) {
@@ -861,17 +905,28 @@ pub fn inferObjectDecl(self: *TypeChecker, node: *ASTNode, scope: *Scope, t: *Ae
     const actual_c_name = o.resolved_c_name.?;
     const obj_type = try self.allocator.create(AetherType);
     obj_type.* = .{ .Custom = actual_c_name };
-    try scope.define(name, obj_type, false, false);
-    if (!std.mem.eql(u8, name, actual_c_name)) {
-        try scope.define(actual_c_name, obj_type, false, false);
+    if (scope.lookupVariable(name) == null) {
+        _ = scope.define(name, obj_type, false, false) catch {};
     }
+    if (!std.mem.eql(u8, name, actual_c_name)) {
+        if (scope.lookupVariable(actual_c_name) == null) {
+            _ = scope.define(actual_c_name, obj_type, false, false) catch {};
+        }
+    }
+
 
     try self.objects_ast.put(actual_c_name, node);
 
     // Set static block context
     const old_class_name = self.current_class_name;
+    const old_class_methods = self.current_class_methods;
     self.current_class_name = name;
-    defer self.current_class_name = old_class_name;
+    self.current_class_methods = o.members;
+    defer {
+        self.current_class_name = old_class_name;
+        self.current_class_methods = old_class_methods;
+    }
+
 
     var obj_scope = Scope.init(self.allocator, scope);
     defer obj_scope.deinit();

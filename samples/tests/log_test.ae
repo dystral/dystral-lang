@@ -1,0 +1,73 @@
+import { assert } from "std.core"
+import { Log, LogLevel, Logger, StandardLogFormatter, JsonLogFormatter } from "std.log"
+import { Map, MutableMap, MutableList } from "std.collections"
+
+import { Throwable } from "std.exceptions"
+
+type TestException(val msg: String) : Throwable {
+    implement fun message(): String {
+        return "TestException: " + this.msg
+    }
+}
+
+test "should filter log levels correctly" {
+    val logger = Logger(Map<String, String>(), LogLevel.WARN, StandardLogFormatter())
+    
+    assert(logger.isEnabled(LogLevel.DEBUG) == false)
+    assert(logger.isEnabled(LogLevel.INFO) == false)
+    assert(logger.isEnabled(LogLevel.WARN) == true)
+    assert(logger.isEnabled(LogLevel.ERROR) == true)
+}
+
+test "should evaluate message lambdas lazily" {
+    val logger = Logger(Map<String, String>(), LogLevel.ERROR, StandardLogFormatter())
+    val calls = MutableList<String>()
+    
+    // DEBUG is disabled (level is ERROR), so lambda should NOT be called
+    logger.debug {
+        calls.add("debug")
+        "Lazy debug msg"
+    }
+    
+    assert(calls.size() == 0)
+    
+    // ERROR is enabled, so lambda SHOULD be called
+    logger.error {
+        calls.add("error")
+        "It's not an error, it is just a lazy error msg test"
+    }
+    
+    assert(calls.size() == 1)
+}
+
+test "should format logs using JsonFormatter skill" {
+    val fields = MutableMap<String, String>()
+    fields.put("env", "prod")
+    fields.put("app", "test")
+    
+    val formatter = JsonLogFormatter()
+    val formatted = formatter.format(LogLevel.INFO, "Server started", null, fields.freeze())
+    
+    assert(formatted.contains("\"level\":\"INFO\""))
+    assert(formatted.contains("\"message\":\"Server started\""))
+    assert(formatted.contains("\"env\":\"prod\""))
+    assert(formatted.contains("\"app\":\"test\""))
+}
+
+test "should format logs with throwable exception" {
+    val ex = TestException("DB connection timeout")
+    val formatter = JsonLogFormatter()
+    val formatted = formatter.format(LogLevel.ERROR, "Failed to connect", ex, Map<String, String>())
+    
+    assert(formatted.contains("\"level\":\"ERROR\""))
+    assert(formatted.contains("\"message\":\"Failed to connect\""))
+    assert(formatted.contains("\"error\":\"TestException: DB connection timeout\""))
+}
+
+test "should create contextual loggers using with" {
+    val base = Logger(Map<String, String>(), LogLevel.INFO, JsonLogFormatter())
+    val child = base.with("module", "http")
+    
+    assert(child.fields.containsKey("module") == true)
+    assert(child.fields.get("module") == "http")
+}

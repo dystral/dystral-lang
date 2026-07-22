@@ -1,0 +1,35 @@
+import { Log, LogLevel, JsonLogFormatter } from "std.log"
+import { MutableMap } from "std.collections"
+import { Throwable } from "std.exceptions"
+
+type DatabaseException(val reason: String) : Throwable {
+    implement fun message(): String {
+        return "DatabaseException: " + this.reason
+    }
+}
+
+fun main() {
+    println("--- Standard Text Logger Demo ---")
+    Log.setLevel(LogLevel.DEBUG)
+
+    Log.debug { "Inicializando sistema de logs..." }
+    Log.info { "Aplicação rodando em ambiente local" }
+    Log.warn { "Uso de memória acima de 70%" }
+
+    val dbError = DatabaseException("Timeout de conexao no pool")
+    Log.error(dbError) { "Falha ao executar query no banco" }
+
+    println("")
+    println("--- Contextual & JSON Logger Demo ---")
+    
+    Log.setFormatter(JsonLogFormatter())
+    
+    val httpLogger = Log.with("service", "payment-api").with("env", "production")
+    httpLogger.info { "Processando requisição de pagamento" }
+
+    val meta = MutableMap<String, String>()
+    meta.put("transaction_id", "tx_9941")
+    meta.put("amount", "150.00")
+    
+    httpLogger.withFields(meta.freeze()).info { "Pagamento concluído com sucesso" }
+}

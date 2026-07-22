@@ -164,6 +164,7 @@ pub fn emitSkillDecl(self: *CTranspiler, node: *ASTNode) !void {
 
 pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode, primitive_type: ?[]const u8) !void {
     const decl = node.data.fun_decl;
+    const fn_c_name = decl.resolved_c_name orelse try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{class_name, decl.name});
     
     // 1. Emit the signature to header_writer
     if (node.resolved_type) |rt| {
@@ -180,9 +181,9 @@ pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode
     }
     
     if (primitive_type) |pt| {
-        try self.header_writer.writer().print("{s}_{s}({s} this", .{class_name, decl.name, pt});
+        try self.header_writer.writer().print("{s}({s} this", .{fn_c_name, pt});
     } else {
-        try self.header_writer.writer().print("{s}_{s}({s}* this", .{class_name, decl.name, class_name});
+        try self.header_writer.writer().print("{s}({s}* this", .{fn_c_name, class_name});
     }
     
     if (node.resolved_type) |rt| {
@@ -206,11 +207,11 @@ pub fn emitMethodDecl(self: *CTranspiler, class_name: []const u8, node: *ASTNode
     }
     
     if (primitive_type) |pt| {
-        try self.writer.writer().print("{s}_{s}({s} this", .{class_name, decl.name, pt});
+        try self.writer.writer().print("{s}({s} this", .{fn_c_name, pt});
     } else {
-        try self.writer.writer().print("{s}_{s}({s}* this", .{class_name, decl.name, class_name});
+        try self.writer.writer().print("{s}({s}* this", .{fn_c_name, class_name});
     }
-    
+
     if (node.resolved_type) |rt| {
         const fun_type = rt.Function;
         for (decl.params, 0..) |p, i| {

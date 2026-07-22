@@ -15,11 +15,11 @@ type Config(val name: String) {
 }
 
 // Test out-of-order compilation: Object declared before Class
-object Logger {
+object CustomLogger {
     var logs = ""
     
     fun info(msg: String) {
-        Logger.logs = Logger.logs + msg + ";"
+        CustomLogger.logs = CustomLogger.logs + msg + ";"
     }
 }
 
@@ -48,11 +48,12 @@ test "companion: static variables and methods access on type namespace" {
 }
 
 test "companion: named object acting as singleton module" {
-    assert(Logger.logs == "")
-    Logger.info("Starting")
-    Logger.info("Running")
-    assert(Logger.logs == "Starting;Running;")
+    assert(CustomLogger.logs == "")
+    CustomLogger.info("Starting")
+    CustomLogger.info("Running")
+    assert(CustomLogger.logs == "Starting;Running;")
 }
+
 
 test "companion: vice-versa object-type definition (object first, anonymous type second)" {
     assert(Service.defaultPort == 8080)

@@ -566,10 +566,11 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     }
                     try self.writer.appendSlice(")");
                 } else if (g.is_safe) {
+                    const actual_c_fn = g.resolved_c_name orelse try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{class_name, g.name});
                     try self.writer.appendSlice("((");
                     try self.emitExpression(g.object);
                     try self.writer.appendSlice(") == 0 ? 0 : ");
-                    try self.writer.writer().print("{s}_{s}(", .{class_name, g.name});
+                    try self.writer.writer().print("{s}(", .{actual_c_fn});
                     try self.emitExpression(g.object);
                     for (c.arguments) |arg| {
                         try self.writer.appendSlice(", ");
@@ -585,7 +586,10 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     }
                     try self.writer.appendSlice("))");
                 } else {
-                    try self.writer.writer().print("{s}_{s}(", .{class_name, g.name});
+                    const actual_c_fn = g.resolved_c_name orelse try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{class_name, g.name});
+                    try self.writer.writer().print("{s}(", .{actual_c_fn});
+
+
                     try self.emitExpression(g.object);
                     for (c.arguments) |arg| {
                         try self.writer.appendSlice(", ");
@@ -601,6 +605,7 @@ pub fn emitExpression(self: *CTranspiler, node: *ASTNode) !void {
                     }
                     try self.writer.appendSlice(")");
                 }
+
             } else {
                 try self.emitExpression(c.callee);
                 try self.writer.appendSlice("(");

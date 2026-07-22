@@ -188,6 +188,7 @@ static inline int aether_curl_setopt_int(CURL* curl, CURLoption option, int valu
 typedef struct AetherClosure {
     void* fn_ptr;
     void* env;
+    void* _pad;
 } AetherClosure;
 
 struct core_String;
@@ -211,7 +212,10 @@ static inline core_String* aether_to_string(void* ptr) {
     uintptr_t val = (uintptr_t)ptr;
     if (val <= 1) return core_Bool_toString((bool)val);
     if (val < 0x10000) return core_Int_toString((int)val);
-    return ((core_String*(*)(void*))aether_find_vtable(*(const AetherTypeDescriptor**)ptr, &core_Stringable_contract)[0])(ptr);
+    const AetherTypeDescriptor* desc = *(const AetherTypeDescriptor**)ptr;
+    if (desc == &core_String_descriptor) return (core_String*)ptr;
+    return ((core_String*(*)(void*))aether_find_vtable(desc, &core_Stringable_contract)[0])(ptr);
+
 }
 
 static inline int aether_hash_code(void* ptr) {
